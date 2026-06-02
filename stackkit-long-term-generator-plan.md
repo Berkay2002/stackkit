@@ -198,6 +198,13 @@ skills-lock.json
     }
   ],
   "aiSkills": {
+    "targets": [
+      {
+        "agent": "codex",
+        "directory": ".agents",
+        "enabled": true
+      }
+    ],
     "installed": [],
     "unresolved": []
   },
@@ -347,6 +354,9 @@ Example config:
     "auth/auth0": {
       "targets": ["nextjs", "fastapi"]
     }
+  },
+  "ai": {
+    "skillTargets": ["codex", "claude-code"]
   }
 }
 ```
@@ -368,6 +378,8 @@ Rules:
 7. Failed skills are recorded in `.stackkit/project.json`.
 8. `stackkit skills sync` retries installation later.
 9. No untrusted free-form skill URL is accepted in the normal wizard.
+10. Codex-compatible project skills install to `.agents/skills` by default.
+11. Claude Code project skills install to `.claude/skills` only when selected.
 
 Skill sources are tiered:
 
@@ -424,21 +436,36 @@ Curated skill candidates:
 
 Docker, Kubernetes, GitHub Actions, Litestar, Pydantic, SQLx, and Diesel should currently fall back to local Stackkit guidance unless better official or curated sources are later verified.
 
+Skill targets are installed through the `skills` CLI agent selector:
+
+```text
+codex -> npx -y skills add ... --agent codex -> .agents/skills
+claude-code -> npx -y skills add ... --agent claude-code -> .claude/skills
+```
+
+Interactive generation should default to Codex-compatible `.agents` skills and require the user to explicitly select Claude Code:
+
+```text
+AI skill targets
+[x] .agents  Codex-compatible project skills
+[ ] .claude  Claude Code project skills
+```
+
 Example install commands:
 
 ```bash
-npx -y skills add https://github.com/shadcn/ui --skill shadcn -y
-npx -y skills add https://github.com/fastapi/fastapi --skill fastapi -y
-npx -y skills add https://github.com/supabase/agent-skills --skill supabase-postgres-best-practices -y
-npx -y skills add https://github.com/vercel-labs/agent-skills --skill vercel-react-best-practices -y
-npx -y skills add https://github.com/auth0/agent-skills --skill auth0-nextjs auth0-fastapi-api auth0-flask -y
-npx -y skills add https://github.com/clerk/skills --skill clerk-setup clerk-nextjs-patterns clerk-testing -y
-npx -y skills add https://github.com/better-auth/skills --skill better-auth-best-practices create-auth-skill better-auth-security-best-practices -y
-npx -y skills add https://github.com/nodnarbnitram/claude-code-extensions --skill tauri-v2 -y
-npx -y skills add https://github.com/affaan-m/everything-claude-code --skill django-patterns django-security django-tdd django-verification -y
-npx -y skills add https://github.com/apollographql/skills --skill rust-best-practices -y
-npx -y skills add https://github.com/wshobson/agents --skill rust-async-patterns -y
-npx -y skills add https://github.com/affaan-m/everything-claude-code --skill rust-patterns rust-testing -y
+npx -y skills add https://github.com/shadcn/ui --skill shadcn --agent codex -y --copy
+npx -y skills add https://github.com/fastapi/fastapi --skill fastapi --agent codex -y --copy
+npx -y skills add https://github.com/supabase/agent-skills --skill supabase-postgres-best-practices --agent codex -y --copy
+npx -y skills add https://github.com/vercel-labs/agent-skills --skill vercel-react-best-practices --agent codex -y --copy
+npx -y skills add https://github.com/auth0/agent-skills --skill auth0-nextjs auth0-fastapi-api auth0-flask --agent codex -y --copy
+npx -y skills add https://github.com/clerk/skills --skill clerk-setup clerk-nextjs-patterns clerk-testing --agent codex -y --copy
+npx -y skills add https://github.com/better-auth/skills --skill better-auth-best-practices create-auth-skill better-auth-security-best-practices --agent codex -y --copy
+npx -y skills add https://github.com/nodnarbnitram/claude-code-extensions --skill tauri-v2 --agent codex -y --copy
+npx -y skills add https://github.com/affaan-m/everything-claude-code --skill django-patterns django-security django-tdd django-verification --agent codex -y --copy
+npx -y skills add https://github.com/apollographql/skills --skill rust-best-practices --agent codex -y --copy
+npx -y skills add https://github.com/wshobson/agents --skill rust-async-patterns --agent codex -y --copy
+npx -y skills add https://github.com/affaan-m/everything-claude-code --skill rust-patterns rust-testing --agent codex -y --copy
 ```
 
 Use `supabase-postgres-best-practices` for general Postgres guidance even when the selected Postgres provider is not Supabase.
@@ -457,7 +484,7 @@ Skill selection resolver order:
 
 1. If a selected module has an official skill, install that.
 2. If no official skill exists, install an allowlisted curated skill.
-3. If no curated skill is approved, generate local guidance under `.agents/skills` or project docs.
+3. If no curated skill is approved, generate local guidance under the selected project skill targets or project docs.
 4. If a desired source fails to install, record it as unresolved and continue.
 
 Do not install random search results automatically.
@@ -784,6 +811,9 @@ stackkit doctor
 AI skill tests:
 
 ```text
+Default AI skill target resolves to codex and `.agents/skills`
+Claude Code target resolves to claude-code and `.claude/skills` only when selected
+Skill installer plans one `npx skills add` command per selected target
 Postgres module resolves supabase-postgres-best-practices
 Neon Postgres resolves neon-postgres and neon-postgres-branches
 Next.js module resolves vercel-react-best-practices

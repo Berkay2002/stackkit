@@ -7,10 +7,17 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "outDir": "dist",
-    "rootDir": "src",
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@stackkit/cli": ["packages/cli/src/index.ts"],
+      "@stackkit/core": ["packages/core/src/index.ts"],
+      "@stackkit/registry": ["packages/registry/src/index.ts"],
+      "@stackkit/schemas": ["packages/schemas/src/index.ts"],
+      "@stackkit/templates": ["packages/templates/src/index.ts"],
+      "@stackkit/test-utils": ["packages/test-utils/src/index.ts"]
+    }
   }
 }

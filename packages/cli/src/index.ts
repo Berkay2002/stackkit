@@ -1,6 +1,16 @@
 #!/usr/bin/env node
 
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { Command } from "commander";
+
+import { createCreatePlan, type CreatePlan } from "@stackkit/core";
+import { builtinModules, builtinPresets, curatedSkillSourceAllowlist } from "@stackkit/registry";
+import { stackkitConfigSchema } from "@stackkit/schemas";
+
+export type CreateDryRunPlan = CreatePlan;
 
 export function createStackkitProgram(): Command {
   const program = new Command()
@@ -10,7 +20,11 @@ export function createStackkitProgram(): Command {
   program
     .command("create")
     .description("Create a new Stackkit-managed monorepo")
-    .option("-c, --config <path>", "Path to a Stackkit config file");
+    .option("-c, --config <path>", "Path to a Stackkit config file")
+    .action(async (options: { config?: string }) => {
+      const plan = await createDryRunPlanFromConfig(options.config);
+      writeProgramOutput(program, formatCreateDryRunPlan(plan));
+    });
 
   program.command("init").description("Adopt an existing repository into Stackkit management");
   program.command("add <module>").description("Add a module to a managed project");
@@ -32,4 +46,69 @@ export function createStackkitProgram(): Command {
   config.command("validate [path]").description("Validate a Stackkit config file");
 
   return program;
+}
+
+export async function createDryRunPlanFromConfig(configPath?: string): Promise<CreatePlan> {
+  if (!configPath) {
+    throw new Error("Interactive create is not implemented yet. Pass --config <path>.");
+  }
+
+  const config = stackkitConfigSchema.parse(JSON.parse(await readFile(configPath, "utf8")));
+  return createCreatePlan({
+    config,
+    availableModules: builtinModules,
+    availablePresets: builtinPresets,
+    curatedSkillSourceAllowlist
+  });
+}
+
+export function formatCreateDryRunPlan(plan: CreatePlan): string {
+  const skillTargets = plan.aiSkills.targets.map((target) => `${target.agent} -> ${target.directory}`).join(", ");
+  const installCommands = plan.skillInstallCommands.map((installCommand) => `- ${installCommand.command} ${installCommand.args.join(" ")}`);
+  const localGuidance = plan.aiSkills.local.map((skill) => `- ${skill.causedBy}: ${skill.skills.join(", ")}`);
+  const unresolved = plan.aiSkills.unresolved.map((skill) => `- ${skill.causedBy}: ${skill.skills.join(", ")}`);
+
+  return [
+    `Stackkit create plan for ${plan.projectName}`,
+    "Dry run: no files will be written.",
+    `Modules: ${plan.modules.map((module) => module.id).join(", ")}`,
+    `AI skill targets: ${skillTargets || "none"}`,
+    "Skill install commands:",
+    ...(installCommands.length > 0 ? installCommands : ["- none"]),
+    "Local AI guidance:",
+    ...(localGuidance.length > 0 ? localGuidance : ["- none"]),
+    "Unresolved AI skills:",
+    ...(unresolved.length > 0 ? unresolved : ["- none"]),
+    "STACKKIT_PLAN_JSON_START",
+    JSON.stringify(plan, null, 2),
+    "STACKKIT_PLAN_JSON_END",
+    ""
+  ].join("\n");
+}
+
+function writeProgramOutput(program: Command, output: string): void {
+  const writeOut = program.configureOutput().writeOut;
+
+  if (writeOut) {
+    writeOut(output);
+    return;
+  }
+
+  process.stdout.write(output);
+}
+
+export function runStackkitCli(argv: readonly string[] = process.argv): void {
+  createStackkitProgram().parse(argv);
+}
+
+export function isDirectCliExecution(moduleUrl: string, argvEntry = process.argv[1]): boolean {
+  if (!argvEntry) {
+    return false;
+  }
+
+  return resolve(fileURLToPath(moduleUrl)) === resolve(argvEntry);
+}
+
+if (isDirectCliExecution(import.meta.url)) {
+  runStackkitCli();
 }

@@ -1,7 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "composite": true
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
   },
   "references": [
     {
@@ -11,5 +13,6 @@
       "path": "../schemas"
     }
   ],
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }

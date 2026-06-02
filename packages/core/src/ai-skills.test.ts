@@ -305,7 +305,6 @@ describe("resolveAiSkills", () => {
 
     expect(skills).toEqual([
       expect.objectContaining({
-        source: undefined,
         skills: ["stackkit-kubernetes-guidance"],
         trust: "local",
         causedBy: "deploy/kubernetes"
