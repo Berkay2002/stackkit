@@ -1,5 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, posix } from "node:path";
 
 import {
   aiSkillRegistryEntrySchema,
@@ -74,6 +75,39 @@ export type ResolveAiSkillOptions = {
     causedBy: ModuleId;
     reason: string;
   }[];
+};
+
+export type FileOverwritePolicy = "never" | "if-owned" | "always";
+
+export type PlannedFile = {
+  path: string;
+  owner: string;
+  content: string;
+  hash: string;
+  overwrite: FileOverwritePolicy;
+};
+
+export type FilePlan = {
+  files: PlannedFile[];
+};
+
+export type FileConflict = {
+  path: string;
+  reason: "exists-unowned" | "modified-owned";
+};
+
+export type ManifestFileRecord = {
+  path: string;
+  owner: string;
+  hash: string;
+};
+
+type FilePlanOperation = {
+  kind: string;
+  path?: string;
+  owner?: string;
+  content?: string;
+  overwrite?: string;
 };
 
 const defaultOfficialSkillSources = [
@@ -236,6 +270,87 @@ export function createManifest(input: StackkitManifest): StackkitManifest {
   return stackkitManifestSchema.parse(input);
 }
 
+export function hashContent(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+export function buildFilePlan(operations: readonly FilePlanOperation[]): FilePlan {
+  return {
+    files: operations
+      .filter((operation) => operation.kind === "write")
+      .map((operation) => {
+        if (!operation.path) {
+          throw new Error("Write operation is missing a file path");
+        }
+
+        if (!operation.owner) {
+          throw new Error(`Write operation is missing an owner for ${operation.path}`);
+        }
+
+        const content = operation.content ?? "";
+
+        return {
+          path: normalizeProjectPath(operation.path),
+          owner: operation.owner,
+          content,
+          hash: hashContent(content),
+          overwrite: normalizeOverwritePolicy(operation.overwrite)
+        };
+      })
+  };
+}
+
+export async function detectFileConflicts(
+  projectDirectory: string,
+  plan: FilePlan,
+  ownedFiles: readonly ManifestFileRecord[]
+): Promise<FileConflict[]> {
+  const ownedFileByPath = new Map(ownedFiles.map((file) => [normalizeProjectPath(file.path), file]));
+  const conflicts: FileConflict[] = [];
+
+  for (const rawFile of plan.files) {
+    const file = normalizePlannedFile(rawFile);
+
+    if (file.overwrite === "always") {
+      continue;
+    }
+
+    const existingContent = await readExistingFile(join(projectDirectory, file.path));
+
+    if (existingContent === undefined) {
+      continue;
+    }
+
+    const ownedFile = ownedFileByPath.get(file.path);
+
+    if (!ownedFile) {
+      conflicts.push({ path: file.path, reason: "exists-unowned" });
+      continue;
+    }
+
+    if (ownedFile.hash !== hashContent(existingContent)) {
+      conflicts.push({ path: file.path, reason: "modified-owned" });
+    }
+  }
+
+  return conflicts;
+}
+
+export async function applyFilePlan(projectDirectory: string, plan: FilePlan): Promise<ManifestFileRecord[]> {
+  const records: ManifestFileRecord[] = [];
+
+  for (const rawFile of plan.files) {
+    const file = normalizePlannedFile(rawFile);
+    const targetPath = join(projectDirectory, file.path);
+
+    await mkdir(dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, file.content, "utf8");
+    records.push({ path: file.path, owner: file.owner, hash: file.hash });
+  }
+
+  return records;
+}
+
 export async function writeManifest(projectDirectory: string, manifest: StackkitManifest): Promise<StackkitManifest> {
   const parsed = createManifest(manifest);
   const stackkitDirectory = join(projectDirectory, ".stackkit");
@@ -244,6 +359,42 @@ export async function writeManifest(projectDirectory: string, manifest: Stackkit
   await writeFile(join(stackkitDirectory, "project.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 
   return parsed;
+}
+
+async function readExistingFile(path: string): Promise<string | undefined> {
+  try {
+    const fileStat = await stat(path);
+
+    if (!fileStat.isFile()) {
+      return "";
+    }
+
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+function normalizeProjectPath(path: string): string {
+  if (isAbsolute(path) || /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith("/") || path.startsWith("\\")) {
+    throw new Error(`File path must be project-relative: ${path}`);
+  }
+
+  const normalized = posix.normalize(path.replaceAll("\\", "/"));
+
+  if (normalized === ".." || normalized.startsWith("../")) {
+    throw new Error(`File path escapes project directory: ${path}`);
+  }
+
+  if (normalized === ".") {
+    throw new Error(`File path must not resolve to the project directory: ${path}`);
+  }
+
+  return normalized;
 }
 
 function isAcceptedSkillDependency(
@@ -390,4 +541,23 @@ function resolveConfiguredModules(config: StackkitConfig, availableModules: read
 
     return module;
   });
+}
+
+function normalizeOverwritePolicy(overwrite: string | undefined): FileOverwritePolicy {
+  if (overwrite === "never" || overwrite === "always") {
+    return overwrite;
+  }
+
+  return "if-owned";
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
+function normalizePlannedFile(file: PlannedFile): PlannedFile {
+  return {
+    ...file,
+    path: normalizeProjectPath(file.path)
+  };
 }
