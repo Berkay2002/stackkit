@@ -151,4 +151,30 @@ describe("skill sync", () => {
     expect(result.installed).toEqual([skill]);
     expect(result.unresolved).toEqual([]);
   });
+
+  it("retains previously-unresolved skills that cannot be retried during sync", async () => {
+    const unresolvedSkill = {
+      source: "https://github.com/example/private-skill",
+      skills: ["private-guidance"],
+      trust: "unresolved" as const,
+      causedBy: "web/nextjs" as const,
+      reason: "Skill install failed: network unavailable"
+    };
+
+    const result = await applySkillSync(
+      {
+        schemaVersion: 1,
+        targets: [{ agent: "codex", directory: ".agents", enabled: true }],
+        installed: [skill],
+        local: [],
+        unresolved: [unresolvedSkill]
+      },
+      {
+        runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
+      }
+    );
+
+    expect(result.installed).toEqual([skill]);
+    expect(result.unresolved).toEqual([unresolvedSkill]);
+  });
 });

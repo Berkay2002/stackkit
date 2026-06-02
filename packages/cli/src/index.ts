@@ -36,7 +36,7 @@ import {
   type StackkitModule
 } from "@stackkit/core";
 import { builtinModules, builtinPresets, curatedSkillSourceAllowlist } from "@stackkit/registry";
-import { stackkitConfigSchema, type AiSkillAgent, type SkillsLock, type StackkitConfig } from "@stackkit/schemas";
+import { stackkitConfigSchema, type AiSkillAgent, type StackkitConfig } from "@stackkit/schemas";
 
 export type CreateDryRunPlan = CreatePlan;
 
@@ -292,15 +292,14 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .action(async (options: { apply?: boolean; dir?: string }) => {
       const projectDirectory = options.dir ? resolve(options.dir) : process.cwd();
       const lock = await readSkillsLock(projectDirectory);
-      const updateLock: SkillsLock = { ...lock, unresolved: [] };
-      const commands = planSkillSyncCommands(updateLock);
+      const commands = planSkillSyncCommands(lock);
 
       if (!options.apply) {
         writeProgramOutput(program, formatSkillCommands("Stackkit skills update plan", commands));
         return;
       }
 
-      const updated = await applySkillSync(updateLock, { cwd: projectDirectory, runCommand });
+      const updated = await applySkillSync(lock, { cwd: projectDirectory, runCommand });
       await writeSkillsLock(projectDirectory, updated);
       writeProgramOutput(program, "Stackkit skills update complete\n");
     });

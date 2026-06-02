@@ -360,13 +360,20 @@ export function planSkillSyncCommands(lock: SkillsLock): AiSkillInstallCommand[]
 
 export async function applySkillSync(lock: SkillsLock, options: InstallAiSkillsOptions): Promise<SkillsLock> {
   const result = await installAiSkills(planSkillSyncCommands(lock), options);
+  const installed = mergeSkillDependencies(lock.installed, result.installed);
+  const installedKeys = new Set(installed.map(skillDependencyKey));
 
   return {
     schemaVersion: 1,
     targets: lock.targets,
-    installed: mergeSkillDependencies(lock.installed, result.installed),
+    installed,
     local: lock.local,
-    unresolved: result.unresolved
+    // Retain previously-unresolved skills that were not (and could not be) retried,
+    // dropping only those that just installed successfully.
+    unresolved: mergeSkillDependencies(
+      lock.unresolved.filter((skill) => !installedKeys.has(skillDependencyKey(skill))),
+      result.unresolved
+    )
   };
 }
 
