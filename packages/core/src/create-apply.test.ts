@@ -399,7 +399,9 @@ describe("applyCreatePlan", () => {
     const result = await applyCreatePlan(plan, {
       parentDirectory,
       runCommand: async (command, args, options) => {
-        await expect(readFile(join(projectDirectory, "apps", "web", "package.json"), "utf8")).resolves.toBe("{}\n");
+        await expect(readFile(join(projectDirectory, "apps", "web", "package.json"), "utf8")).resolves.toContain(
+          "\"name\": \"@acme/web\""
+        );
         seen.push([options.cwd ?? "", command, ...args]);
         return { exitCode: 0, stdout: "", stderr: "" };
       }

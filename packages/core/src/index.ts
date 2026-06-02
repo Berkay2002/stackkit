@@ -2,7 +2,15 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix } from "node:path";
 
-import { renderPnpmTurboFoundation } from "@stackkit/templates";
+import {
+  renderDockerFiles,
+  renderFastApiService,
+  renderKubernetesFiles,
+  renderNextjsApp,
+  renderPnpmTurboFoundation,
+  renderShadcnUi,
+  renderVercelFiles
+} from "@stackkit/templates";
 import {
   aiSkillRegistryEntrySchema,
   skillsLockSchema,
@@ -378,6 +386,30 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
         selectedModuleIds.has(operation.owner)
       )
     );
+  }
+
+  if (selectedModuleIds.has("ui/shadcn")) {
+    appendSelectedFileOperations(operations, seenPaths, renderShadcnUi({ appName: "web" }), selectedModuleIds);
+  }
+
+  if (selectedModuleIds.has("web/nextjs")) {
+    appendSelectedFileOperations(operations, seenPaths, renderNextjsApp({ appName: "web" }), selectedModuleIds);
+  }
+
+  if (selectedModuleIds.has("api/fastapi")) {
+    appendSelectedFileOperations(operations, seenPaths, renderFastApiService({ serviceName: "api" }), selectedModuleIds);
+  }
+
+  if (selectedModuleIds.has("deploy/vercel")) {
+    appendSelectedFileOperations(operations, seenPaths, renderVercelFiles(), selectedModuleIds);
+  }
+
+  if (selectedModuleIds.has("deploy/docker")) {
+    appendSelectedFileOperations(operations, seenPaths, renderDockerFiles(), selectedModuleIds);
+  }
+
+  if (selectedModuleIds.has("deploy/kubernetes")) {
+    appendSelectedFileOperations(operations, seenPaths, renderKubernetesFiles(), selectedModuleIds);
   }
 
   for (const module of modules) {
@@ -968,6 +1000,19 @@ function appendUniqueFileOperations(
     seenPaths.add(normalizedPath);
     target.push({ ...operation, path: normalizedPath });
   }
+}
+
+function appendSelectedFileOperations(
+  target: FileOperation[],
+  seenPaths: Set<string>,
+  operations: readonly FileOperation[],
+  selectedModuleIds: ReadonlySet<string>
+): void {
+  appendUniqueFileOperations(
+    target,
+    seenPaths,
+    operations.filter((operation) => selectedModuleIds.has(operation.owner))
+  );
 }
 
 function expandPresetModules(options: ResolveModuleGraphOptions): StackkitModule[] {

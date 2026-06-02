@@ -141,7 +141,20 @@ describe("createCreatePlan", () => {
         }
       ]
     });
-    expect(plan.filePlan.files).toEqual([]);
+    expect(plan.filePlan.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "apps/web/package.json",
+          owner: "web/nextjs",
+          overwrite: "if-owned"
+        }),
+        expect.objectContaining({
+          path: "deploy/kubernetes/web-deployment.yaml",
+          owner: "deploy/kubernetes",
+          overwrite: "if-owned"
+        })
+      ])
+    );
   });
 
   it("plans foundation template files and keeps earlier duplicate paths", () => {
@@ -250,6 +263,32 @@ describe("createCreatePlan", () => {
         owner: "workspace/typescript"
       })
     ]);
+  });
+
+  it("filters renderer files to selected module owners", () => {
+    const plan = createCreatePlan({
+      config: {
+        projectName: "api-only",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["api/fastapi"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "api/fastapi",
+          version: "1.0.0",
+          title: "FastAPI",
+          description: "FastAPI API service",
+          provides: ["api", "python"]
+        })
+      ]
+    });
+
+    expect(plan.filePlan.files.map((file) => file.path)).toEqual(["apps/api/pyproject.toml", "apps/api/app/main.py"]);
+    expect(plan.filePlan.files.some((file) => file.owner === "quality/pytest")).toBe(false);
   });
 
   it("fails for unknown module IDs", () => {
