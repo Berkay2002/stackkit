@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.typecheck.json"
   },
   "dependencies": {
-    "@stackkit/schemas": "workspace:*"
+    "@stackkit/schemas": "workspace:*",
+    "@stackkit/templates": "workspace:*"
   }
 }

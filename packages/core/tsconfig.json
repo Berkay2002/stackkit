@@ -8,6 +8,9 @@
   "references": [
     {
       "path": "../schemas"
+    },
+    {
+      "path": "../templates"
     }
   ],
   "include": ["src/**/*.ts"],

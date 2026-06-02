@@ -51,11 +51,13 @@ describe("createCreatePlan", () => {
       availableModules
     });
 
-    expect(plan).toEqual({
+    expect(plan).toMatchObject({
       schemaVersion: 1,
       operation: "create",
       dryRun: true,
       projectName: "acme-dashboard",
+      targetDirectoryName: "acme-dashboard",
+      warnings: [],
       modules: [
         { id: "web/nextjs", version: "1.0.0" },
         { id: "deploy/kubernetes", version: "1.0.0" }
@@ -139,6 +141,115 @@ describe("createCreatePlan", () => {
         }
       ]
     });
+    expect(plan.filePlan.files).toEqual([]);
+  });
+
+  it("plans foundation template files and keeps earlier duplicate paths", () => {
+    const plan = createCreatePlan({
+      config: {
+        projectName: "acme-dashboard",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo", "workspace/typescript", "custom/readme"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "pnpm workspace with Turborepo task orchestration",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "workspace/typescript",
+          version: "1.0.0",
+          title: "TypeScript",
+          description: "TypeScript config",
+          requires: ["workspace/node"],
+          provides: ["typescript"]
+        }),
+        defineModule({
+          id: "custom/readme",
+          version: "1.0.0",
+          title: "Readme",
+          description: "Project readme",
+          files: [
+            {
+              kind: "write",
+              path: "README.md",
+              owner: "custom/readme",
+              content: "# Acme\n"
+            },
+            {
+              kind: "write",
+              path: "package.json",
+              owner: "custom/readme",
+              content: "{\"name\":\"wrong\"}\n"
+            }
+          ]
+        })
+      ]
+    });
+
+    expect(plan.targetDirectoryName).toBe("acme-dashboard");
+    expect(plan.warnings).toEqual([]);
+    expect(plan.filePlan.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "package.json",
+          owner: "workspace/pnpm-turbo",
+          overwrite: "if-owned"
+        }),
+        expect.objectContaining({
+          path: "pnpm-workspace.yaml",
+          owner: "workspace/pnpm-turbo"
+        }),
+        expect.objectContaining({
+          path: "tsconfig.base.json",
+          owner: "workspace/typescript"
+        }),
+        expect.objectContaining({
+          path: "README.md",
+          owner: "custom/readme",
+          content: "# Acme\n"
+        })
+      ])
+    );
+    expect(plan.filePlan.files.filter((file) => file.path === "package.json")).toHaveLength(1);
+  });
+
+  it("only plans foundation files owned by selected foundation modules", () => {
+    const plan = createCreatePlan({
+      config: {
+        projectName: "typescript-only",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/typescript"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/typescript",
+          version: "1.0.0",
+          title: "TypeScript",
+          description: "TypeScript config",
+          provides: ["typescript"]
+        })
+      ]
+    });
+
+    expect(plan.filePlan.files.map((file) => file.path)).toEqual(["tsconfig.base.json"]);
+    expect(plan.filePlan.files).toEqual([
+      expect.objectContaining({
+        path: "tsconfig.base.json",
+        owner: "workspace/typescript"
+      })
+    ]);
   });
 
   it("fails for unknown module IDs", () => {

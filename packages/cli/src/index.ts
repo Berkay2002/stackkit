@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { Command } from "commander";
 
-import { createCreatePlan, type CreatePlan } from "@stackkit/core";
+import { applyCreatePlan, createCreatePlan, type CreatePlan } from "@stackkit/core";
 import { builtinModules, builtinPresets, curatedSkillSourceAllowlist } from "@stackkit/registry";
 import { stackkitConfigSchema } from "@stackkit/schemas";
 
@@ -21,9 +21,22 @@ export function createStackkitProgram(): Command {
     .command("create")
     .description("Create a new Stackkit-managed monorepo")
     .option("-c, --config <path>", "Path to a Stackkit config file")
-    .action(async (options: { config?: string }) => {
+    .option("--dry-run", "Print the create plan without writing files")
+    .option("--dir <path>", "Target project directory")
+    .action(async (options: { config?: string; dryRun?: boolean; dir?: string }) => {
       const plan = await createDryRunPlanFromConfig(options.config);
-      writeProgramOutput(program, formatCreateDryRunPlan(plan));
+      const targetDirectory = options.dir ? resolve(options.dir) : undefined;
+
+      if (options.dryRun) {
+        writeProgramOutput(program, formatCreateDryRunPlan(plan));
+        return;
+      }
+
+      const result = await applyCreatePlan(plan, {
+        parentDirectory: process.cwd(),
+        targetDirectory
+      });
+      writeProgramOutput(program, `Created Stackkit project at ${result.projectDirectory}\n`);
     });
 
   program.command("init").description("Adopt an existing repository into Stackkit management");

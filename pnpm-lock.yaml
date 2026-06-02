@@ -44,6 +44,9 @@ importers:
       '@stackkit/schemas':
         specifier: workspace:*
         version: link:../schemas
+      '@stackkit/templates':
+        specifier: workspace:*
+        version: link:../templates
 
   packages/registry:
     dependencies:
@@ -60,7 +63,11 @@ importers:
         specifier: ^4.0.0
         version: 4.4.3
 
-  packages/templates: {}
+  packages/templates:
+    dependencies:
+      '@stackkit/schemas':
+        specifier: workspace:*
+        version: link:../schemas
 
   packages/test-utils: {}
 

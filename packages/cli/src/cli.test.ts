@@ -1,10 +1,16 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { createStackkitProgram, isDirectCliExecution } from "./index.js";
+
+const tempDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 describe("createStackkitProgram", () => {
   it("exposes the full Stackkit lifecycle command surface", () => {
@@ -51,6 +57,7 @@ describe("createStackkitProgram", () => {
 
   it("prints a human summary and extractable JSON plan for create --config", async () => {
     const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
+    tempDirectories.push(directory);
     const configPath = join(directory, "stackkit.config.json");
 
     await writeFile(
@@ -77,7 +84,7 @@ describe("createStackkitProgram", () => {
       }
     });
 
-    await program.parseAsync(["create", "--config", configPath], { from: "user" });
+    await program.parseAsync(["create", "--config", configPath, "--dry-run"], { from: "user" });
 
     expect(output).toContain("Stackkit create plan for acme-dashboard");
     expect(output).toContain("Modules: workspace/pnpm-turbo, web/nextjs, deploy/docker, deploy/kubernetes");
@@ -120,6 +127,7 @@ describe("createStackkitProgram", () => {
 
   it("expands a valid preset when creating a plan from config", async () => {
     const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
+    tempDirectories.push(directory);
     const configPath = join(directory, "stackkit.config.json");
 
     await writeFile(
@@ -146,7 +154,7 @@ describe("createStackkitProgram", () => {
       }
     });
 
-    await program.parseAsync(["create", "--config", configPath], { from: "user" });
+    await program.parseAsync(["create", "--config", configPath, "--dry-run"], { from: "user" });
 
     expect(output).toContain("Stackkit create plan for next-starter");
     expect(output).toContain("Modules: workspace/pnpm-turbo, workspace/typescript, web/nextjs, ui/shadcn, quality/eslint, quality/prettier");
@@ -166,5 +174,76 @@ describe("createStackkitProgram", () => {
       "quality/eslint",
       "quality/prettier"
     ]);
+  });
+
+  it("does not create the target directory during create --dry-run", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
+    tempDirectories.push(directory);
+    const configPath = join(directory, "stackkit.config.json");
+    const targetDirectory = join(directory, "acme-dashboard");
+
+    await writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          projectName: "acme-dashboard",
+          modules: ["workspace/pnpm-turbo"],
+          ai: {
+            skillTargets: ["codex"]
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const program = createStackkitProgram();
+    program.configureOutput({ writeOut: () => undefined });
+
+    await program.parseAsync(["create", "--config", configPath, "--dir", targetDirectory, "--dry-run"], { from: "user" });
+
+    await expect(stat(targetDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("writes project files during create --config --dir", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
+    tempDirectories.push(directory);
+    const configPath = join(directory, "stackkit.config.json");
+    const targetDirectory = join(directory, "created-project");
+
+    await writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          projectName: "acme-dashboard",
+          modules: ["workspace/pnpm-turbo"],
+          ai: {
+            skillTargets: ["codex"]
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    let output = "";
+    const program = createStackkitProgram();
+    program.configureOutput({
+      writeOut: (value) => {
+        output += value;
+      }
+    });
+
+    await program.parseAsync(["create", "--config", configPath, "--dir", targetDirectory], { from: "user" });
+
+    expect(output).toBe(`Created Stackkit project at ${targetDirectory}\n`);
+    await expect(readFile(join(targetDirectory, "package.json"), "utf8")).resolves.toContain(
+      "\"name\": \"acme-dashboard\""
+    );
+    await expect(readFile(join(targetDirectory, ".stackkit", "project.json"), "utf8")).resolves.toContain(
+      "\"projectName\": \"acme-dashboard\""
+    );
   });
 });

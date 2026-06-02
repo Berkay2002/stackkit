@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix } from "node:path";
 
+import { renderPnpmTurboFoundation } from "@stackkit/templates";
 import {
   aiSkillRegistryEntrySchema,
   stackkitManifestSchema,
@@ -12,6 +13,7 @@ import {
   type AiSkillRegistryEntry,
   type AiSkillTarget,
   type AiSkillTrust,
+  type FileOperation,
   type ModuleId,
   type ModuleMigration,
   type StackkitConfig,
@@ -46,6 +48,9 @@ export type CreatePlan = {
   operation: "create";
   dryRun: true;
   projectName: string;
+  targetDirectoryName: string;
+  filePlan: FilePlan;
+  warnings: string[];
   modules: {
     id: string;
     version: string;
@@ -64,6 +69,18 @@ export type CreatePlanInput = {
   availableModules: readonly StackkitModule[];
   availablePresets?: readonly StackkitPreset[];
   curatedSkillSourceAllowlist?: readonly string[];
+};
+
+export type ApplyCreatePlanOptions = {
+  parentDirectory: string;
+  targetDirectory?: string;
+  stackkitVersion?: string;
+  now?: () => Date;
+};
+
+export type ApplyCreatePlanResult = {
+  projectDirectory: string;
+  manifest: StackkitManifest;
 };
 
 export type ResolveAiSkillOptions = {
@@ -246,12 +263,16 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
   const resolvedSkills = resolveAiSkills(modules, { curatedAllowlist: input.curatedSkillSourceAllowlist });
   const targets = resolveAiSkillTargets(input.config.ai.skillTargets);
   const installCommands = planAiSkillInstallCommands(resolvedSkills, targets);
+  const filePlan = buildFilePlan(renderCreateFiles(input.config, modules));
 
   return {
     schemaVersion: 1,
     operation: "create",
     dryRun: true,
     projectName: input.config.projectName,
+    targetDirectoryName: normalizeTargetDirectoryName(input.config.projectName),
+    filePlan,
+    warnings: [],
     modules: modules.map((module) => ({
       id: module.id,
       version: module.version
@@ -264,6 +285,62 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
     },
     skillInstallCommands: installCommands
   };
+}
+
+export function renderCreateFiles(config: StackkitConfig, modules: readonly StackkitModule[]): FileOperation[] {
+  const operations: FileOperation[] = [];
+  const seenPaths = new Set<string>();
+  const selectedModuleIds = new Set(modules.map((module) => module.id));
+
+  if (selectedModuleIds.has("workspace/pnpm-turbo") || selectedModuleIds.has("workspace/typescript")) {
+    appendUniqueFileOperations(
+      operations,
+      seenPaths,
+      renderPnpmTurboFoundation({ projectName: config.projectName }).filter((operation) =>
+        selectedModuleIds.has(operation.owner)
+      )
+    );
+  }
+
+  for (const module of modules) {
+    appendUniqueFileOperations(operations, seenPaths, module.files ?? []);
+  }
+
+  return operations;
+}
+
+export async function applyCreatePlan(
+  plan: CreatePlan,
+  options: ApplyCreatePlanOptions
+): Promise<ApplyCreatePlanResult> {
+  const projectDirectory = options.targetDirectory ?? join(options.parentDirectory, normalizeTargetDirectoryName(plan.targetDirectoryName));
+  const conflicts = await detectFileConflicts(projectDirectory, plan.filePlan, []);
+
+  if (conflicts.length > 0) {
+    throw new Error(
+      `Create target has conflicts: ${conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ")}`
+    );
+  }
+
+  const files = await applyFilePlan(projectDirectory, plan.filePlan);
+  const manifest = await writeManifest(projectDirectory, {
+    schemaVersion: 1,
+    stackkitVersion: options.stackkitVersion ?? "0.0.0",
+    projectName: plan.projectName,
+    createdAt: (options.now ?? (() => new Date()))().toISOString(),
+    modules: plan.modules.map((module) => ({ ...module, options: {} })),
+    files,
+    aiSkills: {
+      targets: plan.aiSkills.targets,
+      installed: plan.aiSkills.resolved.filter((skill) => skill.trust === "official" || skill.trust === "curated"),
+      unresolved: plan.aiSkills.unresolved
+    },
+    migrations: {
+      applied: []
+    }
+  });
+
+  return { projectDirectory, manifest };
 }
 
 export function createManifest(input: StackkitManifest): StackkitManifest {
@@ -397,6 +474,27 @@ function normalizeProjectPath(path: string): string {
   return normalized;
 }
 
+function normalizeTargetDirectoryName(name: string): string {
+  if (
+    isAbsolute(name) ||
+    /^[a-zA-Z]:[\\/]/.test(name) ||
+    name.startsWith("/") ||
+    name.startsWith("\\") ||
+    name.includes("/") ||
+    name.includes("\\")
+  ) {
+    throw new Error(`Create target directory must be a single relative directory name: ${name}`);
+  }
+
+  const normalized = posix.normalize(name);
+
+  if (normalized === "." || normalized === ".." || normalized.startsWith("../") || normalized !== name) {
+    throw new Error(`Create target directory must be a single relative directory name: ${name}`);
+  }
+
+  return name;
+}
+
 function isAcceptedSkillDependency(
   dependency: AiSkillDependency,
   officialAllowlist: ReadonlySet<string>,
@@ -430,6 +528,23 @@ function skillDependencyKey(dependency: AiSkillDependency): string {
 
 function mergeSkills(left: readonly string[], right: readonly string[]): string[] {
   return [...new Set([...left, ...right])];
+}
+
+function appendUniqueFileOperations(
+  target: FileOperation[],
+  seenPaths: Set<string>,
+  operations: readonly FileOperation[]
+): void {
+  for (const operation of operations) {
+    const normalizedPath = normalizeProjectPath(operation.path);
+
+    if (seenPaths.has(normalizedPath)) {
+      continue;
+    }
+
+    seenPaths.add(normalizedPath);
+    target.push({ ...operation, path: normalizedPath });
+  }
 }
 
 function expandPresetModules(options: ResolveModuleGraphOptions): StackkitModule[] {
