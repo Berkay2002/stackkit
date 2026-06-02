@@ -368,6 +368,46 @@ describe("applyCreatePlan", () => {
     );
   });
 
+  it("runs doctor after create and returns the result", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "stackkit-create-doctor-"));
+    tempDirectories.push(parent);
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "doctor-project",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo", "workspace/typescript"],
+        ai: { skillTargets: ["codex"] }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "Workspace foundation",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "workspace/typescript",
+          version: "1.0.0",
+          title: "TypeScript",
+          description: "TypeScript config",
+          requires: ["workspace/node"],
+          provides: ["typescript"]
+        })
+      ],
+      curatedSkillSourceAllowlist: []
+    });
+
+    const result = await applyCreatePlan(plan, {
+      parentDirectory: parent,
+      installSkills: false
+    });
+
+    expect(result.doctor.ok).toBe(true);
+  });
+
   it("runs post-create lifecycle hooks after writing files", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
     tempDirectories.push(parentDirectory);

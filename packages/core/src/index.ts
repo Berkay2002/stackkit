@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix } from "node:path";
 
 import {
@@ -22,6 +22,8 @@ import {
   type AiSkillRegistryEntry,
   type AiSkillTarget,
   type AiSkillTrust,
+  type DoctorCheck,
+  type DoctorResult,
   type EnvVarDefinition,
   type FileOperation,
   type LifecycleHook,
@@ -42,6 +44,8 @@ export type {
   AiSkillRegistryEntry,
   AiSkillTarget,
   AiSkillTrust,
+  DoctorCheck,
+  DoctorResult,
   EnvVarDefinition,
   LifecycleHook,
   ModuleId,
@@ -126,6 +130,42 @@ export type ApplyCreatePlanOptions = {
 export type ApplyCreatePlanResult = {
   projectDirectory: string;
   manifest: StackkitManifest;
+  doctor: DoctorResult;
+};
+
+export type AddModulesPlan = {
+  schemaVersion: 1;
+  operation: "add";
+  safe: boolean;
+  refusals: FileConflict[];
+  modules: StackkitModule[];
+  modulesToAdd: StackkitModule[];
+  manifest: StackkitManifest;
+};
+
+export type RemoveModulesPlan = {
+  schemaVersion: 1;
+  operation: "remove";
+  safe: boolean;
+  refusals: FileConflict[];
+  modulesToRemove: string[];
+  filesToRemove: ManifestFileRecord[];
+  manifest: StackkitManifest;
+};
+
+export type ApplyAddModulesInput = {
+  projectDirectory: string;
+  manifest: StackkitManifest;
+  moduleIds: readonly string[];
+  availableModules: readonly StackkitModule[];
+  skillTargets?: readonly AiSkillTarget[];
+  runCommand?: RunCommand;
+};
+
+export type ApplyRemoveModulesInput = {
+  projectDirectory: string;
+  manifest: StackkitManifest;
+  moduleIds: readonly string[];
 };
 
 export type ResolveAiSkillOptions = {
@@ -314,6 +354,22 @@ export async function installAiSkills(
   };
 }
 
+export function planSkillSyncCommands(lock: SkillsLock): AiSkillInstallCommand[] {
+  return planAiSkillInstallCommands([...lock.installed, ...lock.unresolved], lock.targets);
+}
+
+export async function applySkillSync(lock: SkillsLock, options: InstallAiSkillsOptions): Promise<SkillsLock> {
+  const result = await installAiSkills(planSkillSyncCommands(lock), options);
+
+  return {
+    schemaVersion: 1,
+    targets: lock.targets,
+    installed: mergeSkillDependencies(lock.installed, result.installed),
+    local: lock.local,
+    unresolved: result.unresolved
+  };
+}
+
 export type ResolveModuleGraphOptions = {
   presets?: readonly StackkitPreset[];
   availablePresets?: readonly StackkitPreset[];
@@ -419,6 +475,298 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
   };
 
   return attachSelectedModules(plan, modules);
+}
+
+export function planAddModules(input: {
+  manifest: StackkitManifest;
+  moduleIds: readonly string[];
+  availableModules: readonly StackkitModule[];
+}): AddModulesPlan {
+  const manifest = createManifest(input.manifest);
+  const moduleById = new Map(input.availableModules.map((module) => [module.id, module]));
+  const existingIds = new Set(manifest.modules.map((module) => module.id));
+  const requestedIds = new Set(input.moduleIds);
+  const selectedIds = [...existingIds, ...input.moduleIds];
+  const selectedModules = selectedIds.map((moduleId) => {
+    const module = moduleById.get(moduleId);
+
+    if (!module) {
+      throw new Error(`Unknown Stackkit module: ${moduleId}`);
+    }
+
+    return module;
+  });
+  const modules = resolveModuleGraph(selectedModules, { availableModules: input.availableModules });
+  const modulesToAdd = modules.filter((module) => requestedIds.has(module.id) && !existingIds.has(module.id));
+  const existingModuleById = new Map(manifest.modules.map((module) => [module.id, module]));
+  const nextManifest = createManifest({
+    ...manifest,
+    modules: modules.map((module) => ({
+      id: module.id,
+      version: module.version,
+      options: existingModuleById.get(module.id)?.options ?? {}
+    }))
+  });
+
+  return {
+    schemaVersion: 1,
+    operation: "add",
+    safe: true,
+    refusals: [],
+    modules,
+    modulesToAdd,
+    manifest: nextManifest
+  };
+}
+
+export function planRemoveModules(input: {
+  manifest: StackkitManifest;
+  moduleIds: readonly string[];
+  currentFiles: readonly ManifestFileRecord[];
+}): RemoveModulesPlan {
+  const manifest = createManifest(input.manifest);
+  const removeIds = new Set(input.moduleIds);
+  const currentFileByPath = new Map(input.currentFiles.map((file) => [normalizeProjectPath(file.path), file]));
+  const filesToRemove = manifest.files.filter((file) => removeIds.has(file.owner));
+  const refusals = filesToRemove
+    .filter((file) => currentFileByPath.get(normalizeProjectPath(file.path))?.hash !== file.hash)
+    .map((file) => ({ path: normalizeProjectPath(file.path), reason: "modified-owned" as const }));
+  const nextManifest = createManifest({
+    ...manifest,
+    modules: manifest.modules.filter((module) => !removeIds.has(module.id)),
+    files: manifest.files.filter((file) => !removeIds.has(file.owner))
+  });
+
+  return {
+    schemaVersion: 1,
+    operation: "remove",
+    safe: refusals.length === 0,
+    refusals,
+    modulesToRemove: [...removeIds],
+    filesToRemove,
+    manifest: nextManifest
+  };
+}
+
+export async function readCurrentManagedFileHashes(
+  projectDirectory: string,
+  manifest: StackkitManifest
+): Promise<ManifestFileRecord[]> {
+  const records: ManifestFileRecord[] = [];
+
+  for (const file of manifest.files) {
+    const normalizedPath = normalizeProjectPath(file.path);
+    const content = await readExistingFile(join(projectDirectory, normalizedPath));
+
+    if (content === undefined) {
+      continue;
+    }
+
+    records.push({
+      path: normalizedPath,
+      owner: file.owner,
+      hash: hashContent(content)
+    });
+  }
+
+  return records;
+}
+
+export async function applyAddModules(input: ApplyAddModulesInput): Promise<{ manifest: StackkitManifest }> {
+  const plan = planAddModules(input);
+  const moduleIdsToAdd = new Set(plan.modulesToAdd.map((module) => module.id));
+  const directOperations = renderCreateFiles(
+    {
+      projectName: input.manifest.projectName,
+      packageManager: "pnpm",
+      workspace: "pnpm-turbo",
+      modules: plan.modules.map((module) => module.id),
+      ai: {
+        skillTargets: []
+      }
+    },
+    plan.modules
+  ).filter((operation) => moduleIdsToAdd.has(operation.owner));
+  const packageOperations = await planPackageChangeFiles(
+    input.projectDirectory,
+    plan.modulesToAdd.flatMap((module) => module.packageChanges ?? [])
+  );
+  const envOperations = await planEnvExampleFiles(
+    input.projectDirectory,
+    plan.modulesToAdd.flatMap((module) => module.envVars ?? [])
+  );
+  const fullFilePlan = buildFilePlan(
+    mergeCreateFileOperations([...directOperations, ...packageOperations, ...envOperations])
+  );
+  const conflicts = await detectFileConflicts(input.projectDirectory, fullFilePlan, input.manifest.files);
+
+  if (conflicts.length > 0) {
+    throw new Error(
+      `Add target has conflicts: ${conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ")}`
+    );
+  }
+
+  const files = await applyFilePlan(input.projectDirectory, fullFilePlan);
+  if (input.runCommand) {
+    await runLifecycleHooks(
+      plan.modulesToAdd.flatMap((module) => module.postAdd ?? []),
+      { projectDirectory: input.projectDirectory, runCommand: input.runCommand }
+    );
+  }
+
+  const skillResult = await resolveAddSkillResult(input.projectDirectory, plan.modulesToAdd, input);
+  const nextManifest = await writeManifest(input.projectDirectory, {
+    ...plan.manifest,
+    files: mergeManifestFiles(input.manifest.files, files),
+    aiSkills: {
+      targets: skillResult.lock.targets,
+      installed: skillResult.lock.installed,
+      unresolved: skillResult.lock.unresolved
+    }
+  });
+
+  await writeSkillsLock(input.projectDirectory, skillResult.lock);
+  await writeLocalAiGuidance(input.projectDirectory, {
+    targets: skillResult.lock.targets,
+    local: skillResult.lock.local
+  });
+
+  return { manifest: nextManifest };
+}
+
+export async function applyRemoveModules(input: ApplyRemoveModulesInput): Promise<{ manifest: StackkitManifest }> {
+  const currentFiles = await readCurrentManagedFileHashes(input.projectDirectory, input.manifest);
+  const plan = planRemoveModules({ ...input, currentFiles });
+
+  if (!plan.safe) {
+    throw new Error(
+      `Remove target has modified owned files: ${plan.refusals
+        .map((refusal) => `${refusal.path} (${refusal.reason})`)
+        .join(", ")}`
+    );
+  }
+
+  for (const file of plan.filesToRemove) {
+    await rm(join(input.projectDirectory, normalizeProjectPath(file.path)), { force: true });
+  }
+
+  const manifest = await writeManifest(input.projectDirectory, plan.manifest);
+
+  return { manifest };
+}
+
+export type ModuleUpdatePlan = {
+  updates: { id: string; from: string; to: string }[];
+};
+
+export function planModuleUpdates(input: {
+  manifestModules: readonly StackkitManifest["modules"][number][];
+  availableModules: readonly StackkitModule[];
+}): ModuleUpdatePlan {
+  const availableById = new Map(input.availableModules.map((module) => [module.id, module]));
+
+  return {
+    updates: input.manifestModules.flatMap((manifestModule) => {
+      const available = availableById.get(manifestModule.id);
+
+      if (!available || available.version === manifestModule.version) {
+        return [];
+      }
+
+      return [{ id: manifestModule.id, from: manifestModule.version, to: available.version }];
+    })
+  };
+}
+
+export type ModuleMigrationPlan = {
+  automatic: ModuleMigration[];
+  reviewRequired: ModuleMigration[];
+  manual: ModuleMigration[];
+};
+
+export function planModuleMigrations(input: {
+  manifest: StackkitManifest;
+  modules: readonly StackkitModule[];
+}): ModuleMigrationPlan {
+  const applied = new Set(input.manifest.migrations.applied.map((entry) => JSON.stringify(entry)));
+  const pending = input.modules
+    .flatMap((module) => module.migrations ?? [])
+    .filter((migration) => !applied.has(JSON.stringify(migration)));
+
+  return {
+    automatic: pending.filter((migration) => migration.safety === "automatic"),
+    reviewRequired: pending.filter((migration) => migration.safety === "review-required"),
+    manual: pending.filter((migration) => migration.safety === "manual")
+  };
+}
+
+export async function applyAutomaticMigrations(input: {
+  projectDirectory: string;
+  manifest: StackkitManifest;
+  modules: readonly StackkitModule[];
+}): Promise<{ manifest: StackkitManifest }> {
+  const applied = new Set(input.manifest.migrations.applied.map((entry) => JSON.stringify(entry)));
+  const automatic = input.modules.flatMap((module) =>
+    (module.migrations ?? [])
+      .filter((migration) => migration.safety === "automatic" && !applied.has(JSON.stringify(migration)))
+      .map((migration) => ({ module, migration }))
+  );
+  const operations = automatic.flatMap(({ module, migration }) =>
+    migration.operations.map((operation) => ({
+      kind: operation.kind,
+      path: operation.path,
+      owner: module.id,
+      content: operation.kind === "write" ? operation.content : undefined,
+      overwrite: "if-owned" as const
+    }))
+  );
+  const filePlan = buildFilePlan(operations);
+  const conflicts = await detectFileConflicts(input.projectDirectory, filePlan, input.manifest.files);
+
+  if (conflicts.length > 0) {
+    throw new Error(
+      `Migration has conflicts: ${conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ")}`
+    );
+  }
+
+  const files = await applyFilePlan(input.projectDirectory, filePlan);
+  const nextManifest = createManifest({
+    ...input.manifest,
+    files: mergeManifestFiles(input.manifest.files, files),
+    migrations: {
+      applied: [...input.manifest.migrations.applied, ...automatic.map(({ migration }) => migration)]
+    }
+  });
+  await writeManifest(input.projectDirectory, nextManifest);
+
+  return { manifest: nextManifest };
+}
+
+export async function applyModuleUpdates(input: {
+  projectDirectory: string;
+  manifest: StackkitManifest;
+  availableModules: readonly StackkitModule[];
+}): Promise<{ manifest: StackkitManifest; updates: ModuleUpdatePlan["updates"] }> {
+  const updatePlan = planModuleUpdates({
+    manifestModules: input.manifest.modules,
+    availableModules: input.availableModules
+  });
+  const availableById = new Map(input.availableModules.map((module) => [module.id, module]));
+  const nextModules = input.manifest.modules.map((manifestModule) => {
+    const available = availableById.get(manifestModule.id);
+
+    return {
+      ...manifestModule,
+      version: available?.version ?? manifestModule.version
+    };
+  });
+  const nextManifest = createManifest({
+    ...input.manifest,
+    modules: nextModules
+  });
+  await writeManifest(input.projectDirectory, nextManifest);
+
+  return { manifest: nextManifest, updates: updatePlan.updates };
 }
 
 export function renderCreateFiles(config: StackkitConfig, modules: readonly StackkitModule[]): FileOperation[] {
@@ -528,7 +876,64 @@ export async function applyCreatePlan(
     local: plan.aiSkills.local
   });
 
-  return { projectDirectory, manifest };
+  const doctor = await runDoctor(projectDirectory);
+
+  return { projectDirectory, manifest, doctor };
+}
+
+export async function runDoctor(projectDirectory: string): Promise<DoctorResult> {
+  const checks: DoctorCheck[] = [];
+  const manifestPath = join(projectDirectory, ".stackkit", "project.json");
+  const manifestContent = await readExistingFile(manifestPath);
+
+  if (!manifestContent) {
+    return {
+      ok: false,
+      checks: [
+        {
+          id: "manifest.exists",
+          status: "error",
+          message: ".stackkit/project.json is missing"
+        }
+      ]
+    };
+  }
+
+  const manifest = stackkitManifestSchema.parse(JSON.parse(manifestContent));
+  checks.push({ id: "manifest.exists", status: "ok", message: ".stackkit/project.json exists" });
+
+  for (const file of manifest.files) {
+    const content = await readExistingFile(join(projectDirectory, file.path));
+
+    if (content === undefined) {
+      checks.push({
+        id: `files.${file.path}`,
+        status: "error",
+        message: `Managed file is missing: ${file.path}`
+      });
+      continue;
+    }
+
+    if (hashContent(content) !== file.hash) {
+      checks.push({
+        id: `files.${file.path}`,
+        status: "warning",
+        message: `Managed file was modified: ${file.path}`
+      });
+      continue;
+    }
+
+    checks.push({
+      id: `files.${file.path}`,
+      status: "ok",
+      message: `Managed file is unchanged: ${file.path}`
+    });
+  }
+
+  return {
+    ok: checks.every((check) => check.status === "ok"),
+    checks
+  };
 }
 
 export function createManifest(input: StackkitManifest): StackkitManifest {
@@ -704,12 +1109,59 @@ export async function writeManifest(projectDirectory: string, manifest: Stackkit
   return parsed;
 }
 
+export async function readManifest(projectDirectory: string): Promise<StackkitManifest> {
+  const manifestPath = join(projectDirectory, ".stackkit", "project.json");
+  const existing = await readExistingFile(manifestPath);
+
+  if (existing === undefined) {
+    throw new Error(`No Stackkit manifest found at ${manifestPath}`);
+  }
+
+  return stackkitManifestSchema.parse(JSON.parse(existing));
+}
+
 export async function writeSkillsLock(projectDirectory: string, lock: SkillsLock): Promise<SkillsLock> {
   const parsed = skillsLockSchema.parse(lock);
 
   await writeFile(join(projectDirectory, "skills-lock.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 
   return parsed;
+}
+
+export async function readOptionalSkillsLock(projectDirectory: string): Promise<SkillsLock | undefined> {
+  const existing = await readExistingFile(join(projectDirectory, "skills-lock.json"));
+
+  if (existing === undefined) {
+    return undefined;
+  }
+
+  return skillsLockSchema.parse(JSON.parse(existing));
+}
+
+export async function readSkillsLock(projectDirectory: string): Promise<SkillsLock> {
+  const content = await readFile(join(projectDirectory, "skills-lock.json"), "utf8");
+
+  return skillsLockSchema.parse(JSON.parse(content));
+}
+
+export function mergeSkillDependencies(
+  left: readonly AiSkillDependency[],
+  right: readonly AiSkillDependency[]
+): AiSkillDependency[] {
+  const merged = new Map<string, AiSkillDependency>();
+
+  for (const dependency of [...left, ...right]) {
+    const key = skillDependencyKey(dependency);
+    const existing = merged.get(key);
+
+    if (existing) {
+      merged.set(key, { ...existing, skills: mergeSkills(existing.skills, dependency.skills) });
+    } else {
+      merged.set(key, { ...dependency, skills: [...dependency.skills] });
+    }
+  }
+
+  return [...merged.values()];
 }
 
 export async function writeLocalAiGuidance(
@@ -903,6 +1355,25 @@ function mergeCreateFileOperations(operations: readonly FileOperation[]): FileOp
   return [...operationByPath.values()];
 }
 
+function mergeManifestFiles(
+  existingFiles: readonly ManifestFileRecord[],
+  newFiles: readonly ManifestFileRecord[]
+): ManifestFileRecord[] {
+  const fileByPath = new Map<string, ManifestFileRecord>();
+
+  for (const file of existingFiles) {
+    const path = normalizeProjectPath(file.path);
+    fileByPath.set(path, { ...file, path });
+  }
+
+  for (const file of newFiles) {
+    const path = normalizeProjectPath(file.path);
+    fileByPath.set(path, { ...file, path });
+  }
+
+  return [...fileByPath.values()];
+}
+
 function mergePackageOperations(left: FileOperation, right: FileOperation): FileOperation {
   return {
     ...left,
@@ -1008,6 +1479,43 @@ async function resolveSkillInstallResult(
   return {
     installed: installResult.installed,
     unresolved: [...plan.aiSkills.unresolved, ...installResult.unresolved]
+  };
+}
+
+async function resolveAddSkillResult(
+  projectDirectory: string,
+  modulesToAdd: readonly StackkitModule[],
+  input: ApplyAddModulesInput
+): Promise<{ lock: SkillsLock }> {
+  const existingLock = await readOptionalSkillsLock(projectDirectory);
+  const targets = [...(input.skillTargets ?? existingLock?.targets ?? input.manifest.aiSkills.targets)];
+  const resolvedSkills = resolveAiSkills(modulesToAdd);
+  const local = resolvedSkills.filter((skill) => skill.trust === "local");
+  const initiallyUnresolved = resolvedSkills.filter((skill) => skill.trust === "unresolved");
+  const installCommands = planAiSkillInstallCommands(resolvedSkills, targets);
+  const installResult =
+    input.runCommand && installCommands.length > 0
+      ? await installAiSkills(installCommands, { cwd: projectDirectory, runCommand: input.runCommand })
+      : {
+          installed: resolvedSkills.filter((skill) => skill.trust === "official" || skill.trust === "curated"),
+          unresolved: []
+        };
+  const baseLock: SkillsLock = existingLock ?? {
+    schemaVersion: 1,
+    targets,
+    installed: input.manifest.aiSkills.installed,
+    local: [],
+    unresolved: input.manifest.aiSkills.unresolved
+  };
+
+  return {
+    lock: {
+      schemaVersion: 1,
+      targets,
+      installed: mergeSkillDependencies(baseLock.installed, installResult.installed),
+      local: mergeSkillDependencies(baseLock.local, local),
+      unresolved: mergeSkillDependencies(baseLock.unresolved, [...initiallyUnresolved, ...installResult.unresolved])
+    }
   };
 }
 

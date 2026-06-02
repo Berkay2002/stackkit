@@ -320,4 +320,187 @@ describe("createStackkitProgram", () => {
       "\"projectName\": \"acme-dashboard\""
     );
   });
+
+  it("prints an add dry-run summary without modifying the manifest", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo"]);
+
+    const { output } = await runProgram(["add", "web/nextjs", "--dry-run", "--dir", projectDirectory]);
+
+    expect(output).toContain("Stackkit add plan for acme-dashboard");
+    expect(output).toContain("Modules to add: web/nextjs");
+    expect(output).toContain("STACKKIT_PLAN_JSON_START");
+
+    const manifest = await readManifestFile(projectDirectory);
+    expect(manifest.modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo"]);
+  });
+
+  it("applies add by updating the manifest", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo"]);
+
+    const { output } = await runProgram(["add", "web/nextjs", "--dir", projectDirectory]);
+
+    expect(output).toBe("Added web/nextjs to acme-dashboard\n");
+
+    const manifest = await readManifestFile(projectDirectory);
+    expect(manifest.modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo", "web/nextjs"]);
+  });
+
+  it("prints a remove dry-run summary", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    const { output } = await runProgram(["remove", "web/nextjs", "--dry-run", "--dir", projectDirectory]);
+
+    expect(output).toContain("Stackkit remove plan for acme-dashboard");
+    expect(output).toContain("Modules to remove: web/nextjs");
+    expect(output).toContain("Safe to remove: yes");
+
+    const manifest = await readManifestFile(projectDirectory);
+    expect(manifest.modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo", "web/nextjs"]);
+  });
+
+  it("refuses remove without --yes and applies with --yes", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    await expect(runProgram(["remove", "web/nextjs", "--dir", projectDirectory])).rejects.toThrow("without --yes");
+
+    const { output } = await runProgram(["remove", "web/nextjs", "--yes", "--dir", projectDirectory]);
+    expect(output).toBe("Removed web/nextjs from acme-dashboard\n");
+
+    const manifest = await readManifestFile(projectDirectory);
+    expect(manifest.modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo"]);
+  });
+
+  it("prints a read-only diff summary without modifying the manifest", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    const { output } = await runProgram(["diff", "--dir", projectDirectory]);
+
+    expect(output).toContain("Stackkit diff for acme-dashboard");
+    expect(output).toContain("STACKKIT_DIFF_JSON_START");
+    expect(output).toContain("STACKKIT_DIFF_JSON_END");
+
+    const manifest = await readManifestFile(projectDirectory);
+    expect(manifest.migrations.applied).toHaveLength(0);
+    await expect(stat(join(projectDirectory, "apps", "web", "instrumentation.ts"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
+  it("prints planned updates for update --dry-run without changing the manifest", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    const { output } = await runProgram(["update", "--dry-run", "--dir", projectDirectory]);
+
+    expect(output).toContain("Stackkit update plan for acme-dashboard");
+    expect(output).toContain("STACKKIT_UPDATE_JSON_START");
+
+    const manifest = await readManifestFile(projectDirectory);
+    expect(manifest.migrations.applied).toHaveLength(0);
+    await expect(stat(join(projectDirectory, "apps", "web", "instrumentation.ts"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
+  it("prints pending migrations for migrate --dry-run without writing files", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    const { output } = await runProgram(["migrate", "--dry-run", "--dir", projectDirectory]);
+
+    expect(output).toContain("Stackkit migrate plan for acme-dashboard");
+    expect(output).toContain("Add Next.js instrumentation hook");
+    expect(output).toContain("STACKKIT_MIGRATE_JSON_START");
+
+    await expect(stat(join(projectDirectory, "apps", "web", "instrumentation.ts"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
+  it("applies automatic migrations with migrate --apply", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    await runProgram(["migrate", "--apply", "--dir", projectDirectory]);
+
+    const content = await readFile(join(projectDirectory, "apps", "web", "instrumentation.ts"), "utf8");
+    expect(content).toContain("register");
+
+    const manifest = await readManifestFile(projectDirectory);
+    expect(manifest.migrations.applied).toHaveLength(1);
+  });
+
+  it("is idempotent when migrate --apply runs twice", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    await runProgram(["migrate", "--apply", "--dir", projectDirectory]);
+    await runProgram(["migrate", "--apply", "--dir", projectDirectory]);
+
+    const manifest = await readManifestFile(projectDirectory);
+    expect(manifest.migrations.applied).toHaveLength(1);
+  });
+  it("reports a healthy project with doctor", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo"]);
+
+    const { output } = await runProgram(["doctor", "--dir", projectDirectory]);
+
+    expect(output).toContain("Stackkit doctor passed");
+    expect(output).toContain("[ok] manifest.exists");
+  });
+
+  it("plans skill sync commands from the recorded lock", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    const { output } = await runProgram(["skills", "sync", "--dir", projectDirectory]);
+
+    expect(output).toContain("Stackkit skills sync plan");
+    expect(output).toContain("https://github.com/vercel-labs/agent-skills");
+  });
+
+  it("applies skill sync and reports completion", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    const { output } = await runProgram(["skills", "sync", "--apply", "--dir", projectDirectory]);
+
+    expect(output).toBe("Stackkit skills sync complete\n");
+  });
 });
+
+async function runProgram(argv: string[]): Promise<{ output: string }> {
+  let output = "";
+  const program = createStackkitProgram({
+    runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" })
+  });
+  program.configureOutput({
+    writeOut: (value) => {
+      output += value;
+    }
+  });
+
+  await program.parseAsync(argv, { from: "user" });
+
+  return { output };
+}
+
+async function createManagedProject(modules: string[]): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
+  tempDirectories.push(directory);
+  const configPath = join(directory, "stackkit.config.json");
+  const projectDirectory = join(directory, "acme-dashboard");
+
+  await writeFile(
+    configPath,
+    JSON.stringify({ projectName: "acme-dashboard", modules, ai: { skillTargets: ["codex"] } }, null, 2),
+    "utf8"
+  );
+
+  await runProgram(["create", "--config", configPath, "--dir", projectDirectory]);
+
+  return projectDirectory;
+}
+
+async function readManifestFile(
+  projectDirectory: string
+): Promise<{ modules: { id: string }[]; migrations: { applied: unknown[] } }> {
+  return JSON.parse(await readFile(join(projectDirectory, ".stackkit", "project.json"), "utf8")) as {
+    modules: { id: string }[];
+    migrations: { applied: unknown[] };
+  };
+}

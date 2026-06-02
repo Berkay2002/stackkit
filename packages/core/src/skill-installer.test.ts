@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { installAiSkills, type AiSkillInstallCommand, type RunCommand } from "./index.js";
+import {
+  applySkillSync,
+  installAiSkills,
+  planSkillSyncCommands,
+  type AiSkillInstallCommand,
+  type RunCommand
+} from "./index.js";
 
 const installCommand: AiSkillInstallCommand = {
   command: "npx",
@@ -105,5 +111,44 @@ describe("installAiSkills", () => {
         reason: "Skill install failed: network unavailable"
       }
     ]);
+  });
+});
+
+describe("skill sync", () => {
+  const skill = installCommand.skill;
+
+  it("plans skill sync commands from skills lock", () => {
+    const commands = planSkillSyncCommands({
+      schemaVersion: 1,
+      targets: [{ agent: "codex", directory: ".agents", enabled: true }],
+      installed: [skill],
+      local: [],
+      unresolved: []
+    });
+
+    expect(commands).toEqual([
+      expect.objectContaining({
+        command: "npx",
+        args: expect.arrayContaining(["skills", "add", "https://github.com/vercel-labs/agent-skills", "--agent", "codex"])
+      })
+    ]);
+  });
+
+  it("applies skill sync commands and returns an updated lock", async () => {
+    const result = await applySkillSync(
+      {
+        schemaVersion: 1,
+        targets: [{ agent: "codex", directory: ".agents", enabled: true }],
+        installed: [],
+        local: [],
+        unresolved: [skill]
+      },
+      {
+        runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
+      }
+    );
+
+    expect(result.installed).toEqual([skill]);
+    expect(result.unresolved).toEqual([]);
   });
 });
