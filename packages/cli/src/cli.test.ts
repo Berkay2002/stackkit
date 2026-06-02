@@ -176,6 +176,56 @@ describe("createStackkitProgram", () => {
     ]);
   });
 
+  it("validates a Stackkit config file", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
+    tempDirectories.push(directory);
+    const configPath = join(directory, "stackkit.config.json");
+
+    await writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          projectName: "acme",
+          modules: ["workspace/pnpm-turbo", "web/nextjs"]
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    let output = "";
+    const program = createStackkitProgram();
+    program.configureOutput({
+      writeOut: (value) => {
+        output += value;
+      }
+    });
+
+    await program.parseAsync(["config", "validate", configPath], { from: "user" });
+
+    expect(output).toContain("Config is valid");
+  });
+
+  it("lists and inspects presets", async () => {
+    let output = "";
+    const program = createStackkitProgram();
+    program.configureOutput({
+      writeOut: (value) => {
+        output += value;
+      }
+    });
+
+    await program.parseAsync(["preset", "list"], { from: "user" });
+
+    expect(output).toContain("next-only");
+
+    output = "";
+    await program.parseAsync(["preset", "inspect", "next-only"], { from: "user" });
+
+    expect(output).toContain("workspace/pnpm-turbo");
+  });
+
   it("does not create the target directory or run skill installs during create --dry-run", async () => {
     const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
     tempDirectories.push(directory);

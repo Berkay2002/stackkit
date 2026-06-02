@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { Command } from "commander";
 
-import { applyCreatePlan, createCreatePlan, type CreatePlan, type RunCommand } from "@stackkit/core";
+import { applyCreatePlan, createCreatePlan, validateStackkitConfig, type CreatePlan, type RunCommand } from "@stackkit/core";
 import { builtinModules, builtinPresets, curatedSkillSourceAllowlist } from "@stackkit/registry";
 import { stackkitConfigSchema } from "@stackkit/schemas";
 
@@ -58,11 +58,48 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
   skills.command("update").description("Update installed official and curated AI skills");
 
   const preset = program.command("preset").description("Inspect Stackkit presets");
-  preset.command("list").description("List available presets");
-  preset.command("inspect <preset>").description("Show the modules included in a preset");
+  preset
+    .command("list")
+    .description("List available presets")
+    .action(() => {
+      writeProgramOutput(program, builtinPresets.map((preset) => `${preset.id}\t${preset.title}`).join("\n") + "\n");
+    });
+  preset
+    .command("inspect <preset>")
+    .description("Show the modules included in a preset")
+    .action((presetId: string) => {
+      const foundPreset = builtinPresets.find((preset) => preset.id === presetId);
+
+      if (!foundPreset) {
+        throw new Error(`Unknown Stackkit preset: ${presetId}`);
+      }
+
+      writeProgramOutput(
+        program,
+        [
+          foundPreset.title,
+          foundPreset.description,
+          "Modules:",
+          ...foundPreset.modules.map((moduleId) => `- ${moduleId}`),
+          ""
+        ].join("\n")
+      );
+    });
 
   const config = program.command("config").description("Manage Stackkit configuration");
-  config.command("validate [path]").description("Validate a Stackkit config file");
+  config
+    .command("validate [path]")
+    .description("Validate a Stackkit config file")
+    .action(async (path = "stackkit.config.json") => {
+      const parsed = stackkitConfigSchema.parse(JSON.parse(await readFile(path, "utf8")));
+      const result = validateStackkitConfig(parsed, builtinModules, builtinPresets);
+
+      if (!result.ok) {
+        throw new Error(result.errors.join("\n"));
+      }
+
+      writeProgramOutput(program, `Config is valid: ${path}\n`);
+    });
 
   return program;
 }

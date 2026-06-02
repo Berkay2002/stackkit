@@ -321,6 +321,11 @@ export type ResolveModuleGraphOptions = {
   availableModules?: readonly StackkitModule[];
 };
 
+export type ValidateConfigResult = {
+  ok: boolean;
+  errors: string[];
+};
+
 export function resolveModuleGraph(
   modules: readonly StackkitModule[],
   options: ResolveModuleGraphOptions = {}
@@ -333,6 +338,49 @@ export function resolveModuleGraph(
   validateModuleConflicts(ordered);
 
   return ordered;
+}
+
+export function validateStackkitConfig(
+  config: StackkitConfig,
+  availableModules: readonly StackkitModule[],
+  availablePresets: readonly StackkitPreset[] = []
+): ValidateConfigResult {
+  const errors: string[] = [];
+  const moduleById = new Map<string, StackkitModule>(availableModules.map((module) => [module.id, module]));
+  const presetById = new Map<string, StackkitPreset>(availablePresets.map((preset) => [preset.id, preset]));
+  const selectedModules: StackkitModule[] = [];
+
+  for (const moduleId of config.modules) {
+    const module = moduleById.get(moduleId);
+
+    if (!module) {
+      errors.push(`Unknown Stackkit module: ${moduleId}`);
+      continue;
+    }
+
+    selectedModules.push(module);
+  }
+
+  if (config.preset && !presetById.has(config.preset)) {
+    errors.push(`Unknown Stackkit preset: ${config.preset}`);
+  }
+
+  if (errors.length === 0) {
+    try {
+      resolveModuleGraph(selectedModules, {
+        presets: availablePresets,
+        selectedPresets: config.preset ? [config.preset] : [],
+        availableModules
+      });
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors
+  };
 }
 
 export function createCreatePlan(input: CreatePlanInput): CreatePlan {
