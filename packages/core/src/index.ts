@@ -14,14 +14,18 @@ import {
   type AiSkillRegistryEntry,
   type AiSkillTarget,
   type AiSkillTrust,
+  type EnvVarDefinition,
   type FileOperation,
+  type LifecycleHook,
   type ModuleId,
   type ModuleMigration,
+  type PackageChange,
   type SkillsLock,
   type StackkitConfig,
   type StackkitManifest,
   type StackkitModule,
-  type StackkitPreset
+  type StackkitPreset,
+  type TaskDefinition
 } from "@stackkit/schemas";
 
 export type {
@@ -30,12 +34,16 @@ export type {
   AiSkillRegistryEntry,
   AiSkillTarget,
   AiSkillTrust,
+  EnvVarDefinition,
+  LifecycleHook,
   ModuleId,
   ModuleMigration,
+  PackageChange,
   StackkitConfig,
   StackkitManifest,
   StackkitModule,
-  StackkitPreset
+  StackkitPreset,
+  TaskDefinition
 };
 
 export type AiSkillInstallCommand = {
@@ -81,6 +89,7 @@ export type CreatePlan = {
     id: string;
     version: string;
   }[];
+  selectedModules: StackkitModule[];
   aiSkills: {
     targets: AiSkillTarget[];
     resolved: AiSkillDependency[];
@@ -332,7 +341,7 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
   const installCommands = planAiSkillInstallCommands(resolvedSkills, targets);
   const filePlan = buildFilePlan(renderCreateFiles(input.config, modules));
 
-  return {
+  const plan: Omit<CreatePlan, "selectedModules"> = {
     schemaVersion: 1,
     operation: "create",
     dryRun: true,
@@ -352,6 +361,8 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
     },
     skillInstallCommands: installCommands
   };
+
+  return attachSelectedModules(plan, modules);
 }
 
 export function renderCreateFiles(config: StackkitConfig, modules: readonly StackkitModule[]): FileOperation[] {
@@ -381,7 +392,18 @@ export async function applyCreatePlan(
   options: ApplyCreatePlanOptions
 ): Promise<ApplyCreatePlanResult> {
   const projectDirectory = options.targetDirectory ?? join(options.parentDirectory, normalizeTargetDirectoryName(plan.targetDirectoryName));
-  const conflicts = await detectFileConflicts(projectDirectory, plan.filePlan, []);
+  const packageOperations = await planPackageChangeFiles(
+    projectDirectory,
+    plan.selectedModules.flatMap((module) => module.packageChanges ?? [])
+  );
+  const envOperations = await planEnvExampleFiles(
+    projectDirectory,
+    plan.selectedModules.flatMap((module) => module.envVars ?? [])
+  );
+  const fullFilePlan = buildFilePlan(
+    mergeCreateFileOperations([...filePlanToOperations(plan.filePlan), ...packageOperations, ...envOperations])
+  );
+  const conflicts = await detectFileConflicts(projectDirectory, fullFilePlan, []);
 
   if (conflicts.length > 0) {
     throw new Error(
@@ -389,7 +411,14 @@ export async function applyCreatePlan(
     );
   }
 
-  const files = await applyFilePlan(projectDirectory, plan.filePlan);
+  const files = await applyFilePlan(projectDirectory, fullFilePlan);
+  if (options.runCommand) {
+    await runLifecycleHooks(
+      plan.selectedModules.flatMap((module) => module.postCreate ?? []),
+      { projectDirectory, runCommand: options.runCommand }
+    );
+  }
+
   const skillInstallResult = await resolveSkillInstallResult(plan, projectDirectory, options);
   const manifest = await writeManifest(projectDirectory, {
     schemaVersion: 1,
@@ -505,6 +534,84 @@ export async function applyFilePlan(projectDirectory: string, plan: FilePlan): P
   }
 
   return records;
+}
+
+export async function planPackageChangeFiles(
+  projectDirectory: string,
+  changes: readonly PackageChange[]
+): Promise<FileOperation[]> {
+  const packageByPath = new Map<string, Record<string, unknown>>();
+
+  for (const change of changes) {
+    const packagePath = normalizeProjectPath(change.packagePath);
+    const existingPackage = packageByPath.get(packagePath) ?? (await readPackageJson(join(projectDirectory, packagePath)));
+    const nextPackage = mergePackageJson(existingPackage, change);
+
+    packageByPath.set(packagePath, nextPackage);
+  }
+
+  return [...packageByPath.entries()].map(([path, pkg]) => ({
+    kind: "write",
+    path,
+    owner: "workspace/pnpm-turbo",
+    content: `${JSON.stringify(pkg, null, 2)}\n`,
+    overwrite: "if-owned"
+  }));
+}
+
+export async function applyPackageChanges(
+  projectDirectory: string,
+  changes: readonly PackageChange[]
+): Promise<ManifestFileRecord[]> {
+  return await applyFilePlan(projectDirectory, buildFilePlan(await planPackageChangeFiles(projectDirectory, changes)));
+}
+
+export async function planEnvExampleFiles(
+  projectDirectory: string,
+  envVars: readonly EnvVarDefinition[]
+): Promise<FileOperation[]> {
+  if (envVars.length === 0) {
+    return [];
+  }
+
+  const existing = await readExistingFile(join(projectDirectory, ".env.example"));
+  const existingContent = existing ?? "";
+  const separator = existingContent.length === 0 || existingContent.endsWith("\n") ? "" : "\n";
+  const additions = envVars
+    .flatMap((envVar) => [`# ${envVar.description}`, `${envVar.name}=${envVar.example ?? ""}`, ""])
+    .join("\n");
+
+  return [
+    {
+      kind: "write",
+      path: ".env.example",
+      owner: "docs/env",
+      content: `${existingContent}${separator}${additions}`,
+      overwrite: "if-owned"
+    }
+  ];
+}
+
+export async function applyEnvExamples(
+  projectDirectory: string,
+  envVars: readonly EnvVarDefinition[]
+): Promise<ManifestFileRecord[]> {
+  return await applyFilePlan(projectDirectory, buildFilePlan(await planEnvExampleFiles(projectDirectory, envVars)));
+}
+
+export async function runLifecycleHooks(
+  hooks: readonly LifecycleHook[],
+  options: { projectDirectory: string; runCommand: RunCommand }
+): Promise<void> {
+  for (const hook of hooks) {
+    const result = await options.runCommand(hook.command, hook.args, {
+      cwd: hook.cwd ? joinProjectDirectory(options.projectDirectory, normalizeProjectPath(hook.cwd)) : options.projectDirectory
+    });
+
+    if (result.exitCode !== 0) {
+      throw new Error(`Lifecycle hook failed (${hook.name}): ${result.stderr || result.stdout || result.exitCode}`);
+    }
+  }
 }
 
 export async function writeManifest(projectDirectory: string, manifest: StackkitManifest): Promise<StackkitManifest> {
@@ -650,6 +757,148 @@ function normalizeCommandFailureMessage(result: CommandResult): string {
   }
 
   return `exit code ${result.exitCode}`;
+}
+
+function attachSelectedModules(
+  plan: Omit<CreatePlan, "selectedModules">,
+  selectedModules: readonly StackkitModule[]
+): CreatePlan {
+  Object.defineProperty(plan, "selectedModules", {
+    value: [...selectedModules],
+    enumerable: false,
+    configurable: false,
+    writable: false
+  });
+
+  return plan as CreatePlan;
+}
+
+function joinProjectDirectory(projectDirectory: string, path: string): string {
+  if (projectDirectory.includes("/")) {
+    return posix.join(projectDirectory.replaceAll("\\", "/"), path.replaceAll("\\", "/"));
+  }
+
+  return join(projectDirectory, path);
+}
+
+function filePlanToOperations(plan: FilePlan): FileOperation[] {
+  return plan.files.map((file) => ({
+    kind: "write",
+    path: file.path,
+    owner: file.owner,
+    content: file.content,
+    overwrite: file.overwrite
+  }));
+}
+
+function mergeCreateFileOperations(operations: readonly FileOperation[]): FileOperation[] {
+  const operationByPath = new Map<string, FileOperation>();
+
+  for (const operation of operations) {
+    const path = normalizeProjectPath(operation.path);
+    const existing = operationByPath.get(path);
+    const normalized = { ...operation, path };
+
+    if (!existing) {
+      operationByPath.set(path, normalized);
+      continue;
+    }
+
+    if (path.endsWith("package.json")) {
+      operationByPath.set(path, mergePackageOperations(existing, normalized));
+      continue;
+    }
+
+    if (path === ".env.example") {
+      operationByPath.set(path, {
+        ...normalized,
+        content: appendFileContent(existing.content ?? "", normalized.content ?? "")
+      });
+      continue;
+    }
+
+    operationByPath.set(path, normalized);
+  }
+
+  return [...operationByPath.values()];
+}
+
+function mergePackageOperations(left: FileOperation, right: FileOperation): FileOperation {
+  return {
+    ...left,
+    owner: right.owner,
+    content: `${JSON.stringify(mergePackageJson(parsePackageJson(left.content ?? ""), parsePackageJson(right.content ?? "")), null, 2)}\n`,
+    overwrite: right.overwrite
+  };
+}
+
+function appendFileContent(left: string, right: string): string {
+  if (left.length === 0) {
+    return right;
+  }
+
+  if (right.length === 0) {
+    return left;
+  }
+
+  return `${left}${left.endsWith("\n") ? "" : "\n"}${right}`;
+}
+
+async function readPackageJson(path: string): Promise<Record<string, unknown>> {
+  const existing = await readExistingFile(path);
+
+  return existing ? parsePackageJson(existing) : {};
+}
+
+function parsePackageJson(content: string): Record<string, unknown> {
+  if (content.trim().length === 0) {
+    return {};
+  }
+
+  const parsed: unknown = JSON.parse(content);
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+function mergePackageJson(
+  pkg: Record<string, unknown>,
+  change: PackageChange | Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...pkg,
+    ...pickNonPackageFields(change),
+    scripts: mergePackageField(pkg.scripts, change.scripts),
+    dependencies: mergePackageField(pkg.dependencies, change.dependencies),
+    devDependencies: mergePackageField(pkg.devDependencies, change.devDependencies),
+    peerDependencies: mergePackageField(pkg.peerDependencies, change.peerDependencies),
+    optionalDependencies: mergePackageField(pkg.optionalDependencies, change.optionalDependencies)
+  };
+}
+
+function pickNonPackageFields(input: Record<string, unknown>): Record<string, unknown> {
+  const { scripts, dependencies, devDependencies, peerDependencies, optionalDependencies, packagePath, ...fields } = input;
+
+  return fields;
+}
+
+function mergePackageField(left: unknown, right: unknown): Record<string, string> {
+  return {
+    ...(isPackageJsonField(left) ? left : {}),
+    ...(isPackageJsonField(right) ? right : {})
+  };
+}
+
+function isPackageJsonField(value: unknown): value is Record<string, string> {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((fieldValue) => typeof fieldValue === "string")
+  );
 }
 
 async function resolveSkillInstallResult(

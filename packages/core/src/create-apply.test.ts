@@ -309,4 +309,102 @@ describe("applyCreatePlan", () => {
     expect(lock.installed).toEqual([]);
     expect(lock.unresolved).toEqual(expectedUnresolved);
   });
+
+  it("includes package and env operations in the manifest", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
+    tempDirectories.push(parentDirectory);
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "module-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["web/nextjs"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js web application",
+          packageChanges: [
+            {
+              packagePath: "package.json",
+              scripts: { dev: "next dev" },
+              dependencies: { next: "^15.0.0" },
+              devDependencies: {},
+              peerDependencies: {},
+              optionalDependencies: {}
+            }
+          ],
+          envVars: [
+            {
+              name: "DATABASE_URL",
+              description: "Postgres connection string",
+              required: true,
+              example: "postgres://postgres:postgres@localhost:5432/app"
+            }
+          ]
+        })
+      ]
+    });
+
+    const result = await applyCreatePlan(plan, { parentDirectory });
+
+    const pkg = JSON.parse(await readFile(join(result.projectDirectory, "package.json"), "utf8"));
+    expect(pkg.scripts.dev).toBe("next dev");
+    expect(pkg.dependencies.next).toBe("^15.0.0");
+    await expect(readFile(join(result.projectDirectory, ".env.example"), "utf8")).resolves.toContain(
+      "DATABASE_URL=postgres://postgres:postgres@localhost:5432/app"
+    );
+    expect(result.manifest.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "package.json", owner: "workspace/pnpm-turbo" }),
+        expect.objectContaining({ path: ".env.example", owner: "docs/env" })
+      ])
+    );
+  });
+
+  it("runs post-create lifecycle hooks after writing files", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
+    tempDirectories.push(parentDirectory);
+    const projectDirectory = join(parentDirectory, "hook-app");
+    const seen: string[][] = [];
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "hook-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["web/nextjs"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js web application",
+          files: [{ kind: "write", path: "apps/web/package.json", owner: "web/nextjs", content: "{}\n" }],
+          postCreate: [{ name: "format", command: "pnpm", args: ["format"], cwd: "apps/web" }]
+        })
+      ]
+    });
+
+    const result = await applyCreatePlan(plan, {
+      parentDirectory,
+      runCommand: async (command, args, options) => {
+        await expect(readFile(join(projectDirectory, "apps", "web", "package.json"), "utf8")).resolves.toBe("{}\n");
+        seen.push([options.cwd ?? "", command, ...args]);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+    });
+
+    expect(seen).toEqual([[join(result.projectDirectory, "apps/web"), "pnpm", "format"]]);
+  });
 });
