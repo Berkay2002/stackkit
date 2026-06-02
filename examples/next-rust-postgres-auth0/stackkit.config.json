@@ -1,0 +1,20 @@
+{
+  "projectName": "next-rust-postgres-auth0",
+  "packageManager": "pnpm",
+  "workspace": "pnpm-turbo",
+  "modules": [
+    "workspace/pnpm-turbo",
+    "workspace/typescript",
+    "web/nextjs",
+    "ui/shadcn",
+    "rust/tokio",
+    "rust/axum",
+    "rust/sqlx",
+    "db/postgres",
+    "auth/auth0-nextjs",
+    "deploy/docker"
+  ],
+  "ai": {
+    "skillTargets": ["codex"]
+  }
+}

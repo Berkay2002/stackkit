@@ -69,7 +69,18 @@ importers:
         specifier: workspace:*
         version: link:../schemas
 
-  packages/test-utils: {}
+  packages/test-utils:
+    dependencies:
+      '@stackkit/core':
+        specifier: workspace:*
+        version: link:../core
+      '@stackkit/registry':
+        specifier: workspace:*
+        version: link:../registry
+    devDependencies:
+      '@stackkit/cli':
+        specifier: workspace:*
+        version: link:../cli
 
 packages:
 

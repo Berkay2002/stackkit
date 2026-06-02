@@ -1,0 +1,18 @@
+{
+  "projectName": "docker-kubernetes",
+  "packageManager": "pnpm",
+  "workspace": "pnpm-turbo",
+  "modules": [
+    "workspace/pnpm-turbo",
+    "workspace/typescript",
+    "web/nextjs",
+    "api/fastapi",
+    "db/postgres",
+    "deploy/docker",
+    "deploy/kubernetes",
+    "docs/local-dev"
+  ],
+  "ai": {
+    "skillTargets": ["codex", "claude-code"]
+  }
+}

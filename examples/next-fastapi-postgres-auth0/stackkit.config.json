@@ -1,0 +1,22 @@
+{
+  "projectName": "next-fastapi-postgres-auth0",
+  "packageManager": "pnpm",
+  "workspace": "pnpm-turbo",
+  "modules": [
+    "workspace/pnpm-turbo",
+    "workspace/typescript",
+    "web/nextjs",
+    "ui/shadcn",
+    "api/fastapi",
+    "db/postgres",
+    "db/drizzle",
+    "db/sqlalchemy",
+    "auth/auth0-nextjs",
+    "auth/auth0-fastapi",
+    "deploy/vercel",
+    "deploy/docker"
+  ],
+  "ai": {
+    "skillTargets": ["codex"]
+  }
+}

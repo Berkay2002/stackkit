@@ -7,7 +7,8 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "smoke": "pnpm build && pnpm --filter @stackkit/test-utils test -- e2e-smoke"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
