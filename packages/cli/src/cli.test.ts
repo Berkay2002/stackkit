@@ -176,7 +176,7 @@ describe("createStackkitProgram", () => {
     ]);
   });
 
-  it("does not create the target directory during create --dry-run", async () => {
+  it("does not create the target directory or run skill installs during create --dry-run", async () => {
     const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
     tempDirectories.push(directory);
     const configPath = join(directory, "stackkit.config.json");
@@ -187,7 +187,7 @@ describe("createStackkitProgram", () => {
       JSON.stringify(
         {
           projectName: "acme-dashboard",
-          modules: ["workspace/pnpm-turbo"],
+          modules: ["workspace/pnpm-turbo", "web/nextjs"],
           ai: {
             skillTargets: ["codex"]
           }
@@ -198,12 +198,19 @@ describe("createStackkitProgram", () => {
       "utf8"
     );
 
-    const program = createStackkitProgram();
+    let runCommandCalls = 0;
+    const program = createStackkitProgram({
+      runCommand: async () => {
+        runCommandCalls += 1;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+    });
     program.configureOutput({ writeOut: () => undefined });
 
     await program.parseAsync(["create", "--config", configPath, "--dir", targetDirectory, "--dry-run"], { from: "user" });
 
     await expect(stat(targetDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(runCommandCalls).toBe(0);
   });
 
   it("writes project files during create --config --dir", async () => {

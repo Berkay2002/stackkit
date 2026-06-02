@@ -199,4 +199,114 @@ describe("applyCreatePlan", () => {
 
     expect(result.manifest.aiSkills.installed).toEqual([]);
   });
+
+  it("writes skills lock and local guidance when skill installation is disabled", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
+    tempDirectories.push(parentDirectory);
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "skills-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["custom/local-skill"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "custom/local-skill",
+          version: "1.0.0",
+          title: "Local skill",
+          description: "Local fallback guidance",
+          aiSkills: [
+            {
+              skills: ["stackkit-kubernetes-guidance"],
+              trust: "local",
+              causedBy: "deploy/kubernetes",
+              reason: "No accepted official or curated Kubernetes skill source is configured"
+            }
+          ]
+        })
+      ]
+    });
+
+    const result = await applyCreatePlan(plan, { parentDirectory, installSkills: false });
+
+    const lock = JSON.parse(await readFile(join(result.projectDirectory, "skills-lock.json"), "utf8"));
+    expect(lock.local).toEqual([
+      expect.objectContaining({
+        skills: ["stackkit-kubernetes-guidance"],
+        trust: "local",
+        causedBy: "deploy/kubernetes"
+      })
+    ]);
+    expect(lock.installed).toEqual([]);
+
+    const guidance = await readFile(
+      join(result.projectDirectory, ".agents", "skills", "stackkit-kubernetes-guidance", "SKILL.md"),
+      "utf8"
+    );
+    expect(guidance).toContain("deploy/kubernetes");
+    expect(guidance).toContain("No accepted official or curated Kubernetes skill source is configured");
+  });
+
+  it("records failed AI skill installs as unresolved in the manifest and skills lock", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
+    tempDirectories.push(parentDirectory);
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "skills-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["web/nextjs"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js web application",
+          aiSkills: [
+            {
+              source: "https://github.com/vercel-labs/agent-skills",
+              skills: ["vercel-react-best-practices"],
+              trust: "official",
+              causedBy: "web/nextjs",
+              reason: "React and Next.js app code"
+            }
+          ]
+        })
+      ]
+    });
+
+    const result = await applyCreatePlan(plan, {
+      parentDirectory,
+      runCommand: async () => ({ exitCode: 1, stdout: "", stderr: "network unavailable" })
+    });
+
+    const expectedUnresolved = [
+      {
+        source: "https://github.com/vercel-labs/agent-skills",
+        skills: ["vercel-react-best-practices"],
+        trust: "unresolved",
+        causedBy: "web/nextjs",
+        reason: "Skill install failed: network unavailable"
+      }
+    ];
+    expect(result.manifest.aiSkills.installed).toEqual([]);
+    expect(result.manifest.aiSkills.unresolved).toEqual(expectedUnresolved);
+
+    const manifest = JSON.parse(await readFile(join(result.projectDirectory, ".stackkit", "project.json"), "utf8"));
+    expect(manifest.aiSkills.unresolved).toEqual(expectedUnresolved);
+
+    const lock = JSON.parse(await readFile(join(result.projectDirectory, "skills-lock.json"), "utf8"));
+    expect(lock.installed).toEqual([]);
+    expect(lock.unresolved).toEqual(expectedUnresolved);
+  });
 });

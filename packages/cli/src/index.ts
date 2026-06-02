@@ -6,13 +6,18 @@ import { fileURLToPath } from "node:url";
 
 import { Command } from "commander";
 
-import { applyCreatePlan, createCreatePlan, type CreatePlan } from "@stackkit/core";
+import { applyCreatePlan, createCreatePlan, type CreatePlan, type RunCommand } from "@stackkit/core";
 import { builtinModules, builtinPresets, curatedSkillSourceAllowlist } from "@stackkit/registry";
 import { stackkitConfigSchema } from "@stackkit/schemas";
 
 export type CreateDryRunPlan = CreatePlan;
 
-export function createStackkitProgram(): Command {
+export type StackkitProgramOptions = {
+  runCommand?: RunCommand;
+};
+
+export function createStackkitProgram(programOptions: StackkitProgramOptions = {}): Command {
+  const runCommand = programOptions.runCommand ?? runLocalCommand;
   const program = new Command()
     .name("stackkit")
     .description("Generate and maintain Stackkit-managed monorepos");
@@ -34,7 +39,8 @@ export function createStackkitProgram(): Command {
 
       const result = await applyCreatePlan(plan, {
         parentDirectory: process.cwd(),
-        targetDirectory
+        targetDirectory,
+        runCommand
       });
       writeProgramOutput(program, `Created Stackkit project at ${result.projectDirectory}\n`);
     });
@@ -98,6 +104,43 @@ export function formatCreateDryRunPlan(plan: CreatePlan): string {
     ""
   ].join("\n");
 }
+
+export const runLocalCommand: RunCommand = async (command, args, options) => {
+  const { spawn } = await import("node:child_process");
+
+  return await new Promise((resolve) => {
+    const child = spawn(command, [...args], {
+      cwd: options.cwd,
+      shell: process.platform === "win32",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      resolve({
+        exitCode: 1,
+        stdout,
+        stderr: stderr || error.message
+      });
+    });
+    child.on("close", (code) => {
+      resolve({
+        exitCode: code ?? 1,
+        stdout,
+        stderr
+      });
+    });
+  });
+};
 
 function writeProgramOutput(program: Command, output: string): void {
   const writeOut = program.configureOutput().writeOut;

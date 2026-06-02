@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, posix } from "node:path";
 import { renderPnpmTurboFoundation } from "@stackkit/templates";
 import {
   aiSkillRegistryEntrySchema,
+  skillsLockSchema,
   stackkitManifestSchema,
   stackkitModuleSchema,
   stackkitPresetSchema,
@@ -16,6 +17,7 @@ import {
   type FileOperation,
   type ModuleId,
   type ModuleMigration,
+  type SkillsLock,
   type StackkitConfig,
   type StackkitManifest,
   type StackkitModule,
@@ -41,6 +43,30 @@ export type AiSkillInstallCommand = {
   args: string[];
   target: AiSkillTarget;
   skill: AiSkillDependency;
+};
+
+export type CommandResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
+export type RunCommand = (
+  command: string,
+  args: readonly string[],
+  options: {
+    cwd?: string;
+  }
+) => Promise<CommandResult>;
+
+export type InstallAiSkillsOptions = {
+  cwd?: string;
+  runCommand: RunCommand;
+};
+
+export type InstallAiSkillsResult = {
+  installed: AiSkillDependency[];
+  unresolved: AiSkillDependency[];
 };
 
 export type CreatePlan = {
@@ -76,6 +102,8 @@ export type ApplyCreatePlanOptions = {
   targetDirectory?: string;
   stackkitVersion?: string;
   now?: () => Date;
+  installSkills?: boolean;
+  runCommand?: RunCommand;
 };
 
 export type ApplyCreatePlanResult = {
@@ -117,6 +145,11 @@ export type ManifestFileRecord = {
   path: string;
   owner: string;
   hash: string;
+};
+
+export type WriteLocalAiGuidanceInput = {
+  targets: readonly AiSkillTarget[];
+  local: readonly AiSkillDependency[];
 };
 
 type FilePlanOperation = {
@@ -230,6 +263,40 @@ export function planAiSkillInstallCommands(
   return commands;
 }
 
+export async function installAiSkills(
+  commands: readonly AiSkillInstallCommand[],
+  options: InstallAiSkillsOptions
+): Promise<InstallAiSkillsResult> {
+  const installed = new Map<string, AiSkillDependency>();
+  const unresolved = new Map<string, AiSkillDependency>();
+
+  for (const installCommand of commands) {
+    try {
+      const result = await options.runCommand(installCommand.command, installCommand.args, { cwd: options.cwd });
+
+      if (result.exitCode === 0) {
+        installed.set(skillDependencyKey(installCommand.skill), installCommand.skill);
+        continue;
+      }
+
+      const message = normalizeCommandFailureMessage(result);
+      const failedSkill = markSkillInstallFailed(installCommand.skill, message);
+      unresolved.set(skillDependencyKey(failedSkill), failedSkill);
+    } catch (error) {
+      const failedSkill = markSkillInstallFailed(
+        installCommand.skill,
+        error instanceof Error ? error.message : String(error)
+      );
+      unresolved.set(skillDependencyKey(failedSkill), failedSkill);
+    }
+  }
+
+  return {
+    installed: [...installed.values()],
+    unresolved: [...unresolved.values()]
+  };
+}
+
 export type ResolveModuleGraphOptions = {
   presets?: readonly StackkitPreset[];
   availablePresets?: readonly StackkitPreset[];
@@ -323,6 +390,7 @@ export async function applyCreatePlan(
   }
 
   const files = await applyFilePlan(projectDirectory, plan.filePlan);
+  const skillInstallResult = await resolveSkillInstallResult(plan, projectDirectory, options);
   const manifest = await writeManifest(projectDirectory, {
     schemaVersion: 1,
     stackkitVersion: options.stackkitVersion ?? "0.0.0",
@@ -332,12 +400,23 @@ export async function applyCreatePlan(
     files,
     aiSkills: {
       targets: plan.aiSkills.targets,
-      installed: plan.aiSkills.resolved.filter((skill) => skill.trust === "official" || skill.trust === "curated"),
-      unresolved: plan.aiSkills.unresolved
+      installed: skillInstallResult.installed,
+      unresolved: skillInstallResult.unresolved
     },
     migrations: {
       applied: []
     }
+  });
+  await writeSkillsLock(projectDirectory, {
+    schemaVersion: 1,
+    targets: plan.aiSkills.targets,
+    installed: skillInstallResult.installed,
+    local: plan.aiSkills.local,
+    unresolved: skillInstallResult.unresolved
+  });
+  await writeLocalAiGuidance(projectDirectory, {
+    targets: plan.aiSkills.targets,
+    local: plan.aiSkills.local
   });
 
   return { projectDirectory, manifest };
@@ -438,6 +517,31 @@ export async function writeManifest(projectDirectory: string, manifest: Stackkit
   return parsed;
 }
 
+export async function writeSkillsLock(projectDirectory: string, lock: SkillsLock): Promise<SkillsLock> {
+  const parsed = skillsLockSchema.parse(lock);
+
+  await writeFile(join(projectDirectory, "skills-lock.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+
+  return parsed;
+}
+
+export async function writeLocalAiGuidance(
+  projectDirectory: string,
+  input: WriteLocalAiGuidanceInput
+): Promise<void> {
+  const enabledTargets = input.targets.filter((target) => target.enabled);
+
+  for (const skill of input.local) {
+    for (const skillName of skill.skills) {
+      for (const target of enabledTargets) {
+        const skillDirectory = join(projectDirectory, target.directory, "skills", skillName);
+        await mkdir(skillDirectory, { recursive: true });
+        await writeFile(join(skillDirectory, "SKILL.md"), renderLocalAiGuidance(skillName, skill), "utf8");
+      }
+    }
+  }
+}
+
 async function readExistingFile(path: string): Promise<string | undefined> {
   try {
     const fileStat = await stat(path);
@@ -522,12 +626,82 @@ function markUnresolved(dependency: AiSkillDependency): AiSkillDependency {
   };
 }
 
+function markSkillInstallFailed(dependency: AiSkillDependency, message: string): AiSkillDependency {
+  return {
+    ...dependency,
+    trust: "unresolved",
+    reason: `Skill install failed: ${message}`
+  };
+}
+
 function skillDependencyKey(dependency: AiSkillDependency): string {
   return `${dependency.trust}:${dependency.source ?? "local"}:${dependency.causedBy}`;
 }
 
 function mergeSkills(left: readonly string[], right: readonly string[]): string[] {
   return [...new Set([...left, ...right])];
+}
+
+function normalizeCommandFailureMessage(result: CommandResult): string {
+  const output = result.stderr.trim() || result.stdout.trim();
+
+  if (output) {
+    return output;
+  }
+
+  return `exit code ${result.exitCode}`;
+}
+
+async function resolveSkillInstallResult(
+  plan: CreatePlan,
+  projectDirectory: string,
+  options: ApplyCreatePlanOptions
+): Promise<InstallAiSkillsResult> {
+  if (options.installSkills === false) {
+    return {
+      installed: plan.aiSkills.resolved.filter((skill) => skill.trust === "official" || skill.trust === "curated"),
+      unresolved: plan.aiSkills.unresolved
+    };
+  }
+
+  if (plan.skillInstallCommands.length === 0) {
+    return {
+      installed: [],
+      unresolved: plan.aiSkills.unresolved
+    };
+  }
+
+  const installResult = await installAiSkills(plan.skillInstallCommands, {
+    cwd: projectDirectory,
+    runCommand: options.runCommand ?? missingSkillInstallCommandRunner
+  });
+
+  return {
+    installed: installResult.installed,
+    unresolved: [...plan.aiSkills.unresolved, ...installResult.unresolved]
+  };
+}
+
+async function missingSkillInstallCommandRunner(): Promise<CommandResult> {
+  return {
+    exitCode: 1,
+    stdout: "",
+    stderr: "No command runner configured for AI skill installation"
+  };
+}
+
+function renderLocalAiGuidance(skillName: string, skill: AiSkillDependency): string {
+  return [
+    "---",
+    `name: ${skillName}`,
+    `description: Local Stackkit guidance for ${skill.causedBy}`,
+    "---",
+    "",
+    `Module: ${skill.causedBy}`,
+    "",
+    skill.reason,
+    ""
+  ].join("\n");
 }
 
 function appendUniqueFileOperations(
