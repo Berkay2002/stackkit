@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createStackkitProgram, isDirectCliExecution } from "./index.js";
+import { buildConfigFromInteractiveAnswers, createStackkitProgram, isDirectCliExecution } from "./index.js";
 
 const tempDirectories: string[] = [];
 
@@ -224,6 +224,23 @@ describe("createStackkitProgram", () => {
     await program.parseAsync(["preset", "inspect", "next-only"], { from: "user" });
 
     expect(output).toContain("workspace/pnpm-turbo");
+  });
+
+  it("maps interactive answers to Stackkit config", () => {
+    expect(
+      buildConfigFromInteractiveAnswers({
+        projectName: "acme-dashboard",
+        preset: "next-fastapi-postgres-auth0",
+        aiTargets: ["codex", "claude-code"]
+      })
+    ).toEqual({
+      projectName: "acme-dashboard",
+      packageManager: "pnpm",
+      workspace: "pnpm-turbo",
+      preset: "next-fastapi-postgres-auth0",
+      modules: [],
+      ai: { skillTargets: ["codex", "claude-code"] }
+    });
   });
 
   it("does not create the target directory or run skill installs during create --dry-run", async () => {

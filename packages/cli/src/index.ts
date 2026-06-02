@@ -8,13 +8,32 @@ import { Command } from "commander";
 
 import { applyCreatePlan, createCreatePlan, validateStackkitConfig, type CreatePlan, type RunCommand } from "@stackkit/core";
 import { builtinModules, builtinPresets, curatedSkillSourceAllowlist } from "@stackkit/registry";
-import { stackkitConfigSchema } from "@stackkit/schemas";
+import { stackkitConfigSchema, type AiSkillAgent, type StackkitConfig } from "@stackkit/schemas";
 
 export type CreateDryRunPlan = CreatePlan;
 
 export type StackkitProgramOptions = {
   runCommand?: RunCommand;
 };
+
+export type InteractiveAnswers = {
+  projectName: string;
+  preset: string;
+  aiTargets: AiSkillAgent[];
+};
+
+export function buildConfigFromInteractiveAnswers(answers: InteractiveAnswers): StackkitConfig {
+  return {
+    projectName: answers.projectName,
+    packageManager: "pnpm",
+    workspace: "pnpm-turbo",
+    preset: answers.preset,
+    modules: [],
+    ai: {
+      skillTargets: answers.aiTargets
+    }
+  };
+}
 
 export function createStackkitProgram(programOptions: StackkitProgramOptions = {}): Command {
   const runCommand = programOptions.runCommand ?? runLocalCommand;
@@ -106,7 +125,14 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
 
 export async function createDryRunPlanFromConfig(configPath?: string): Promise<CreatePlan> {
   if (!configPath) {
-    throw new Error("Interactive create is not implemented yet. Pass --config <path>.");
+    const interactiveConfig = await promptForCreateConfig();
+
+    return createCreatePlan({
+      config: interactiveConfig,
+      availableModules: builtinModules,
+      availablePresets: builtinPresets,
+      curatedSkillSourceAllowlist
+    });
   }
 
   const config = stackkitConfigSchema.parse(JSON.parse(await readFile(configPath, "utf8")));
@@ -178,6 +204,65 @@ export const runLocalCommand: RunCommand = async (command, args, options) => {
     });
   });
 };
+
+async function promptForCreateConfig(): Promise<StackkitConfig> {
+  const prompts = await import("@clack/prompts");
+
+  prompts.intro("Create a Stackkit project");
+
+  const projectName = await prompts.text({
+    message: "Project name",
+    placeholder: "acme-dashboard",
+    validate: (value) => (value.trim().length > 0 ? undefined : "Project name is required")
+  });
+
+  if (prompts.isCancel(projectName)) {
+    return cancelCreate(prompts);
+  }
+
+  const preset = await prompts.select({
+    message: "Preset",
+    options: builtinPresets.map((presetItem) => ({
+      value: presetItem.id,
+      label: presetItem.title,
+      hint: presetItem.description
+    }))
+  });
+
+  if (prompts.isCancel(preset)) {
+    return cancelCreate(prompts);
+  }
+
+  const aiTargets = await prompts.multiselect<AiSkillAgent>({
+    message: "AI skill targets",
+    options: [
+      { value: "codex", label: ".agents  Codex-compatible project skills" },
+      { value: "claude-code", label: ".claude  Claude Code project skills" }
+    ],
+    initialValues: ["codex"],
+    required: true
+  });
+
+  if (prompts.isCancel(aiTargets)) {
+    return cancelCreate(prompts);
+  }
+
+  prompts.outro("Stackkit plan ready");
+
+  return stackkitConfigSchema.parse(
+    buildConfigFromInteractiveAnswers({
+      projectName,
+      preset,
+      aiTargets
+    })
+  );
+}
+
+function cancelCreate(prompts: typeof import("@clack/prompts")): never {
+  prompts.cancel("Create cancelled");
+  process.exitCode = 1;
+  throw new Error("Create cancelled");
+}
 
 function writeProgramOutput(program: Command, output: string): void {
   const writeOut = program.configureOutput().writeOut;
