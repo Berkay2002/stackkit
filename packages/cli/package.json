@@ -4,12 +4,14 @@
   "description": "CLI for generating and maintaining Stackkit monorepos.",
   "license": "MIT",
   "type": "module",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "bin": {
-    "stackkit": "./dist/index.js"
+    "stackkit": "dist/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
