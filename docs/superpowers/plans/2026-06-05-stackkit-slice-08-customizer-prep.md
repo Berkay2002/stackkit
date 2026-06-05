@@ -57,7 +57,7 @@ it("declares icon keys for common customizer choices", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/registry test -- module-files
+pnpm --filter @berkayorhan/stackkit-registry test -- module-files
 ```
 
 Expected: fails because `icon` is missing.
@@ -96,8 +96,8 @@ These are keys, not imported icon components.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test
-pnpm --filter @stackkit/registry test -- module-files
+pnpm --filter @berkayorhan/stackkit-schemas test
+pnpm --filter @berkayorhan/stackkit-registry test -- module-files
 ```
 
 Expected: pass.
@@ -169,7 +169,7 @@ describe("buildCustomizerCatalog", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- customizer-catalog
+pnpm --filter @berkayorhan/stackkit-core test -- customizer-catalog
 ```
 
 Expected: fails because catalog API is missing.
@@ -241,7 +241,7 @@ export function buildCustomizerCatalog(input: {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- customizer-catalog
+pnpm --filter @berkayorhan/stackkit-core test -- customizer-catalog
 ```
 
 Expected: pass.
@@ -301,9 +301,9 @@ Expected: `True`.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test
-pnpm --filter @stackkit/registry test -- module-files
-pnpm --filter @stackkit/core test -- customizer-catalog
+pnpm --filter @berkayorhan/stackkit-schemas test
+pnpm --filter @berkayorhan/stackkit-registry test -- module-files
+pnpm --filter @berkayorhan/stackkit-core test -- customizer-catalog
 ```
 
 Expected: pass.

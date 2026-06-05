@@ -1,5 +1,5 @@
 {
-  "name": "@stackkit/cli",
+  "name": "@berkayorhan/stackkit",
   "version": "0.1.0",
   "description": "CLI for generating and maintaining Stackkit monorepos.",
   "license": "MIT",
@@ -26,9 +26,9 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "@stackkit/core": "workspace:*",
-    "@stackkit/registry": "workspace:*",
-    "@stackkit/schemas": "workspace:*",
+    "@berkayorhan/stackkit-core": "workspace:*",
+    "@berkayorhan/stackkit-registry": "workspace:*",
+    "@berkayorhan/stackkit-schemas": "workspace:*",
     "commander": "^14.0.0"
   }
 }

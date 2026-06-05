@@ -12,12 +12,12 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@stackkit/cli": ["packages/cli/src/index.ts"],
-      "@stackkit/core": ["packages/core/src/index.ts"],
-      "@stackkit/registry": ["packages/registry/src/index.ts"],
-      "@stackkit/schemas": ["packages/schemas/src/index.ts"],
-      "@stackkit/templates": ["packages/templates/src/index.ts"],
-      "@stackkit/test-utils": ["packages/test-utils/src/index.ts"]
+      "@berkayorhan/stackkit": ["packages/cli/src/index.ts"],
+      "@berkayorhan/stackkit-core": ["packages/core/src/index.ts"],
+      "@berkayorhan/stackkit-registry": ["packages/registry/src/index.ts"],
+      "@berkayorhan/stackkit-schemas": ["packages/schemas/src/index.ts"],
+      "@berkayorhan/stackkit-templates": ["packages/templates/src/index.ts"],
+      "@berkayorhan/stackkit-test-utils": ["packages/test-utils/src/index.ts"]
     }
   }
 }

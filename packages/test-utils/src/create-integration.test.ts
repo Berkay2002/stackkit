@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { applyCreatePlan, createCreatePlan, resolveStackAxes } from "@stackkit/core";
-import { builtinModules, curatedSkillSourceAllowlist } from "@stackkit/registry";
+import { applyCreatePlan, createCreatePlan, resolveStackAxes } from "@berkayorhan/stackkit-core";
+import { builtinModules, curatedSkillSourceAllowlist } from "@berkayorhan/stackkit-registry";
 
 const tempDirectories: string[] = [];
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));

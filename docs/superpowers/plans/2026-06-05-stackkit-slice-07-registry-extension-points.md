@@ -4,7 +4,7 @@
 
 **Goal:** Prepare maintainable registry extension points without making external registries part of the default user flow.
 
-**Architecture:** Treat the built-in registry as a `StackkitRegistry` object. Add schema support for project-level registry declarations. Keep external registry loading read-only and local-file-only in this slice. Remote fetching and trusted lifecycle hooks remain deferred. Keep `@stackkit/core` registry-neutral to avoid cycles; CLI and registry consumers pass registries into core helpers.
+**Architecture:** Treat the built-in registry as a `StackkitRegistry` object. Add schema support for project-level registry declarations. Keep external registry loading read-only and local-file-only in this slice. Remote fetching and trusted lifecycle hooks remain deferred. Keep `@berkayorhan/stackkit-core` registry-neutral to avoid cycles; CLI and registry consumers pass registries into core helpers.
 
 **Tech Stack:** TypeScript, Zod, Vitest, Node fs/path APIs.
 
@@ -22,7 +22,7 @@
 
 ## Review Hardening
 
-- Do not make `@stackkit/core` import `@stackkit/registry`. Current registry code imports shared definitions used by core, so core importing the built-in registry risks a dependency cycle.
+- Do not make `@berkayorhan/stackkit-core` import `@berkayorhan/stackkit-registry`. Current registry code imports shared definitions used by core, so core importing the built-in registry risks a dependency cycle.
 - If core helpers need registry data, pass `builtinRegistry` or loaded registries as function input from CLI or tests.
 - Add `stackkitRegistrySchema` after module and preset schemas are defined, then add `registries` to `stackkitConfigSchema`.
 - Configured registries must have a visible read-only flow. Implement `stackkit registry list --config <path>` or do not expose the config field yet.
@@ -67,7 +67,7 @@ describe("builtinRegistry", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/registry test -- registry
+pnpm --filter @berkayorhan/stackkit-registry test -- registry
 ```
 
 Expected: fails because `builtinRegistry` is missing.
@@ -104,15 +104,15 @@ export const builtinRegistry = {
 
 If schema parsing requires mutable arrays, define modules and presets first, then parse with `stackkitRegistrySchema`.
 
-Add a test that imports `stackkitRegistrySchema` from `@stackkit/schemas` and asserts `stackkitRegistrySchema.parse(builtinRegistry)` succeeds.
+Add a test that imports `stackkitRegistrySchema` from `@berkayorhan/stackkit-schemas` and asserts `stackkitRegistrySchema.parse(builtinRegistry)` succeeds.
 
 - [ ] **Step 5: Run registry tests**
 
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test
-pnpm --filter @stackkit/registry test -- registry
+pnpm --filter @berkayorhan/stackkit-schemas test
+pnpm --filter @berkayorhan/stackkit-registry test -- registry
 ```
 
 Expected: pass.
@@ -146,7 +146,7 @@ it("accepts project-level registry declarations", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- config
+pnpm --filter @berkayorhan/stackkit-schemas test -- config
 ```
 
 Expected: fails because `registries` is missing.
@@ -164,7 +164,7 @@ registries: z.record(z.string(), z.string()).default({})
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- config
+pnpm --filter @berkayorhan/stackkit-schemas test -- config
 ```
 
 Expected: pass.
@@ -216,7 +216,7 @@ describe("loadProjectRegistries", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- registry
+pnpm --filter @berkayorhan/stackkit-core test -- registry
 ```
 
 Expected: fails because loader is missing.
@@ -251,14 +251,14 @@ export async function loadProjectRegistries(
 }
 ```
 
-Import schema/type from `@stackkit/schemas`.
+Import schema/type from `@berkayorhan/stackkit-schemas`.
 
 - [ ] **Step 4: Run registry tests**
 
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- registry
+pnpm --filter @berkayorhan/stackkit-core test -- registry
 ```
 
 Expected: pass.
@@ -286,7 +286,7 @@ it("lists the built-in registry", async () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: fails because registry command group is missing.
@@ -318,7 +318,7 @@ This loads local registries declared in the config, prints built-in plus local r
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.
@@ -333,10 +333,10 @@ Expected: pass.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- config
-pnpm --filter @stackkit/registry test -- registry
-pnpm --filter @stackkit/core test -- registry
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit-schemas test -- config
+pnpm --filter @berkayorhan/stackkit-registry test -- registry
+pnpm --filter @berkayorhan/stackkit-core test -- registry
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.

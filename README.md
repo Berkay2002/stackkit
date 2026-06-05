@@ -41,13 +41,13 @@ Known gaps:
 After the first npm publish:
 
 ```bash
-npx @stackkit/cli@latest create my-app --web next --api fastapi --db postgres --auth auth0
+npx @berkayorhan/stackkit@latest create my-app --web next --api fastapi --db postgres --auth auth0
 ```
 
 Or install globally:
 
 ```bash
-npm install -g @stackkit/cli
+npm install -g @berkayorhan/stackkit
 stackkit create my-app --web next
 ```
 
@@ -165,13 +165,13 @@ stackkit create my-app --skill-link symlink
 
 Runtime packages published from this repo:
 
-- `@stackkit/cli`
-- `@stackkit/core`
-- `@stackkit/registry`
-- `@stackkit/schemas`
-- `@stackkit/templates`
+- `@berkayorhan/stackkit`
+- `@berkayorhan/stackkit-core`
+- `@berkayorhan/stackkit-registry`
+- `@berkayorhan/stackkit-schemas`
+- `@berkayorhan/stackkit-templates`
 
-`@stackkit/test-utils` is private test infrastructure and is not published.
+`@berkayorhan/stackkit-test-utils` is private test infrastructure and is not published.
 
 ## Development
 

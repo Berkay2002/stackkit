@@ -62,7 +62,7 @@ it("declares unique friendly aliases for public modules", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/registry test -- module-files
+pnpm --filter @berkayorhan/stackkit-registry test -- module-files
 ```
 
 Expected: fails because aliases are missing.
@@ -117,8 +117,8 @@ Do not give `auth0` to service-specific modules directly. Use resolver logic for
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test
-pnpm --filter @stackkit/registry test -- module-files
+pnpm --filter @berkayorhan/stackkit-schemas test
+pnpm --filter @berkayorhan/stackkit-registry test -- module-files
 ```
 
 Expected: pass.
@@ -185,7 +185,7 @@ describe("module aliases", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- module-aliases
+pnpm --filter @berkayorhan/stackkit-core test -- module-aliases
 ```
 
 Expected: fails because resolver functions are missing.
@@ -243,7 +243,7 @@ Throw on mutually exclusive auth selections and unknown aliases.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- module-aliases
+pnpm --filter @berkayorhan/stackkit-core test -- module-aliases
 ```
 
 Expected: pass.
@@ -287,8 +287,8 @@ Normalize comma-separated values where a flag can take multiple aliases, resolve
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- module-aliases
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit-core test -- module-aliases
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.
@@ -340,7 +340,7 @@ describe("offline recipes", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- recipe
+pnpm --filter @berkayorhan/stackkit-core test -- recipe
 ```
 
 Expected: fails because functions are missing.
@@ -388,8 +388,8 @@ export function decodeRecipe(code: string): StackkitRecipe {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test
-pnpm --filter @stackkit/core test -- recipe
+pnpm --filter @berkayorhan/stackkit-schemas test
+pnpm --filter @berkayorhan/stackkit-core test -- recipe
 ```
 
 Expected: pass.
@@ -422,7 +422,7 @@ it("encodes and decodes recipes", async () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: fails because recipe command group is missing.
@@ -445,7 +445,7 @@ For `encode --preset next`, create a recipe with default package manager and AI 
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.
@@ -480,7 +480,7 @@ Add titles, descriptions, aliases/categories where needed, and fix module lists 
 Run:
 
 ```powershell
-pnpm --filter @stackkit/registry test -- presets
+pnpm --filter @berkayorhan/stackkit-registry test -- presets
 ```
 
 Expected: pass.
@@ -495,10 +495,10 @@ Expected: pass.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test
-pnpm --filter @stackkit/registry test
-pnpm --filter @stackkit/core test -- module-aliases recipe
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit-schemas test
+pnpm --filter @berkayorhan/stackkit-registry test
+pnpm --filter @berkayorhan/stackkit-core test -- module-aliases recipe
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.

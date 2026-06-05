@@ -11,7 +11,7 @@ import {
   renderPnpmTurboFoundation,
   renderShadcnUi,
   renderVercelFiles
-} from "@stackkit/templates";
+} from "@berkayorhan/stackkit-templates";
 import {
   aiSkillRegistryEntrySchema,
   envVarDefinitionSchema,
@@ -52,7 +52,7 @@ import {
   type StackkitRecipe,
   type StackkitRecipeInput,
   type TaskDefinition
-} from "@stackkit/schemas";
+} from "@berkayorhan/stackkit-schemas";
 
 export type {
   AiSkillDependency,

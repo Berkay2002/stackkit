@@ -1,5 +1,5 @@
 {
-  "name": "@stackkit/schemas",
+  "name": "@berkayorhan/stackkit-schemas",
   "version": "0.1.0",
   "description": "Shared schemas for Stackkit monorepo generation.",
   "license": "MIT",

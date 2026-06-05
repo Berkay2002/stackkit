@@ -1,4 +1,4 @@
-import type { FileOperation } from "@stackkit/schemas";
+import type { FileOperation } from "@berkayorhan/stackkit-schemas";
 
 type PnpmTurboFoundationOptions = {
   projectName: string;

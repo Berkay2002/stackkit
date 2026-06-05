@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveModuleGraph } from "@stackkit/core";
+import { resolveModuleGraph } from "@berkayorhan/stackkit-core";
 
 import { builtinModules } from "./index.js";
 

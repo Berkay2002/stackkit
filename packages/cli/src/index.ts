@@ -54,9 +54,9 @@ import {
   type StackkitModule,
   type StackkitRegistry,
   type StackkitRecipe
-} from "@stackkit/core";
-import { builtinModules, builtinPresets, builtinRegistry, curatedSkillSourceAllowlist } from "@stackkit/registry";
-import { stackkitConfigSchema, type AiSkillAgent, type PackageManager, type StackkitConfig } from "@stackkit/schemas";
+} from "@berkayorhan/stackkit-core";
+import { builtinModules, builtinPresets, builtinRegistry, curatedSkillSourceAllowlist } from "@berkayorhan/stackkit-registry";
+import { stackkitConfigSchema, type AiSkillAgent, type PackageManager, type StackkitConfig } from "@berkayorhan/stackkit-schemas";
 
 export type CreateDryRunPlan = CreatePlan;
 

@@ -89,7 +89,7 @@ If no shared test helper exists, use the temp helper pattern from nearby tests.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- info
+pnpm --filter @berkayorhan/stackkit-core test -- info
 ```
 
 Expected: fails because `collectInfo` is missing.
@@ -129,8 +129,8 @@ program.command("info").description("Show Stackkit project information").option(
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- info
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit-core test -- info
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass after CLI tests are added.
@@ -163,7 +163,7 @@ Use or create a fixture project with unresolved skills.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- doctor
+pnpm --filter @berkayorhan/stackkit-core test -- doctor
 ```
 
 Expected: fails because `actions` is not part of checks.
@@ -205,9 +205,9 @@ In `doctor` CLI output, print each action indented:
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- lifecycle
-pnpm --filter @stackkit/core test -- doctor
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit-schemas test -- lifecycle
+pnpm --filter @berkayorhan/stackkit-core test -- doctor
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.
@@ -249,8 +249,8 @@ Read `.stackkit/project.json`, find the managed file, re-render expected content
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- diff
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit-core test -- diff
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.
@@ -286,7 +286,7 @@ it("inspects a module alias as JSON", async () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: fails because module commands are missing.
@@ -309,7 +309,7 @@ Use registry metadata and `resolveModuleAlias`.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.
@@ -346,7 +346,7 @@ describe("createFileContentDiff", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- diff
+pnpm --filter @berkayorhan/stackkit-core test -- diff
 ```
 
 Expected: fails because diff helper is missing.
@@ -378,8 +378,8 @@ For `create --dry-run` and `add --dry-run`, support:
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- diff
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit-core test -- diff
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.
@@ -394,8 +394,8 @@ Expected: pass.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- info doctor diff
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit-core test -- info doctor diff
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.

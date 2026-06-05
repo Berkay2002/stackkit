@@ -87,7 +87,7 @@ describe("composeReadme", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- readme
+pnpm --filter @berkayorhan/stackkit-core test -- readme
 ```
 
 Expected: fails because README schema/composer is missing.
@@ -134,8 +134,8 @@ In `renderCreateFiles`, add a `README.md` write operation from `composeReadme`.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test
-pnpm --filter @stackkit/core test -- readme create-plan create-apply
+pnpm --filter @berkayorhan/stackkit-schemas test
+pnpm --filter @berkayorhan/stackkit-core test -- readme create-plan create-apply
 ```
 
 Expected: pass after updating snapshots or exact file counts.
@@ -171,7 +171,7 @@ it("groups env examples from selected modules", async () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- create-execution
+pnpm --filter @berkayorhan/stackkit-core test -- create-execution
 ```
 
 Expected: fails if `target` is unsupported or grouping is absent.
@@ -200,8 +200,8 @@ Use the same ordered env metadata for `.env.example` and README environment tabl
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- file-operations
-pnpm --filter @stackkit/core test -- create-execution
+pnpm --filter @berkayorhan/stackkit-schemas test -- file-operations
+pnpm --filter @berkayorhan/stackkit-core test -- create-execution
 ```
 
 Expected: pass.
@@ -231,7 +231,7 @@ it("renders FastAPI package bridge and health test", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/templates test -- api-fastapi
+pnpm --filter @berkayorhan/stackkit-templates test -- api-fastapi
 ```
 
 Expected: fails if package bridge or projectName option is absent.
@@ -281,7 +281,7 @@ dev = [
 Run:
 
 ```powershell
-pnpm --filter @stackkit/templates test -- api-fastapi
+pnpm --filter @berkayorhan/stackkit-templates test -- api-fastapi
 ```
 
 Expected: pass.
@@ -310,7 +310,7 @@ it("uses one database owner in next-fastapi-postgres-auth0", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/registry test -- presets
+pnpm --filter @berkayorhan/stackkit-registry test -- presets
 ```
 
 Expected: fails if Drizzle remains in the preset.
@@ -324,7 +324,7 @@ Remove `db/drizzle` from `next-fastapi-postgres-auth0`. Ensure `db/sqlalchemy` r
 Run:
 
 ```powershell
-pnpm --filter @stackkit/registry test -- presets
+pnpm --filter @berkayorhan/stackkit-registry test -- presets
 ```
 
 Expected: pass.
@@ -357,7 +357,7 @@ Use package-manager adapter commands from Slice 02 when commands are shown in RE
 Run:
 
 ```powershell
-pnpm --filter @stackkit/templates test -- foundation web-nextjs api-fastapi
+pnpm --filter @berkayorhan/stackkit-templates test -- foundation web-nextjs api-fastapi
 ```
 
 Expected: pass.
@@ -396,7 +396,7 @@ If `uv` is not installed, skip only the API runtime command with an explicit ski
 Run:
 
 ```powershell
-pnpm --filter @stackkit/test-utils test -- create-integration
+pnpm --filter @berkayorhan/stackkit-test-utils test -- create-integration
 ```
 
 Expected: pass.

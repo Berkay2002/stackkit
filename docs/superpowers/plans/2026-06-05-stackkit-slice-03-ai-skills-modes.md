@@ -67,7 +67,7 @@ it("accepts AI skill mode and link mode", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- config
+pnpm --filter @berkayorhan/stackkit-schemas test -- config
 ```
 
 Expected: fails because fields are not defined.
@@ -103,7 +103,7 @@ Keep `unresolved` for failures only.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- config lifecycle
+pnpm --filter @berkayorhan/stackkit-schemas test -- config lifecycle
 ```
 
 Expected: pass.
@@ -163,7 +163,7 @@ Use existing helpers or define local fixtures consistent with the file.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- create-apply
+pnpm --filter @berkayorhan/stackkit-core test -- create-apply
 ```
 
 Expected: fails because mode is ignored.
@@ -198,7 +198,7 @@ If the current lock schema cannot clearly represent planned skills, add a `plann
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- ai-skill-targets skill-installer create-apply
+pnpm --filter @berkayorhan/stackkit-core test -- ai-skill-targets skill-installer create-apply
 ```
 
 Expected: pass.
@@ -239,7 +239,7 @@ it("accepts skills plan mode", async () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: fails because flags are missing.
@@ -271,7 +271,7 @@ For `--skill-link symlink`, first verify the current `npx skills` CLI behavior. 
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.
@@ -286,9 +286,9 @@ Expected: pass.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- config lifecycle
-pnpm --filter @stackkit/core test -- ai-skill-targets skill-installer create-apply
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit-schemas test -- config lifecycle
+pnpm --filter @berkayorhan/stackkit-core test -- ai-skill-targets skill-installer create-apply
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.

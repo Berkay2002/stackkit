@@ -68,7 +68,7 @@ Also add a schema test that rejects invalid `projectName` in `stackkitConfigSche
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- create-plan
+pnpm --filter @berkayorhan/stackkit-core test -- create-plan
 ```
 
 Expected: fails because `validateProjectSlug` is not exported.
@@ -94,7 +94,7 @@ export function validateProjectSlug(name: string): string {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- create-plan
+pnpm --filter @berkayorhan/stackkit-core test -- create-plan
 ```
 
 Expected: pass.
@@ -149,7 +149,7 @@ If `workspaceModule` and `typescriptModule` do not exist in the test file, defin
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- create-plan
+pnpm --filter @berkayorhan/stackkit-core test -- create-plan
 ```
 
 Expected: fails because `stackkit.config.json` is not planned.
@@ -194,7 +194,7 @@ appendUniqueFileOperations(operations, seenPaths, [renderStackkitConfig(config)]
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- create-plan create-apply
+pnpm --filter @berkayorhan/stackkit-core test -- create-plan create-apply
 ```
 
 Expected: pass after adjusting expected managed files in tests that assert exact file lists.
@@ -230,8 +230,8 @@ Add manifest fields for `packageManager`, `source`, and `paths`. Write them from
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- config
-pnpm --filter @stackkit/core test -- create-apply
+pnpm --filter @berkayorhan/stackkit-schemas test -- config
+pnpm --filter @berkayorhan/stackkit-core test -- create-apply
 ```
 
 Expected: pass.
@@ -290,7 +290,7 @@ Use existing helpers in the file where available.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- create-apply
+pnpm --filter @berkayorhan/stackkit-core test -- create-apply
 ```
 
 Expected: non-empty target test fails.
@@ -323,7 +323,7 @@ Import `readdir` from `node:fs/promises`. Call it before `applyFilePlan`.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- create-apply
+pnpm --filter @berkayorhan/stackkit-core test -- create-apply
 ```
 
 Expected: pass.
@@ -359,7 +359,7 @@ Use the local CLI test harness helper names that already exist in the file.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: fails because `create` has no positional name support.
@@ -420,7 +420,7 @@ Wire confirmation for non-dry-run when `--yes` is not present. Use `@clack/promp
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: pass.
@@ -435,9 +435,9 @@ Expected: pass.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- create-plan create-apply
-pnpm --filter @stackkit/schemas test -- config
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit-core test -- create-plan create-apply
+pnpm --filter @berkayorhan/stackkit-schemas test -- config
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: both pass.

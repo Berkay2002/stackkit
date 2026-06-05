@@ -4,7 +4,7 @@
 
 **Goal:** Add shared package-manager adapters for pnpm, npm, yarn, and bun without scattering conditionals through templates and CLI code.
 
-**Architecture:** Schemas validate allowed package managers. Core resolves package-manager behavior through a small adapter API and passes plain template options into templates. Templates must not import `@stackkit/core`, because core already imports templates.
+**Architecture:** Schemas validate allowed package managers. Core resolves package-manager behavior through a small adapter API and passes plain template options into templates. Templates must not import `@berkayorhan/stackkit-core`, because core already imports templates.
 
 **Tech Stack:** TypeScript, Zod, Vitest, Node package metadata.
 
@@ -24,7 +24,7 @@
 ## Review Hardening
 
 - Add the schema enum first. Current schema only accepts `pnpm`; create/config validation must accept `pnpm`, `npm`, `yarn`, and `bun` before CLI flags are wired.
-- Avoid a package cycle. `@stackkit/core` may import templates, but templates must not import core. Either keep adapter helpers in core and pass plain template options, or move only shared types/constants into `@stackkit/schemas`.
+- Avoid a package cycle. `@berkayorhan/stackkit-core` may import templates, but templates must not import core. Either keep adapter helpers in core and pass plain template options, or move only shared types/constants into `@berkayorhan/stackkit-schemas`.
 - The adapter owns `addCommand` as well as install, run, and dlx. If add support is not implemented in this slice, mark it explicitly deferred in code and doctor output.
 - Audit all generated output for hard-coded pnpm, including Dockerfile content and lifecycle hook tests. Either make it package-manager aware or declare the module package-manager limitation.
 - Use current CLI tests' `runProgram` helper unless a new helper is intentionally added.
@@ -51,7 +51,7 @@ expect(() => stackkitConfigSchema.parse({ projectName: "acme", modules: [], pack
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- config
+pnpm --filter @berkayorhan/stackkit-schemas test -- config
 ```
 
 Expected: fails because schema only accepts `pnpm`.
@@ -71,7 +71,7 @@ Use `packageManagerSchema.default("pnpm")` in `stackkitConfigSchema`.
 Run:
 
 ```powershell
-pnpm --filter @stackkit/schemas test -- config
+pnpm --filter @berkayorhan/stackkit-schemas test -- config
 ```
 
 Expected: pass.
@@ -139,7 +139,7 @@ describe("package manager adapters", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- package-manager
+pnpm --filter @berkayorhan/stackkit-core test -- package-manager
 ```
 
 Expected: fails because adapter API is missing.
@@ -212,7 +212,7 @@ export function getPackageManagerAdapter(name: PackageManagerName): PackageManag
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- package-manager
+pnpm --filter @berkayorhan/stackkit-core test -- package-manager
 ```
 
 Expected: pass.
@@ -248,7 +248,7 @@ it("renders bun package manager metadata", () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/templates test -- foundation
+pnpm --filter @berkayorhan/stackkit-templates test -- foundation
 ```
 
 Expected: fails because template options only include `projectName`.
@@ -282,7 +282,7 @@ renderPnpmTurboFoundation({
 })
 ```
 
-Do not import `@stackkit/core` from `packages/templates`.
+Do not import `@berkayorhan/stackkit-core` from `packages/templates`.
 
 For `pnpm`, emit `pnpm-workspace.yaml`. For other package managers, emit `workspaces` in root `package.json`.
 
@@ -293,7 +293,7 @@ Add a Docker template test for non-pnpm output. If Docker still emits pnpm-only 
 Run:
 
 ```powershell
-pnpm --filter @stackkit/templates test -- foundation
+pnpm --filter @berkayorhan/stackkit-templates test -- foundation
 ```
 
 Expected: pass.
@@ -323,7 +323,7 @@ it("uses --pm to override the package manager in create dry-run", async () => {
 Run:
 
 ```powershell
-pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @berkayorhan/stackkit test -- cli
 ```
 
 Expected: fails because `--pm` is missing.
@@ -358,13 +358,13 @@ renderPnpmTurboFoundation({ projectName: config.projectName, packageManager: con
 Run:
 
 ```powershell
-pnpm --filter @stackkit/core test -- package-manager create-plan
-pnpm --filter @stackkit/schemas test -- config
-pnpm --filter @stackkit/templates test -- foundation
-pnpm --filter @stackkit/cli test -- cli
-pnpm --filter @stackkit/core typecheck
-pnpm --filter @stackkit/templates typecheck
-pnpm --filter @stackkit/cli typecheck
+pnpm --filter @berkayorhan/stackkit-core test -- package-manager create-plan
+pnpm --filter @berkayorhan/stackkit-schemas test -- config
+pnpm --filter @berkayorhan/stackkit-templates test -- foundation
+pnpm --filter @berkayorhan/stackkit test -- cli
+pnpm --filter @berkayorhan/stackkit-core typecheck
+pnpm --filter @berkayorhan/stackkit-templates typecheck
+pnpm --filter @berkayorhan/stackkit typecheck
 ```
 
 Expected: pass.

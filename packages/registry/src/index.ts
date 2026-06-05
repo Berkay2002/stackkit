@@ -1,5 +1,5 @@
-import { defineModule, definePreset } from "@stackkit/core";
-import { stackkitRegistrySchema } from "@stackkit/schemas";
+import { defineModule, definePreset } from "@berkayorhan/stackkit-core";
+import { stackkitRegistrySchema } from "@berkayorhan/stackkit-schemas";
 
 export const curatedSkillSourceAllowlist = [
   "https://github.com/affaan-m/everything-claude-code",

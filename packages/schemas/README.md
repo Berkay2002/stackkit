@@ -1,4 +1,4 @@
-# @stackkit/schemas
+# @berkayorhan/stackkit-schemas
 
 Shared Zod schemas and TypeScript types for Stackkit.
 

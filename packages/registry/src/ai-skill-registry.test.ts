@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveAiSkills } from "@stackkit/core";
+import { resolveAiSkills } from "@berkayorhan/stackkit-core";
 
 import { builtinModules, curatedSkillSourceAllowlist } from "./index.js";
 

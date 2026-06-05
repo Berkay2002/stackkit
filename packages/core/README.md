@@ -1,5 +1,5 @@
-# @stackkit/core
+# @berkayorhan/stackkit-core
 
 Core planning, generation, doctor, diff, recipe, and lifecycle logic for Stackkit.
 
-Most users should install `@stackkit/cli` instead of using this package directly.
+Most users should install `@berkayorhan/stackkit` instead of using this package directly.

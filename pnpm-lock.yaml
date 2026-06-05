@@ -23,37 +23,37 @@ importers:
 
   packages/cli:
     dependencies:
+      '@berkayorhan/stackkit-core':
+        specifier: workspace:*
+        version: link:../core
+      '@berkayorhan/stackkit-registry':
+        specifier: workspace:*
+        version: link:../registry
+      '@berkayorhan/stackkit-schemas':
+        specifier: workspace:*
+        version: link:../schemas
       '@clack/prompts':
         specifier: ^0.11.0
         version: 0.11.0
-      '@stackkit/core':
-        specifier: workspace:*
-        version: link:../core
-      '@stackkit/registry':
-        specifier: workspace:*
-        version: link:../registry
-      '@stackkit/schemas':
-        specifier: workspace:*
-        version: link:../schemas
       commander:
         specifier: ^14.0.0
         version: 14.0.3
 
   packages/core:
     dependencies:
-      '@stackkit/schemas':
+      '@berkayorhan/stackkit-schemas':
         specifier: workspace:*
         version: link:../schemas
-      '@stackkit/templates':
+      '@berkayorhan/stackkit-templates':
         specifier: workspace:*
         version: link:../templates
 
   packages/registry:
     dependencies:
-      '@stackkit/core':
+      '@berkayorhan/stackkit-core':
         specifier: workspace:*
         version: link:../core
-      '@stackkit/schemas':
+      '@berkayorhan/stackkit-schemas':
         specifier: workspace:*
         version: link:../schemas
 
@@ -65,20 +65,20 @@ importers:
 
   packages/templates:
     dependencies:
-      '@stackkit/schemas':
+      '@berkayorhan/stackkit-schemas':
         specifier: workspace:*
         version: link:../schemas
 
   packages/test-utils:
     dependencies:
-      '@stackkit/core':
+      '@berkayorhan/stackkit-core':
         specifier: workspace:*
         version: link:../core
-      '@stackkit/registry':
+      '@berkayorhan/stackkit-registry':
         specifier: workspace:*
         version: link:../registry
     devDependencies:
-      '@stackkit/cli':
+      '@berkayorhan/stackkit':
         specifier: workspace:*
         version: link:../cli
 

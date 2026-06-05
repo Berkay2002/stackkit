@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type RunCommand } from "@stackkit/core";
+import { type RunCommand } from "@berkayorhan/stackkit-core";
 
 import { buildConfigFromInteractiveAnswers, createStackkitProgram, isDirectCliExecution } from "./index.js";
 

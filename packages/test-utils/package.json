@@ -1,5 +1,5 @@
 {
-  "name": "@stackkit/test-utils",
+  "name": "@berkayorhan/stackkit-test-utils",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,10 +17,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@stackkit/core": "workspace:*",
-    "@stackkit/registry": "workspace:*"
+    "@berkayorhan/stackkit-core": "workspace:*",
+    "@berkayorhan/stackkit-registry": "workspace:*"
   },
   "devDependencies": {
-    "@stackkit/cli": "workspace:*"
+    "@berkayorhan/stackkit": "workspace:*"
   }
 }

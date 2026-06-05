@@ -8,7 +8,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@stackkit/schemas": fileURLToPath(new URL("../schemas/src/index.ts", import.meta.url))
+      "@berkayorhan/stackkit-schemas": fileURLToPath(new URL("../schemas/src/index.ts", import.meta.url))
     }
   }
 });

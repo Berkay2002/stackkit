@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { stackkitRegistrySchema } from "@stackkit/schemas";
+import { stackkitRegistrySchema } from "@berkayorhan/stackkit-schemas";
 
 import { builtinRegistry } from "./index.js";
 
