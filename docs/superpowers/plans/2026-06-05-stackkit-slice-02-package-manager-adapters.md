@@ -1,10 +1,10 @@
 # Stackkit Slice 02 Package Manager Adapters Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not create a worktree, branch, commit, stage, reset, or revert unless the user explicitly asks.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Use the existing `codex/stackkit-cli-v1` branch, do not create worktrees, and commit after each verified milestone.
 
 **Goal:** Add shared package-manager adapters for pnpm, npm, yarn, and bun without scattering conditionals through templates and CLI code.
 
-**Architecture:** Package-manager behavior lives in `packages/core` as a small adapter API. Schemas validate the allowed values. Templates receive package-manager-derived strings rather than checking package-manager names themselves.
+**Architecture:** Schemas validate allowed package managers. Core resolves package-manager behavior through a small adapter API and passes plain template options into templates. Templates must not import `@stackkit/core`, because core already imports templates.
 
 **Tech Stack:** TypeScript, Zod, Vitest, Node package metadata.
 
@@ -13,12 +13,68 @@
 ## File Structure
 
 - `packages/schemas/src/index.ts`: validate `packageManager` as `pnpm | npm | yarn | bun`.
+- `packages/schemas/src/config.test.ts`: verify allowed package managers and default `pnpm`.
 - `packages/core/src/index.ts`: add package-manager adapter type and resolver.
 - `packages/core/src/package-manager.test.ts`: test commands and generated metadata.
 - `packages/templates/src/index.ts`: accept package-manager foundation options.
 - `packages/templates/src/foundation.test.ts`: verify generated package files for each manager.
 - `packages/cli/src/index.ts`: add `--pm` and `--package-manager`.
 - `packages/cli/src/cli.test.ts`: cover `--pm bun` dry-run.
+
+## Review Hardening
+
+- Add the schema enum first. Current schema only accepts `pnpm`; create/config validation must accept `pnpm`, `npm`, `yarn`, and `bun` before CLI flags are wired.
+- Avoid a package cycle. `@stackkit/core` may import templates, but templates must not import core. Either keep adapter helpers in core and pass plain template options, or move only shared types/constants into `@stackkit/schemas`.
+- The adapter owns `addCommand` as well as install, run, and dlx. If add support is not implemented in this slice, mark it explicitly deferred in code and doctor output.
+- Audit all generated output for hard-coded pnpm, including Dockerfile content and lifecycle hook tests. Either make it package-manager aware or declare the module package-manager limitation.
+- Use current CLI tests' `runProgram` helper unless a new helper is intentionally added.
+- Verification must include schemas, affected typecheck, and one actual CLI dry-run smoke for `create acme --pm bun --dry-run`.
+
+## Task 0: Extend Package Manager Schema
+
+**Files:**
+- Modify: `packages/schemas/src/index.ts`
+- Modify: `packages/schemas/src/config.test.ts`
+
+- [ ] **Step 1: Add failing schema tests**
+
+Assert:
+
+```ts
+expect(stackkitConfigSchema.parse({ projectName: "acme", modules: [], packageManager: "bun" }).packageManager).toBe("bun");
+expect(stackkitConfigSchema.parse({ projectName: "acme", modules: [] }).packageManager).toBe("pnpm");
+expect(() => stackkitConfigSchema.parse({ projectName: "acme", modules: [], packageManager: "bad" })).toThrow();
+```
+
+- [ ] **Step 2: Run failing tests**
+
+Run:
+
+```powershell
+pnpm --filter @stackkit/schemas test -- config
+```
+
+Expected: fails because schema only accepts `pnpm`.
+
+- [ ] **Step 3: Implement schema enum**
+
+Add:
+
+```ts
+export const packageManagerSchema = z.enum(["pnpm", "npm", "yarn", "bun"]);
+```
+
+Use `packageManagerSchema.default("pnpm")` in `stackkitConfigSchema`.
+
+- [ ] **Step 4: Run schema tests**
+
+Run:
+
+```powershell
+pnpm --filter @stackkit/schemas test -- config
+```
+
+Expected: pass.
 
 ## Task 1: Add Adapter API
 
@@ -102,6 +158,7 @@ export type PackageManagerAdapter = {
   packageManagerField: string;
   installCommand: string[];
   runCommand: (script: string) => string[];
+  addCommand: (packages: readonly string[]) => string[];
   dlxCommand: (packageName: string, args: readonly string[]) => string[];
 };
 
@@ -113,6 +170,7 @@ const packageManagers: Record<PackageManagerName, PackageManagerAdapter> = {
     packageManagerField: "pnpm@10.5.1",
     installCommand: ["pnpm", "install"],
     runCommand: (script) => ["pnpm", script],
+    addCommand: (packages) => ["pnpm", "add", ...packages],
     dlxCommand: (packageName, args) => ["pnpm", "dlx", packageName, ...args]
   },
   npm: {
@@ -121,6 +179,7 @@ const packageManagers: Record<PackageManagerName, PackageManagerAdapter> = {
     packageManagerField: "npm@11.5.2",
     installCommand: ["npm", "install"],
     runCommand: (script) => ["npm", "run", script],
+    addCommand: (packages) => ["npm", "install", ...packages],
     dlxCommand: (packageName, args) => ["npx", "-y", packageName, ...args]
   },
   yarn: {
@@ -129,6 +188,7 @@ const packageManagers: Record<PackageManagerName, PackageManagerAdapter> = {
     packageManagerField: "yarn@4.9.4",
     installCommand: ["yarn", "install"],
     runCommand: (script) => ["yarn", script],
+    addCommand: (packages) => ["yarn", "add", ...packages],
     dlxCommand: (packageName, args) => ["yarn", "dlx", packageName, ...args]
   },
   bun: {
@@ -137,6 +197,7 @@ const packageManagers: Record<PackageManagerName, PackageManagerAdapter> = {
     packageManagerField: "bun@1.2.15",
     installCommand: ["bun", "install"],
     runCommand: (script) => ["bun", "run", script],
+    addCommand: (packages) => ["bun", "add", ...packages],
     dlxCommand: (packageName, args) => ["bunx", packageName, ...args]
   }
 };
@@ -211,9 +272,21 @@ type PnpmTurboFoundationOptions = {
 };
 ```
 
-Add a local package manager field helper or import a small shared type if moving helpers is cleaner. Keep template logic limited to foundation files.
+Core should call the adapter and pass a plain option object into templates:
+
+```ts
+renderPnpmTurboFoundation({
+  projectName: config.projectName,
+  packageManagerField: adapter.packageManagerField,
+  workspaceFile: adapter.workspaceFile
+})
+```
+
+Do not import `@stackkit/core` from `packages/templates`.
 
 For `pnpm`, emit `pnpm-workspace.yaml`. For other package managers, emit `workspaces` in root `package.json`.
+
+Add a Docker template test for non-pnpm output. If Docker still emits pnpm-only commands, mark Docker support as pnpm-only in module metadata and add a doctor warning instead of pretending it is supported.
 
 - [ ] **Step 4: Run template tests**
 
@@ -238,7 +311,7 @@ Add to `packages/cli/src/cli.test.ts`:
 
 ```ts
 it("uses --pm to override the package manager in create dry-run", async () => {
-  const output = await runCli(["node", "stackkit", "create", "acme", "--pm", "bun", "--dry-run"]);
+  const output = await runProgram(["create", "acme", "--pm", "bun", "--dry-run"]);
 
   expect(output.stdout).toContain('"packageManager": "bun"');
   expect(output.stdout).toContain('"packageManager": "bun@');
@@ -286,9 +359,12 @@ Run:
 
 ```powershell
 pnpm --filter @stackkit/core test -- package-manager create-plan
+pnpm --filter @stackkit/schemas test -- config
 pnpm --filter @stackkit/templates test -- foundation
 pnpm --filter @stackkit/cli test -- cli
+pnpm --filter @stackkit/core typecheck
+pnpm --filter @stackkit/templates typecheck
+pnpm --filter @stackkit/cli typecheck
 ```
 
 Expected: pass.
-

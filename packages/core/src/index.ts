@@ -1,5 +1,6 @@
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix } from "node:path";
 
 import {
@@ -13,13 +14,20 @@ import {
 } from "@stackkit/templates";
 import {
   aiSkillRegistryEntrySchema,
+  envVarDefinitionSchema,
+  projectSlugSchema,
   skillsLockSchema,
+  stackkitConfigSchema,
   stackkitManifestSchema,
   stackkitModuleSchema,
   stackkitPresetSchema,
+  stackkitRegistrySchema,
+  stackkitRecipeSchema,
   type AiSkillAgent,
   type AiSkillDependency,
   type AiSkillRegistryEntry,
+  type AiSkillLinkMode,
+  type AiSkillMode,
   type AiSkillTarget,
   type AiSkillTrust,
   type DoctorCheck,
@@ -30,11 +38,19 @@ import {
   type ModuleId,
   type ModuleMigration,
   type PackageChange,
+  type PackageManager,
+  type ReadmeMetadata,
   type SkillsLock,
   type StackkitConfig,
   type StackkitManifest,
+  type StackkitManifestSource,
   type StackkitModule,
+  type StackkitModuleInput,
   type StackkitPreset,
+  type StackkitPresetInput,
+  type StackkitRegistry,
+  type StackkitRecipe,
+  type StackkitRecipeInput,
   type TaskDefinition
 } from "@stackkit/schemas";
 
@@ -42,6 +58,8 @@ export type {
   AiSkillDependency,
   AiSkillAgent,
   AiSkillRegistryEntry,
+  AiSkillLinkMode,
+  AiSkillMode,
   AiSkillTarget,
   AiSkillTrust,
   DoctorCheck,
@@ -51,10 +69,18 @@ export type {
   ModuleId,
   ModuleMigration,
   PackageChange,
+  PackageManager,
+  ReadmeMetadata,
   StackkitConfig,
   StackkitManifest,
+  StackkitManifestSource,
   StackkitModule,
+  StackkitModuleInput,
   StackkitPreset,
+  StackkitPresetInput,
+  StackkitRegistry,
+  StackkitRecipe,
+  StackkitRecipeInput,
   TaskDefinition
 };
 
@@ -64,6 +90,45 @@ export type AiSkillInstallCommand = {
   target: AiSkillTarget;
   skill: AiSkillDependency;
 };
+
+export type PackageManagerName = PackageManager;
+
+export type PackageManagerAdapter = {
+  name: PackageManagerName;
+  lockfile: string;
+  workspaceFile?: string;
+  packageManagerField: string;
+  installCommand: string[];
+  runCommand: (script: string) => string[];
+  addCommand: (packages: readonly string[]) => string[];
+  dlxCommand: (packageName: string, args: readonly string[]) => string[];
+};
+
+export type ComposeReadmeInput = {
+  projectName: string;
+  packageManager: PackageManagerName;
+  modules: readonly StackkitModule[];
+};
+
+type ReadmeCommand = {
+  label: string;
+  command: string;
+};
+
+type ReadmeLayoutEntry = {
+  path: string;
+  description: string;
+};
+
+type NormalizedEnvVar = {
+  name: string;
+  description: string;
+  required: boolean;
+  example?: string;
+  target: "root" | "web" | "api" | "db";
+};
+
+const envTargets = ["root", "web", "api", "db"] as const;
 
 export type CommandResult = {
   exitCode: number;
@@ -89,11 +154,17 @@ export type InstallAiSkillsResult = {
   unresolved: AiSkillDependency[];
 };
 
+type ResolveSkillInstallResult = InstallAiSkillsResult & {
+  planned: AiSkillDependency[];
+};
+
 export type CreatePlan = {
   schemaVersion: 1;
   operation: "create";
   dryRun: true;
   projectName: string;
+  packageManager: StackkitConfig["packageManager"];
+  source: StackkitManifestSource;
   targetDirectoryName: string;
   filePlan: FilePlan;
   warnings: string[];
@@ -103,8 +174,11 @@ export type CreatePlan = {
   }[];
   selectedModules: StackkitModule[];
   aiSkills: {
+    mode: AiSkillMode;
+    linkMode: AiSkillLinkMode;
     targets: AiSkillTarget[];
     resolved: AiSkillDependency[];
+    planned: AiSkillDependency[];
     local: AiSkillDependency[];
     unresolved: AiSkillDependency[];
   };
@@ -113,6 +187,7 @@ export type CreatePlan = {
 
 export type CreatePlanInput = {
   config: StackkitConfig;
+  source?: StackkitManifestSource;
   availableModules: readonly StackkitModule[];
   availablePresets?: readonly StackkitPreset[];
   curatedSkillSourceAllowlist?: readonly string[];
@@ -158,6 +233,7 @@ export type ApplyAddModulesInput = {
   manifest: StackkitManifest;
   moduleIds: readonly string[];
   availableModules: readonly StackkitModule[];
+  curatedSkillSourceAllowlist?: readonly string[];
   skillTargets?: readonly AiSkillTarget[];
   runCommand?: RunCommand;
 };
@@ -196,6 +272,80 @@ export type FilePlan = {
 export type FileConflict = {
   path: string;
   reason: "exists-unowned" | "modified-owned";
+};
+
+export type StackkitInfo = {
+  project: {
+    name: string;
+    packageManager: PackageManagerName;
+    stackkitVersion: string;
+  };
+  source:
+    | {
+        kind: StackkitManifestSource["kind"];
+        path?: string;
+        preset?: string;
+        recipeCode?: string;
+      }
+    | null;
+  modules: {
+    id: string;
+    title?: string;
+    version: string;
+  }[];
+  paths: Record<string, string>;
+  ai: {
+    targets: string[];
+    installed: number;
+    local: number;
+    unresolved: number;
+  };
+};
+
+export type FileDiffPart = {
+  kind: "same" | "added" | "removed";
+  value: string;
+};
+
+export type FileContentDiff = {
+  parts: FileDiffPart[];
+};
+
+export type ManagedFileDiff = {
+  path: string;
+  owner: string;
+  expectedHash: string;
+  currentHash: string | undefined;
+  expectedContent: string;
+  currentContent: string | undefined;
+  diff: FileContentDiff;
+};
+
+export type ModuleDiscoveryEntry = {
+  id: string;
+  version: string;
+  title: string;
+  description: string;
+  aliases: string[];
+  category?: string;
+};
+
+export type CustomizerCatalogChoice = {
+  id: string;
+  alias: string;
+  title: string;
+  description: string;
+  icon?: string;
+};
+
+export type CustomizerCatalog = {
+  presets: {
+    id: string;
+    title: string;
+    description: string;
+    modules: string[];
+  }[];
+  categories: Record<string, CustomizerCatalogChoice[]>;
 };
 
 export type ManifestFileRecord = {
@@ -242,16 +392,335 @@ const aiSkillTargetByAgent: Record<AiSkillAgent, AiSkillTarget> = {
   }
 };
 
-export function defineModule(module: StackkitModule): StackkitModule {
+const packageManagers: Record<PackageManagerName, PackageManagerAdapter> = {
+  pnpm: {
+    name: "pnpm",
+    lockfile: "pnpm-lock.yaml",
+    workspaceFile: "pnpm-workspace.yaml",
+    packageManagerField: "pnpm@10.5.1",
+    installCommand: ["pnpm", "install"],
+    runCommand: (script) => ["pnpm", script],
+    addCommand: (packages) => ["pnpm", "add", ...packages],
+    dlxCommand: (packageName, args) => ["pnpm", "dlx", packageName, ...args]
+  },
+  npm: {
+    name: "npm",
+    lockfile: "package-lock.json",
+    packageManagerField: "npm@11.5.2",
+    installCommand: ["npm", "install"],
+    runCommand: (script) => ["npm", "run", script],
+    addCommand: (packages) => ["npm", "install", ...packages],
+    dlxCommand: (packageName, args) => ["npx", "-y", packageName, ...args]
+  },
+  yarn: {
+    name: "yarn",
+    lockfile: "yarn.lock",
+    packageManagerField: "yarn@4.9.4",
+    installCommand: ["yarn", "install"],
+    runCommand: (script) => ["yarn", script],
+    addCommand: (packages) => ["yarn", "add", ...packages],
+    dlxCommand: (packageName, args) => ["yarn", "dlx", packageName, ...args]
+  },
+  bun: {
+    name: "bun",
+    lockfile: "bun.lock",
+    packageManagerField: "bun@1.2.15",
+    installCommand: ["bun", "install"],
+    runCommand: (script) => ["bun", "run", script],
+    addCommand: (packages) => ["bun", "add", ...packages],
+    dlxCommand: (packageName, args) => ["bunx", packageName, ...args]
+  }
+};
+
+export function defineModule(module: StackkitModuleInput): StackkitModule {
   return stackkitModuleSchema.parse(module);
 }
 
-export function definePreset(preset: StackkitPreset): StackkitPreset {
+export function definePreset(preset: StackkitPresetInput): StackkitPreset {
   return stackkitPresetSchema.parse(preset);
+}
+
+export function buildCustomizerCatalog(input: {
+  modules: readonly StackkitModule[];
+  presets: readonly StackkitPreset[];
+}): CustomizerCatalog {
+  const categories: Record<string, CustomizerCatalogChoice[]> = {};
+
+  for (const module of input.modules) {
+    const category = module.category ?? "other";
+    const choice: CustomizerCatalogChoice = {
+      id: module.id,
+      alias: module.aliases[0] ?? module.id,
+      title: module.title,
+      description: module.description
+    };
+
+    if (module.icon) {
+      choice.icon = module.icon;
+    }
+
+    categories[category] ??= [];
+    categories[category].push(choice);
+  }
+
+  for (const choices of Object.values(categories)) {
+    choices.sort(compareCatalogChoices);
+  }
+
+  return {
+    presets: input.presets
+      .map((preset) => ({
+        id: preset.id,
+        title: preset.title,
+        description: preset.description,
+        modules: [...preset.modules]
+      }))
+      .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id)),
+    categories: Object.fromEntries(Object.entries(categories).sort(([left], [right]) => left.localeCompare(right)))
+  };
 }
 
 export function defineSkillSource(entry: AiSkillRegistryEntry): AiSkillRegistryEntry {
   return aiSkillRegistryEntrySchema.parse(entry);
+}
+
+function compareCatalogChoices(left: CustomizerCatalogChoice, right: CustomizerCatalogChoice): number {
+  return left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
+}
+
+export async function loadProjectRegistries(
+  projectDirectory: string,
+  registries: Record<string, string>
+): Promise<StackkitRegistry[]> {
+  const loaded: StackkitRegistry[] = [];
+
+  for (const [namespace, location] of Object.entries(registries)) {
+    if (/^https?:\/\//i.test(location)) {
+      throw new Error(`Remote registries are not supported yet: ${namespace}`);
+    }
+
+    const fullPath = join(projectDirectory, normalizeProjectPath(location));
+    const parsed = stackkitRegistrySchema.parse(JSON.parse(await readFile(fullPath, "utf8")));
+
+    if (parsed.namespace !== namespace) {
+      throw new Error(`Registry namespace mismatch: expected ${namespace}, got ${parsed.namespace}`);
+    }
+
+    loaded.push(parsed);
+  }
+
+  return loaded;
+}
+
+export function getPackageManagerAdapter(name: PackageManagerName): PackageManagerAdapter {
+  return packageManagers[name];
+}
+
+export function composeReadme(input: ComposeReadmeInput): string {
+  const adapter = getPackageManagerAdapter(input.packageManager);
+  const readme = collectReadmeMetadata(input.modules, adapter);
+  const envVars = normalizeEnvVars(input.modules.flatMap((module) => module.envVars ?? []));
+
+  return [
+    `# ${input.projectName}`,
+    "",
+    "## Stack",
+    renderList(readme.stack),
+    "",
+    "## Project Layout",
+    renderLayout(readme.layout),
+    "",
+    "## Prerequisites",
+    renderList(readme.prerequisites),
+    "",
+    "## Install",
+    renderCommands(readme.installCommands),
+    "",
+    "## Development",
+    renderCommands(readme.devCommands),
+    "",
+    "## Verification",
+    renderCommands(readme.verificationCommands),
+    "",
+    "## Commands",
+    renderCommands(readme.commands),
+    "",
+    "## Environment",
+    renderEnvironmentTable(envVars),
+    "",
+    "## Stackkit",
+    renderList(readme.stackkit),
+    ""
+  ].join("\n");
+}
+
+function collectReadmeMetadata(
+  modules: readonly StackkitModule[],
+  adapter: PackageManagerAdapter
+): Required<ReadmeMetadata> {
+  const metadata = modules.flatMap((module) => (module.readme ? [module.readme] : []));
+  const stack = uniqueStrings([
+    ...metadata.flatMap((item) => item.stack),
+    ...modules.filter((module) => !module.readme?.stack.length).map((module) => module.title)
+  ]);
+  const layout = uniqueLayout(metadata.flatMap((item) => item.layout));
+  const prerequisites = uniqueStrings(metadata.flatMap((item) => item.prerequisites));
+  const installCommands = uniqueCommands(metadata.flatMap((item) => item.installCommands));
+  const devCommands = uniqueCommands(metadata.flatMap((item) => item.devCommands));
+  const verificationCommands = uniqueCommands(metadata.flatMap((item) => item.verificationCommands));
+  const commands = uniqueCommands(metadata.flatMap((item) => item.commands));
+  const stackkit = uniqueStrings(metadata.flatMap((item) => item.stackkit));
+
+  return {
+    stack,
+    layout,
+    prerequisites: prerequisites.length > 0 ? prerequisites : [`${adapter.name} via Corepack where applicable`],
+    installCommands: installCommands.length > 0 ? installCommands : [{ label: "Install dependencies", command: commandToString(adapter.installCommand) }],
+    devCommands: devCommands.length > 0 ? devCommands : [{ label: "Start development", command: commandToString(adapter.runCommand("dev")) }],
+    verificationCommands:
+      verificationCommands.length > 0
+        ? verificationCommands
+        : [
+            { label: "Run tests", command: commandToString(adapter.runCommand("test")) },
+            { label: "Typecheck", command: commandToString(adapter.runCommand("typecheck")) }
+          ],
+    commands:
+      commands.length > 0
+        ? commands
+        : [
+            { label: "Build", command: commandToString(adapter.runCommand("build")) },
+            { label: "Lint", command: commandToString(adapter.runCommand("lint")) },
+            { label: "Format", command: commandToString(adapter.runCommand("format")) }
+          ],
+    stackkit:
+      stackkit.length > 0
+        ? stackkit
+        : ["This project is generated and managed by Stackkit. Keep stackkit.config.json and .stackkit/project.json in sync with lifecycle changes."]
+  };
+}
+
+function renderList(items: readonly string[]): string {
+  if (items.length === 0) {
+    return "_None declared._";
+  }
+
+  return items.map((item) => `- ${item}`).join("\n");
+}
+
+function renderLayout(entries: readonly ReadmeLayoutEntry[]): string {
+  if (entries.length === 0) {
+    return "_No project layout metadata declared._";
+  }
+
+  return entries.map((entry) => `- \`${entry.path}\` - ${entry.description}`).join("\n");
+}
+
+function renderCommands(commands: readonly ReadmeCommand[]): string {
+  if (commands.length === 0) {
+    return "_No commands declared._";
+  }
+
+  return commands.map((command) => `- ${command.label}: \`${command.command}\``).join("\n");
+}
+
+function renderEnvironmentTable(envVars: readonly NormalizedEnvVar[]): string {
+  if (envVars.length === 0) {
+    return "_No environment variables declared._";
+  }
+
+  return [
+    "| Target | Name | Required | Description |",
+    "| --- | --- | --- | --- |",
+    ...envVars.map(
+      (envVar) =>
+        `| ${envTargetLabel(envVar.target)} | \`${envVar.name}\` | ${envVar.required ? "Required" : "Optional"} | ${envVar.description} |`
+    )
+  ].join("\n");
+}
+
+function commandToString(command: readonly string[]): string {
+  return command.join(" ");
+}
+
+function uniqueStrings(items: readonly string[]): string[] {
+  return [...new Set(items)];
+}
+
+function uniqueLayout(entries: readonly ReadmeLayoutEntry[]): ReadmeLayoutEntry[] {
+  return uniqueBy(entries, (entry) => `${entry.path}\0${entry.description}`);
+}
+
+function uniqueCommands(commands: readonly ReadmeCommand[]): ReadmeCommand[] {
+  return uniqueBy(commands, (command) => `${command.label}\0${command.command}`);
+}
+
+function uniqueBy<T>(items: readonly T[], keyFor: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+
+  for (const item of items) {
+    const key = keyFor(item);
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(item);
+  }
+
+  return result;
+}
+
+function normalizeEnvVars(envVars: readonly EnvVarDefinition[]): NormalizedEnvVar[] {
+  const byName = new Map<string, NormalizedEnvVar>();
+
+  for (const envVar of envVars) {
+    const normalized = envVarDefinitionSchema.parse(envVar) as NormalizedEnvVar;
+    const existing = byName.get(normalized.name);
+
+    if (!existing) {
+      byName.set(normalized.name, normalized);
+      continue;
+    }
+
+    if (!isCompatibleEnvVar(existing, normalized)) {
+      throw new Error(`Incompatible environment variable metadata for ${normalized.name}`);
+    }
+  }
+
+  return [...byName.values()].sort((left, right) => {
+    const targetOrder = envTargetOrder(left.target) - envTargetOrder(right.target);
+
+    return targetOrder === 0 ? left.name.localeCompare(right.name) : targetOrder;
+  });
+}
+
+function isCompatibleEnvVar(left: NormalizedEnvVar, right: NormalizedEnvVar): boolean {
+  return (
+    left.description === right.description &&
+    left.required === right.required &&
+    (left.example ?? "") === (right.example ?? "") &&
+    left.target === right.target
+  );
+}
+
+function envTargetOrder(target: NormalizedEnvVar["target"]): number {
+  return { root: 0, web: 1, api: 2, db: 3 }[target];
+}
+
+function envTargetLabel(target: NormalizedEnvVar["target"]): string {
+  return { root: "Root", web: "Web", api: "API", db: "Database" }[target];
+}
+
+export function validateProjectSlug(name: string): string {
+  const parsed = projectSlugSchema.safeParse(name);
+
+  if (!parsed.success) {
+    throw new Error(`Invalid project name: "${name}". Use a lowercase slug such as acme-dashboard.`);
+  }
+
+  return parsed.data;
 }
 
 export function resolveAiSkills(modules: readonly StackkitModule[], options: ResolveAiSkillOptions = {}): AiSkillDependency[] {
@@ -294,7 +763,8 @@ export function resolveAiSkillTargets(agents: readonly AiSkillAgent[] = ["codex"
 
 export function planAiSkillInstallCommands(
   skills: readonly AiSkillDependency[],
-  targets: readonly AiSkillTarget[] = resolveAiSkillTargets()
+  targets: readonly AiSkillTarget[] = resolveAiSkillTargets(),
+  linkMode: AiSkillLinkMode = "copy"
 ): AiSkillInstallCommand[] {
   const commands: AiSkillInstallCommand[] = [];
 
@@ -310,7 +780,18 @@ export function planAiSkillInstallCommands(
 
       commands.push({
         command: "npx",
-        args: ["-y", "skills", "add", skill.source, "--skill", ...skill.skills, "--agent", target.agent, "-y", "--copy"],
+        args: [
+          "-y",
+          "skills",
+          "add",
+          skill.source,
+          "--skill",
+          ...skill.skills,
+          "--agent",
+          target.agent,
+          "-y",
+          ...(linkMode === "copy" ? ["--copy"] : [])
+        ],
         target,
         skill
       });
@@ -355,23 +836,34 @@ export async function installAiSkills(
 }
 
 export function planSkillSyncCommands(lock: SkillsLock): AiSkillInstallCommand[] {
-  return planAiSkillInstallCommands([...lock.installed, ...lock.unresolved], lock.targets);
+  const parsed = skillsLockSchema.parse(lock);
+  const retriableUnresolved = parsed.unresolved.flatMap((skill) => {
+    const retriableSkill = restoreRetriableSkill(skill);
+
+    return retriableSkill ? [retriableSkill] : [];
+  });
+
+  return planAiSkillInstallCommands([...parsed.installed, ...parsed.planned, ...retriableUnresolved], parsed.targets, parsed.linkMode);
 }
 
 export async function applySkillSync(lock: SkillsLock, options: InstallAiSkillsOptions): Promise<SkillsLock> {
-  const result = await installAiSkills(planSkillSyncCommands(lock), options);
-  const installed = mergeSkillDependencies(lock.installed, result.installed);
+  const parsed = skillsLockSchema.parse(lock);
+  const result = await installAiSkills(planSkillSyncCommands(parsed), options);
+  const installed = mergeSkillDependencies(parsed.installed, result.installed);
   const installedKeys = new Set(installed.map(skillDependencyKey));
 
   return {
     schemaVersion: 1,
-    targets: lock.targets,
+    mode: parsed.mode,
+    linkMode: parsed.linkMode,
+    targets: parsed.targets,
     installed,
-    local: lock.local,
+    planned: parsed.planned.filter((skill) => !installedKeys.has(skillDependencyKey(skill))),
+    local: parsed.local,
     // Retain previously-unresolved skills that were not (and could not be) retried,
     // dropping only those that just installed successfully.
     unresolved: mergeSkillDependencies(
-      lock.unresolved.filter((skill) => !installedKeys.has(skillDependencyKey(skill))),
+      parsed.unresolved.filter((skill) => !installedKeys.has(skillDependencyKey(skill))),
       result.unresolved
     )
   };
@@ -383,6 +875,225 @@ export type ResolveModuleGraphOptions = {
   selectedPresets?: readonly string[];
   availableModules?: readonly StackkitModule[];
 };
+
+export type StackAxes = {
+  web?: string;
+  api?: string;
+  db?: string;
+  dbClient?: string;
+  auth?: string | readonly string[];
+  with?: readonly string[];
+  deploy?: readonly string[];
+};
+
+export function resolveModuleAlias(input: string, modules: readonly StackkitModule[]): string {
+  if (modules.some((module) => module.id === input)) {
+    return input;
+  }
+
+  const matches = modules.filter((module) => module.aliases.includes(input));
+
+  if (matches.length === 0) {
+    throw new Error(`Unknown Stackkit module or alias: ${input}`);
+  }
+
+  if (matches.length > 1) {
+    throw new Error(`Ambiguous Stackkit alias: ${input}`);
+  }
+
+  return matches[0].id;
+}
+
+export function resolveStackAxes(axes: StackAxes, modules: readonly StackkitModule[]): string[] {
+  const resolved: string[] = [];
+  const api = axes.api ? resolveModuleAlias(axes.api, modules) : undefined;
+  const web = axes.web ? resolveModuleAlias(axes.web, modules) : undefined;
+  const db = axes.db ? resolveModuleAlias(axes.db, modules) : undefined;
+  const auth = normalizeSingleAuth(axes.auth);
+  const hasNext = web === "web/nextjs";
+  const hasFastApi = api === "api/fastapi";
+  const hasAxum = api === "rust/axum";
+
+  if (hasNext) {
+    appendExistingModules(resolved, modules, [
+      "workspace/pnpm-turbo",
+      "workspace/typescript",
+      "web/nextjs",
+      "ui/shadcn",
+      "quality/eslint"
+    ]);
+  } else if (web) {
+    appendModule(resolved, web);
+  }
+
+  if (hasFastApi) {
+    appendExistingModules(resolved, modules, ["api/fastapi"]);
+  } else if (hasAxum) {
+    appendExistingModules(resolved, modules, ["rust/tokio", "rust/axum"]);
+  } else if (api) {
+    appendModule(resolved, api);
+  }
+
+  if (db === "db/postgres") {
+    appendExistingModules(resolved, modules, ["db/postgres"]);
+    appendDatabaseClient(resolved, modules, axes.dbClient, { hasFastApi, hasAxum });
+  } else if (db) {
+    appendModule(resolved, db);
+  } else if (axes.dbClient) {
+    appendModule(resolved, resolveDatabaseClientAlias(axes.dbClient, modules, { hasFastApi, hasAxum }));
+  }
+
+  if (auth) {
+    appendAuthProvider(resolved, modules, auth, { hasNext, hasFastApi, hasAxum });
+  }
+
+  for (const moduleId of resolveDeploymentModules(axes.with ?? [], modules, { includeKubernetesBase: false })) {
+    appendModule(resolved, moduleId);
+  }
+
+  for (const moduleId of resolveDeploymentModules(axes.deploy ?? [], modules, { includeKubernetesBase: true })) {
+    appendModule(resolved, moduleId);
+  }
+
+  return resolved;
+}
+
+export function encodeRecipe(recipe: StackkitRecipeInput): string {
+  const json = JSON.stringify(stackkitRecipeSchema.parse(recipe));
+
+  return `sk_${Buffer.from(json, "utf8").toString("base64url")}`;
+}
+
+export function decodeRecipe(code: string): StackkitRecipe {
+  if (!code.startsWith("sk_")) {
+    throw new Error("Invalid Stackkit recipe code");
+  }
+
+  try {
+    const json = Buffer.from(code.slice(3), "base64url").toString("utf8");
+
+    return stackkitRecipeSchema.parse(JSON.parse(json));
+  } catch {
+    throw new Error("Invalid Stackkit recipe code");
+  }
+}
+
+function normalizeSingleAuth(auth: StackAxes["auth"]): string | undefined {
+  if (!auth) {
+    return undefined;
+  }
+
+  const selected = Array.isArray(auth) ? auth : [auth];
+  const unique = [...new Set(selected)];
+
+  if (unique.length > 1) {
+    throw new Error("Select only one auth provider");
+  }
+
+  return unique[0];
+}
+
+function appendDatabaseClient(
+  resolved: string[],
+  modules: readonly StackkitModule[],
+  dbClient: string | undefined,
+  context: { hasFastApi: boolean; hasAxum: boolean }
+): void {
+  if (dbClient) {
+    appendModule(resolved, resolveDatabaseClientAlias(dbClient, modules, context));
+    return;
+  }
+
+  if (context.hasFastApi) {
+    appendExistingModules(resolved, modules, ["db/sqlalchemy"]);
+    return;
+  }
+
+  if (context.hasAxum) {
+    appendExistingModules(resolved, modules, ["rust/sqlx"]);
+    return;
+  }
+
+  appendExistingModules(resolved, modules, ["db/drizzle"]);
+}
+
+function resolveDatabaseClientAlias(
+  input: string,
+  modules: readonly StackkitModule[],
+  context: { hasFastApi: boolean; hasAxum: boolean }
+): string {
+  if (input === "sqlx" && context.hasAxum && hasModule(modules, "rust/sqlx")) {
+    return "rust/sqlx";
+  }
+
+  return resolveModuleAlias(input, modules);
+}
+
+function appendAuthProvider(
+  resolved: string[],
+  modules: readonly StackkitModule[],
+  auth: string,
+  context: { hasNext: boolean; hasFastApi: boolean; hasAxum: boolean }
+): void {
+  if (auth === "auth0") {
+    const initialCount = resolved.length;
+
+    if (context.hasNext) {
+      appendExistingModules(resolved, modules, ["auth/auth0-nextjs"]);
+    }
+    if (context.hasFastApi) {
+      appendExistingModules(resolved, modules, ["auth/auth0-fastapi"]);
+    }
+    if (context.hasAxum) {
+      appendExistingModules(resolved, modules, ["auth/auth0-axum"]);
+    }
+    if (resolved.length === initialCount) {
+      throw new Error("Auth0 requires a supported framework context. Select --web next or --api fastapi with --auth auth0.");
+    }
+    return;
+  }
+
+  appendModule(resolved, resolveModuleAlias(auth, modules));
+}
+
+function resolveDeploymentModules(
+  inputs: readonly string[],
+  modules: readonly StackkitModule[],
+  options: { includeKubernetesBase: boolean }
+): string[] {
+  const resolved: string[] = [];
+
+  for (const input of inputs) {
+    const moduleId = resolveModuleAlias(input, modules);
+
+    if (moduleId === "deploy/kubernetes" && options.includeKubernetesBase) {
+      appendExistingModules(resolved, modules, ["deploy/docker", "deploy/kubernetes"]);
+      continue;
+    }
+
+    appendModule(resolved, moduleId);
+  }
+
+  return resolved;
+}
+
+function appendExistingModules(target: string[], modules: readonly StackkitModule[], moduleIds: readonly string[]): void {
+  for (const moduleId of moduleIds) {
+    if (hasModule(modules, moduleId)) {
+      appendModule(target, moduleId);
+    }
+  }
+}
+
+function hasModule(modules: readonly StackkitModule[], moduleId: string): boolean {
+  return modules.some((module) => module.id === moduleId);
+}
+
+function appendModule(target: string[], moduleId: string): void {
+  if (!target.includes(moduleId)) {
+    target.push(moduleId);
+  }
+}
 
 export type ValidateConfigResult = {
   ok: boolean;
@@ -399,6 +1110,7 @@ export function resolveModuleGraph(
 
   validateModuleRequirements(ordered);
   validateModuleConflicts(ordered);
+  validateAuthProviderConflicts(ordered);
 
   return ordered;
 }
@@ -412,6 +1124,12 @@ export function validateStackkitConfig(
   const moduleById = new Map<string, StackkitModule>(availableModules.map((module) => [module.id, module]));
   const presetById = new Map<string, StackkitPreset>(availablePresets.map((preset) => [preset.id, preset]));
   const selectedModules: StackkitModule[] = [];
+
+  try {
+    validateProjectSlug(config.projectName);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
 
   for (const moduleId of config.modules) {
     const module = moduleById.get(moduleId);
@@ -447,6 +1165,7 @@ export function validateStackkitConfig(
 }
 
 export function createCreatePlan(input: CreatePlanInput): CreatePlan {
+  const projectName = validateProjectSlug(input.config.projectName);
   const selectedPresets =
     "preset" in input.config && typeof input.config.preset === "string" ? [input.config.preset] : [];
   const modules = resolveModuleGraph(resolveConfiguredModules(input.config, input.availableModules), {
@@ -457,15 +1176,21 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
   });
   const resolvedSkills = resolveAiSkills(modules, { curatedAllowlist: input.curatedSkillSourceAllowlist });
   const targets = resolveAiSkillTargets(input.config.ai.skillTargets);
-  const installCommands = planAiSkillInstallCommands(resolvedSkills, targets);
+  const mode = input.config.ai.skillMode;
+  const linkMode = input.config.ai.linkMode;
+  const effectiveResolvedSkills = mode === "skip" ? [] : resolvedSkills;
+  const installableSkills = effectiveResolvedSkills.filter(isInstallableSkill);
+  const installCommands = mode === "skip" ? [] : planAiSkillInstallCommands(effectiveResolvedSkills, targets, linkMode);
   const filePlan = buildFilePlan(renderCreateFiles(input.config, modules));
 
   const plan: Omit<CreatePlan, "selectedModules"> = {
     schemaVersion: 1,
     operation: "create",
     dryRun: true,
-    projectName: input.config.projectName,
-    targetDirectoryName: normalizeTargetDirectoryName(input.config.projectName),
+    projectName,
+    packageManager: input.config.packageManager,
+    source: input.source ?? { kind: "config", path: "stackkit.config.json" },
+    targetDirectoryName: normalizeTargetDirectoryName(projectName),
     filePlan,
     warnings: [],
     modules: modules.map((module) => ({
@@ -473,10 +1198,13 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
       version: module.version
     })),
     aiSkills: {
+      mode,
+      linkMode,
       targets,
-      resolved: resolvedSkills,
-      local: resolvedSkills.filter((skill) => skill.trust === "local"),
-      unresolved: resolvedSkills.filter((skill) => skill.trust === "unresolved")
+      resolved: effectiveResolvedSkills,
+      planned: mode === "plan" ? installableSkills : [],
+      local: effectiveResolvedSkills.filter((skill) => skill.trust === "local"),
+      unresolved: effectiveResolvedSkills.filter((skill) => skill.trust === "unresolved")
     },
     skillInstallCommands: installCommands
   };
@@ -581,30 +1309,7 @@ export async function readCurrentManagedFileHashes(
 
 export async function applyAddModules(input: ApplyAddModulesInput): Promise<{ manifest: StackkitManifest }> {
   const plan = planAddModules(input);
-  const moduleIdsToAdd = new Set(plan.modulesToAdd.map((module) => module.id));
-  const directOperations = renderCreateFiles(
-    {
-      projectName: input.manifest.projectName,
-      packageManager: "pnpm",
-      workspace: "pnpm-turbo",
-      modules: plan.modules.map((module) => module.id),
-      ai: {
-        skillTargets: []
-      }
-    },
-    plan.modules
-  ).filter((operation) => moduleIdsToAdd.has(operation.owner));
-  const packageOperations = await planPackageChangeFiles(
-    input.projectDirectory,
-    plan.modulesToAdd.flatMap((module) => module.packageChanges ?? [])
-  );
-  const envOperations = await planEnvExampleFiles(
-    input.projectDirectory,
-    plan.modulesToAdd.flatMap((module) => module.envVars ?? [])
-  );
-  const fullFilePlan = buildFilePlan(
-    mergeCreateFileOperations([...directOperations, ...packageOperations, ...envOperations])
-  );
+  const fullFilePlan = await planAddModuleFiles(input);
   const conflicts = await detectFileConflicts(input.projectDirectory, fullFilePlan, input.manifest.files);
 
   if (conflicts.length > 0) {
@@ -622,21 +1327,30 @@ export async function applyAddModules(input: ApplyAddModulesInput): Promise<{ ma
   }
 
   const skillResult = await resolveAddSkillResult(input.projectDirectory, plan.modulesToAdd, input);
+  const nextAiSkills = skillResult.lock
+    ? {
+        mode: skillResult.lock.mode,
+        linkMode: skillResult.lock.linkMode,
+        targets: skillResult.lock.targets,
+        installed: skillResult.lock.installed,
+        planned: skillResult.lock.planned,
+        local: skillResult.lock.local,
+        unresolved: skillResult.lock.unresolved
+      }
+    : plan.manifest.aiSkills;
   const nextManifest = await writeManifest(input.projectDirectory, {
     ...plan.manifest,
     files: mergeManifestFiles(input.manifest.files, files),
-    aiSkills: {
-      targets: skillResult.lock.targets,
-      installed: skillResult.lock.installed,
-      unresolved: skillResult.lock.unresolved
-    }
+    aiSkills: nextAiSkills
   });
 
-  await writeSkillsLock(input.projectDirectory, skillResult.lock);
-  await writeLocalAiGuidance(input.projectDirectory, {
-    targets: skillResult.lock.targets,
-    local: skillResult.lock.local
-  });
+  if (skillResult.lock) {
+    await writeSkillsLock(input.projectDirectory, skillResult.lock);
+    await writeLocalAiGuidance(input.projectDirectory, {
+      targets: skillResult.lock.targets,
+      local: skillResult.lock.local
+    });
+  }
 
   return { manifest: nextManifest };
 }
@@ -776,18 +1490,55 @@ export async function applyModuleUpdates(input: {
   return { manifest: nextManifest, updates: updatePlan.updates };
 }
 
+function renderStackkitConfig(config: StackkitConfig): FileOperation {
+  return {
+    kind: "write",
+    path: "stackkit.config.json",
+    owner: "stackkit/config",
+    overwrite: "never",
+    content: `${JSON.stringify(
+      {
+        $schema: "https://stackkit.dev/schema.json",
+        projectName: config.projectName,
+        packageManager: config.packageManager,
+        workspace: config.workspace,
+        preset: config.preset,
+        modules: config.modules,
+        options: config.options ?? {},
+        ai: config.ai
+      },
+      null,
+      2
+    )}\n`
+  };
+}
+
 export function renderCreateFiles(config: StackkitConfig, modules: readonly StackkitModule[]): FileOperation[] {
   const operations: FileOperation[] = [];
   const seenPaths = new Set<string>();
   const selectedModuleIds = new Set(modules.map((module) => module.id));
+  const packageManager = getPackageManagerAdapter(config.packageManager);
+
+  appendUniqueFileOperations(operations, seenPaths, [renderStackkitConfig(config)]);
+  appendUniqueFileOperations(operations, seenPaths, [
+    {
+      kind: "write",
+      path: "README.md",
+      owner: "docs/readme",
+      content: composeReadme({ projectName: config.projectName, packageManager: config.packageManager, modules }),
+      overwrite: "if-owned"
+    }
+  ]);
 
   if (selectedModuleIds.has("workspace/pnpm-turbo") || selectedModuleIds.has("workspace/typescript")) {
     appendUniqueFileOperations(
       operations,
       seenPaths,
-      renderPnpmTurboFoundation({ projectName: config.projectName }).filter((operation) =>
-        selectedModuleIds.has(operation.owner)
-      )
+      renderPnpmTurboFoundation({
+        projectName: config.projectName,
+        packageManagerField: packageManager.packageManagerField,
+        workspaceFile: packageManager.workspaceFile
+      }).filter((operation) => selectedModuleIds.has(operation.owner))
     );
   }
 
@@ -796,11 +1547,21 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
   }
 
   if (selectedModuleIds.has("web/nextjs")) {
-    appendSelectedFileOperations(operations, seenPaths, renderNextjsApp({ appName: "web" }), selectedModuleIds);
+    appendSelectedFileOperations(
+      operations,
+      seenPaths,
+      renderNextjsApp({ appName: "web", packageManagerField: packageManager.packageManagerField }),
+      selectedModuleIds
+    );
   }
 
   if (selectedModuleIds.has("api/fastapi")) {
-    appendSelectedFileOperations(operations, seenPaths, renderFastApiService({ serviceName: "api" }), selectedModuleIds);
+    appendSelectedFileOperations(
+      operations,
+      seenPaths,
+      renderFastApiService({ serviceName: "api", projectName: config.projectName }),
+      selectedModuleIds
+    );
   }
 
   if (selectedModuleIds.has("deploy/vercel")) {
@@ -808,7 +1569,7 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
   }
 
   if (selectedModuleIds.has("deploy/docker")) {
-    appendSelectedFileOperations(operations, seenPaths, renderDockerFiles(), selectedModuleIds);
+    appendSelectedFileOperations(operations, seenPaths, renderDockerFiles(toDockerTemplateOptions(packageManager)), selectedModuleIds);
   }
 
   if (selectedModuleIds.has("deploy/kubernetes")) {
@@ -822,11 +1583,34 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
   return operations;
 }
 
+function toDockerTemplateOptions(adapter: PackageManagerAdapter): {
+  packageManagerName: string;
+  installCommand: readonly string[];
+  runBuildCommand: readonly string[];
+  runStartCommand: readonly string[];
+} {
+  const installCommand =
+    adapter.name === "pnpm"
+      ? ["corepack", "enable", "&&", ...adapter.installCommand, "--frozen-lockfile"]
+      : adapter.name === "yarn"
+        ? ["corepack", "enable", "&&", ...adapter.installCommand]
+        : adapter.installCommand;
+
+  return {
+    packageManagerName: adapter.name,
+    installCommand,
+    runBuildCommand: adapter.runCommand("build"),
+    runStartCommand: adapter.runCommand("start")
+  };
+}
+
 export async function applyCreatePlan(
   plan: CreatePlan,
   options: ApplyCreatePlanOptions
 ): Promise<ApplyCreatePlanResult> {
   const projectDirectory = options.targetDirectory ?? join(options.parentDirectory, normalizeTargetDirectoryName(plan.targetDirectoryName));
+  await assertCreateTargetIsSafe(projectDirectory);
+
   const packageOperations = await planPackageChangeFiles(
     projectDirectory,
     plan.selectedModules.flatMap((module) => module.packageChanges ?? [])
@@ -859,33 +1643,69 @@ export async function applyCreatePlan(
     schemaVersion: 1,
     stackkitVersion: options.stackkitVersion ?? "0.0.0",
     projectName: plan.projectName,
+    packageManager: plan.packageManager,
+    source: plan.source,
+    paths: { root: "." },
     createdAt: (options.now ?? (() => new Date()))().toISOString(),
     modules: plan.modules.map((module) => ({ ...module, options: {} })),
     files,
     aiSkills: {
+      mode: plan.aiSkills.mode,
+      linkMode: plan.aiSkills.linkMode,
       targets: plan.aiSkills.targets,
       installed: skillInstallResult.installed,
+      planned: skillInstallResult.planned,
+      local: plan.aiSkills.local,
       unresolved: skillInstallResult.unresolved
     },
     migrations: {
       applied: []
     }
   });
-  await writeSkillsLock(projectDirectory, {
-    schemaVersion: 1,
-    targets: plan.aiSkills.targets,
-    installed: skillInstallResult.installed,
-    local: plan.aiSkills.local,
-    unresolved: skillInstallResult.unresolved
-  });
-  await writeLocalAiGuidance(projectDirectory, {
-    targets: plan.aiSkills.targets,
-    local: plan.aiSkills.local
-  });
+  if (plan.aiSkills.mode !== "skip") {
+    await writeSkillsLock(projectDirectory, {
+      schemaVersion: 1,
+      mode: plan.aiSkills.mode,
+      linkMode: plan.aiSkills.linkMode,
+      targets: plan.aiSkills.targets,
+      installed: skillInstallResult.installed,
+      planned: skillInstallResult.planned,
+      local: plan.aiSkills.local,
+      unresolved: skillInstallResult.unresolved
+    });
+    await writeLocalAiGuidance(projectDirectory, {
+      targets: plan.aiSkills.targets,
+      local: plan.aiSkills.local
+    });
+  }
 
   const doctor = await runDoctor(projectDirectory);
 
   return { projectDirectory, manifest, doctor };
+}
+
+async function assertCreateTargetIsSafe(projectDirectory: string): Promise<void> {
+  const existingManifest = await readExistingFile(join(projectDirectory, ".stackkit", "project.json"));
+
+  if (existingManifest !== undefined) {
+    throw new Error(
+      `Refusing to create in ${projectDirectory}: already Stackkit-managed. Use stackkit add, stackkit update, or stackkit diff.`
+    );
+  }
+
+  try {
+    const entries = await readdir(projectDirectory);
+
+    if (entries.length > 0) {
+      throw new Error(`Refusing to create in non-empty directory: ${projectDirectory}`);
+    }
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export async function runDoctor(projectDirectory: string): Promise<DoctorResult> {
@@ -897,50 +1717,293 @@ export async function runDoctor(projectDirectory: string): Promise<DoctorResult>
     return {
       ok: false,
       checks: [
-        {
+        createDoctorCheck({
           id: "manifest.exists",
           status: "error",
           message: ".stackkit/project.json is missing"
-        }
+        })
       ]
     };
   }
 
   const manifest = stackkitManifestSchema.parse(JSON.parse(manifestContent));
-  checks.push({ id: "manifest.exists", status: "ok", message: ".stackkit/project.json exists" });
+  checks.push(createDoctorCheck({ id: "manifest.exists", status: "ok", message: ".stackkit/project.json exists" }));
 
   for (const file of manifest.files) {
     const content = await readExistingFile(join(projectDirectory, file.path));
 
     if (content === undefined) {
-      checks.push({
+      checks.push(createDoctorCheck({
         id: `files.${file.path}`,
         status: "error",
-        message: `Managed file is missing: ${file.path}`
-      });
+        message: `Managed file is missing: ${file.path}`,
+        actions: [`stackkit diff --file ${file.path}`]
+      }));
       continue;
     }
 
     if (hashContent(content) !== file.hash) {
-      checks.push({
+      checks.push(createDoctorCheck({
         id: `files.${file.path}`,
         status: "warning",
-        message: `Managed file was modified: ${file.path}`
-      });
+        message: `Managed file was modified: ${file.path}`,
+        actions: [`stackkit diff --file ${file.path}`]
+      }));
       continue;
     }
 
-    checks.push({
+    checks.push(createDoctorCheck({
       id: `files.${file.path}`,
       status: "ok",
       message: `Managed file is unchanged: ${file.path}`
-    });
+    }));
+  }
+
+  if (manifest.aiSkills.unresolved.length > 0) {
+    checks.push(createDoctorCheck({
+      id: "skills.unresolved",
+      status: "warning",
+      message: `${manifest.aiSkills.unresolved.length} AI skill dependency could not be resolved`,
+      actions: ["stackkit skills sync --apply"]
+    }));
   }
 
   return {
     ok: checks.every((check) => check.status === "ok"),
     checks
   };
+}
+
+function createDoctorCheck(check: Omit<DoctorCheck, "actions"> & { actions?: string[] }): DoctorCheck {
+  return {
+    ...check,
+    actions: check.actions ?? []
+  };
+}
+
+export function createFileContentDiff(expectedContent: string, currentContent: string): FileContentDiff {
+  const expectedLines = splitLines(expectedContent);
+  const currentLines = splitLines(currentContent);
+  const lcs = buildLineLcs(expectedLines, currentLines);
+  const parts: FileDiffPart[] = [];
+  let expectedIndex = 0;
+  let currentIndex = 0;
+
+  for (const entry of lcs) {
+    while (expectedIndex < entry.expectedIndex) {
+      appendDiffPart(parts, "removed", expectedLines[expectedIndex] ?? "");
+      expectedIndex += 1;
+    }
+    while (currentIndex < entry.currentIndex) {
+      appendDiffPart(parts, "added", currentLines[currentIndex] ?? "");
+      currentIndex += 1;
+    }
+
+    appendDiffPart(parts, "same", entry.value);
+    expectedIndex = entry.expectedIndex + 1;
+    currentIndex = entry.currentIndex + 1;
+  }
+
+  while (expectedIndex < expectedLines.length) {
+    appendDiffPart(parts, "removed", expectedLines[expectedIndex] ?? "");
+    expectedIndex += 1;
+  }
+  while (currentIndex < currentLines.length) {
+    appendDiffPart(parts, "added", currentLines[currentIndex] ?? "");
+    currentIndex += 1;
+  }
+
+  return { parts };
+}
+
+export async function diffManagedFile(projectDirectory: string, filePath: string): Promise<ManagedFileDiff> {
+  const path = normalizeProjectPath(filePath);
+  const manifest = await readManifest(projectDirectory);
+  const managedFile = manifest.files.find((file) => normalizeProjectPath(file.path) === path);
+
+  if (!managedFile) {
+    throw new Error(`File is not managed by Stackkit: ${path}`);
+  }
+
+  const expectedFile = buildExpectedManagedFilePlan(manifest).files.find((file) => file.path === path);
+
+  if (!expectedFile) {
+    throw new Error(`Managed file cannot be deterministically re-rendered: ${path}`);
+  }
+
+  const currentContent = await readExistingFile(join(projectDirectory, path));
+
+  return {
+    path,
+    owner: managedFile.owner,
+    expectedHash: expectedFile.hash,
+    currentHash: currentContent === undefined ? undefined : hashContent(currentContent),
+    expectedContent: expectedFile.content,
+    currentContent,
+    diff: createFileContentDiff(expectedFile.content, currentContent ?? "")
+  };
+}
+
+export async function planAddModuleFiles(input: {
+  projectDirectory: string;
+  manifest: StackkitManifest;
+  moduleIds: readonly string[];
+  availableModules: readonly StackkitModule[];
+}): Promise<FilePlan> {
+  const plan = planAddModules(input);
+  const moduleIdsToAdd = new Set(plan.modulesToAdd.map((module) => module.id));
+  const directOperations = renderCreateFiles(
+    {
+      projectName: input.manifest.projectName,
+      packageManager: input.manifest.packageManager,
+      workspace: "pnpm-turbo",
+      modules: plan.modules.map((module) => module.id),
+      registries: {},
+      ai: {
+        skillTargets: [],
+        skillMode: input.manifest.aiSkills.mode,
+        linkMode: input.manifest.aiSkills.linkMode
+      }
+    },
+    plan.modules
+  ).filter((operation) => moduleIdsToAdd.has(operation.owner));
+  const packageOperations = await planPackageChangeFiles(
+    input.projectDirectory,
+    plan.modulesToAdd.flatMap((module) => module.packageChanges ?? [])
+  );
+  const envOperations = await planEnvExampleFiles(
+    input.projectDirectory,
+    plan.modulesToAdd.flatMap((module) => module.envVars ?? [])
+  );
+
+  return buildFilePlan(mergeCreateFileOperations([...directOperations, ...packageOperations, ...envOperations]));
+}
+
+export function listStackkitModules(modules: readonly StackkitModule[]): ModuleDiscoveryEntry[] {
+  return modules.map(moduleDiscoveryEntry);
+}
+
+export function searchStackkitModules(query: string, modules: readonly StackkitModule[]): ModuleDiscoveryEntry[] {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (normalizedQuery.length === 0) {
+    return [];
+  }
+
+  return listStackkitModules(modules).filter((module) =>
+    [module.id, module.title, module.description, module.category ?? "", ...module.aliases].some((value) =>
+      value.toLowerCase().includes(normalizedQuery)
+    )
+  );
+}
+
+export function inspectStackkitModule(input: string, modules: readonly StackkitModule[]): ModuleDiscoveryEntry {
+  const id = resolveModuleAlias(input, modules);
+  const module = modules.find((candidate) => candidate.id === id);
+
+  if (!module) {
+    throw new Error(`Unknown Stackkit module: ${input}`);
+  }
+
+  return moduleDiscoveryEntry(module);
+}
+
+function buildExpectedManagedFilePlan(manifest: StackkitManifest): FilePlan {
+  const modules = manifest.modules.map((module) => manifestModuleToStackkitModule(module));
+
+  return buildFilePlan(
+    renderCreateFiles(
+      {
+        projectName: manifest.projectName,
+        packageManager: manifest.packageManager,
+        workspace: "pnpm-turbo",
+        modules: manifest.modules.map((module) => module.id),
+        registries: {},
+        ai: {
+          skillTargets: manifest.aiSkills.targets.map((target) => target.agent),
+          skillMode: manifest.aiSkills.mode,
+          linkMode: manifest.aiSkills.linkMode
+        }
+      },
+      modules
+    )
+  );
+}
+
+function manifestModuleToStackkitModule(module: StackkitManifest["modules"][number]): StackkitModule {
+  return defineModule({
+    id: module.id,
+    version: module.version,
+    title: module.id,
+    description: module.id
+  });
+}
+
+function moduleDiscoveryEntry(module: StackkitModule): ModuleDiscoveryEntry {
+  return {
+    id: module.id,
+    version: module.version,
+    title: module.title,
+    description: module.description,
+    aliases: module.aliases,
+    category: module.category
+  };
+}
+
+function splitLines(content: string): string[] {
+  if (content.length === 0) {
+    return [];
+  }
+
+  return content.match(/[^\n]*\n|[^\n]+/g) ?? [];
+}
+
+function buildLineLcs(
+  expectedLines: readonly string[],
+  currentLines: readonly string[]
+): { expectedIndex: number; currentIndex: number; value: string }[] {
+  const table = Array.from({ length: expectedLines.length + 1 }, () => Array<number>(currentLines.length + 1).fill(0));
+
+  for (let expectedIndex = expectedLines.length - 1; expectedIndex >= 0; expectedIndex -= 1) {
+    for (let currentIndex = currentLines.length - 1; currentIndex >= 0; currentIndex -= 1) {
+      table[expectedIndex]![currentIndex] =
+        expectedLines[expectedIndex] === currentLines[currentIndex]
+          ? (table[expectedIndex + 1]?.[currentIndex + 1] ?? 0) + 1
+          : Math.max(table[expectedIndex + 1]?.[currentIndex] ?? 0, table[expectedIndex]?.[currentIndex + 1] ?? 0);
+    }
+  }
+
+  const entries: { expectedIndex: number; currentIndex: number; value: string }[] = [];
+  let expectedIndex = 0;
+  let currentIndex = 0;
+
+  while (expectedIndex < expectedLines.length && currentIndex < currentLines.length) {
+    if (expectedLines[expectedIndex] === currentLines[currentIndex]) {
+      entries.push({ expectedIndex, currentIndex, value: expectedLines[expectedIndex] ?? "" });
+      expectedIndex += 1;
+      currentIndex += 1;
+      continue;
+    }
+
+    if ((table[expectedIndex + 1]?.[currentIndex] ?? 0) >= (table[expectedIndex]?.[currentIndex + 1] ?? 0)) {
+      expectedIndex += 1;
+    } else {
+      currentIndex += 1;
+    }
+  }
+
+  return entries;
+}
+
+function appendDiffPart(parts: FileDiffPart[], kind: FileDiffPart["kind"], value: string): void {
+  const previous = parts.at(-1);
+
+  if (previous?.kind === kind) {
+    previous.value += value;
+    return;
+  }
+
+  parts.push({ kind, value });
 }
 
 export function createManifest(input: StackkitManifest): StackkitManifest {
@@ -1069,9 +2132,7 @@ export async function planEnvExampleFiles(
   const existing = await readExistingFile(join(projectDirectory, ".env.example"));
   const existingContent = existing ?? "";
   const separator = existingContent.length === 0 || existingContent.endsWith("\n") ? "" : "\n";
-  const additions = envVars
-    .flatMap((envVar) => [`# ${envVar.description}`, `${envVar.name}=${envVar.example ?? ""}`, ""])
-    .join("\n");
+  const additions = renderEnvExampleContent(normalizeEnvVars(envVars));
 
   return [
     {
@@ -1082,6 +2143,25 @@ export async function planEnvExampleFiles(
       overwrite: "if-owned"
     }
   ];
+}
+
+function renderEnvExampleContent(envVars: readonly NormalizedEnvVar[]): string {
+  const sections = envTargets.flatMap((target) => {
+    const targetVars = envVars.filter((envVar) => envVar.target === target);
+
+    if (targetVars.length === 0) {
+      return [];
+    }
+
+    return [
+      [
+        `# ${envTargetLabel(target)}`,
+        ...targetVars.flatMap((envVar) => [`# ${envVar.description}`, `${envVar.name}=${envVar.example ?? ""}`, ""])
+      ].join("\n")
+    ];
+  });
+
+  return sections.length > 0 ? `${sections.join("\n")}\n` : "";
 }
 
 export async function applyEnvExamples(
@@ -1145,6 +2225,33 @@ export async function readOptionalSkillsLock(projectDirectory: string): Promise<
   return skillsLockSchema.parse(JSON.parse(existing));
 }
 
+export async function collectInfo(projectDirectory: string): Promise<StackkitInfo> {
+  const manifest = await readManifest(projectDirectory);
+  const config = await readOptionalStackkitConfig(projectDirectory);
+  const lock = await readOptionalSkillsLock(projectDirectory);
+  const aiSkills = lock ?? manifest.aiSkills;
+
+  return {
+    project: {
+      name: manifest.projectName,
+      packageManager: manifest.packageManager,
+      stackkitVersion: manifest.stackkitVersion
+    },
+    source: collectInfoSource(manifest.source, config),
+    modules: manifest.modules.map((module) => ({
+      id: module.id,
+      version: module.version
+    })),
+    paths: manifest.paths,
+    ai: {
+      targets: aiSkills.targets.filter((target) => target.enabled).map((target) => target.agent),
+      installed: aiSkills.installed.length,
+      local: aiSkills.local.length,
+      unresolved: aiSkills.unresolved.length
+    }
+  };
+}
+
 export async function readSkillsLock(projectDirectory: string): Promise<SkillsLock> {
   const content = await readFile(join(projectDirectory, "skills-lock.json"), "utf8");
 
@@ -1206,6 +2313,42 @@ async function readExistingFile(path: string): Promise<string | undefined> {
   }
 }
 
+async function readOptionalStackkitConfig(projectDirectory: string): Promise<StackkitConfig | undefined> {
+  const content = await readExistingFile(join(projectDirectory, "stackkit.config.json"));
+
+  if (content === undefined) {
+    return undefined;
+  }
+
+  try {
+    return stackkitConfigSchema.parse(JSON.parse(content));
+  } catch {
+    return undefined;
+  }
+}
+
+function collectInfoSource(
+  source: StackkitManifestSource,
+  config: StackkitConfig | undefined
+): StackkitInfo["source"] {
+  if (source.kind === "config") {
+    return {
+      kind: source.kind,
+      path: source.path,
+      preset: config?.preset
+    };
+  }
+
+  if (source.kind === "recipe") {
+    return {
+      kind: source.kind,
+      recipeCode: source.code
+    };
+  }
+
+  return { kind: source.kind };
+}
+
 function normalizeProjectPath(path: string): string {
   if (isAbsolute(path) || /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith("/") || path.startsWith("\\")) {
     throw new Error(`File path must be project-relative: ${path}`);
@@ -1265,6 +2408,29 @@ function isAcceptedSkillDependency(
   return curatedAllowlist.has(dependency.source);
 }
 
+function isInstallableSkill(skill: AiSkillDependency): boolean {
+  return !!skill.source && skill.trust !== "local" && skill.trust !== "unresolved";
+}
+
+function restoreRetriableSkill(skill: AiSkillDependency): AiSkillDependency | undefined {
+  if (!isRetriableUnresolvedSkill(skill)) {
+    return undefined;
+  }
+
+  return {
+    ...skill,
+    trust: inferExternalSkillTrust(skill.source)
+  };
+}
+
+function isRetriableUnresolvedSkill(skill: AiSkillDependency): skill is AiSkillDependency & { source: string } {
+  return !!skill.source && skill.trust === "unresolved" && skill.reason.startsWith("Skill install failed:");
+}
+
+function inferExternalSkillTrust(source: string): Exclude<AiSkillTrust, "local" | "unresolved"> {
+  return defaultOfficialSkillSources.some((officialSource) => officialSource === source) ? "official" : "curated";
+}
+
 function markUnresolved(dependency: AiSkillDependency): AiSkillDependency {
   return {
     ...dependency,
@@ -1281,7 +2447,7 @@ function markSkillInstallFailed(dependency: AiSkillDependency, message: string):
 }
 
 function skillDependencyKey(dependency: AiSkillDependency): string {
-  return `${dependency.trust}:${dependency.source ?? "local"}:${dependency.causedBy}`;
+  return `${dependency.source ?? dependency.trust}:${dependency.causedBy}`;
 }
 
 function mergeSkills(left: readonly string[], right: readonly string[]): string[] {
@@ -1463,10 +2629,27 @@ async function resolveSkillInstallResult(
   plan: CreatePlan,
   projectDirectory: string,
   options: ApplyCreatePlanOptions
-): Promise<InstallAiSkillsResult> {
+): Promise<ResolveSkillInstallResult> {
+  if (plan.aiSkills.mode === "skip") {
+    return {
+      installed: [],
+      planned: [],
+      unresolved: []
+    };
+  }
+
+  if (plan.aiSkills.mode === "plan") {
+    return {
+      installed: [],
+      planned: plan.aiSkills.planned,
+      unresolved: plan.aiSkills.unresolved
+    };
+  }
+
   if (options.installSkills === false) {
     return {
       installed: plan.aiSkills.resolved.filter((skill) => skill.trust === "official" || skill.trust === "curated"),
+      planned: [],
       unresolved: plan.aiSkills.unresolved
     };
   }
@@ -1474,6 +2657,7 @@ async function resolveSkillInstallResult(
   if (plan.skillInstallCommands.length === 0) {
     return {
       installed: [],
+      planned: [],
       unresolved: plan.aiSkills.unresolved
     };
   }
@@ -1485,6 +2669,7 @@ async function resolveSkillInstallResult(
 
   return {
     installed: installResult.installed,
+    planned: [],
     unresolved: [...plan.aiSkills.unresolved, ...installResult.unresolved]
   };
 }
@@ -1493,33 +2678,52 @@ async function resolveAddSkillResult(
   projectDirectory: string,
   modulesToAdd: readonly StackkitModule[],
   input: ApplyAddModulesInput
-): Promise<{ lock: SkillsLock }> {
+): Promise<{ lock?: SkillsLock }> {
   const existingLock = await readOptionalSkillsLock(projectDirectory);
   const targets = [...(input.skillTargets ?? existingLock?.targets ?? input.manifest.aiSkills.targets)];
-  const resolvedSkills = resolveAiSkills(modulesToAdd);
+  const mode = input.manifest.aiSkills.mode;
+  const linkMode = input.manifest.aiSkills.linkMode;
+
+  if (mode === "skip") {
+    return {};
+  }
+
+  const resolvedSkills = resolveAiSkills(modulesToAdd, { curatedAllowlist: input.curatedSkillSourceAllowlist });
   const local = resolvedSkills.filter((skill) => skill.trust === "local");
   const initiallyUnresolved = resolvedSkills.filter((skill) => skill.trust === "unresolved");
-  const installCommands = planAiSkillInstallCommands(resolvedSkills, targets);
+  const installableSkills = resolvedSkills.filter(isInstallableSkill);
+  const installCommands = planAiSkillInstallCommands(resolvedSkills, targets, linkMode);
   const installResult =
-    input.runCommand && installCommands.length > 0
-      ? await installAiSkills(installCommands, { cwd: projectDirectory, runCommand: input.runCommand })
-      : {
-          installed: resolvedSkills.filter((skill) => skill.trust === "official" || skill.trust === "curated"),
-          unresolved: []
-        };
+    mode === "plan"
+      ? { installed: [], unresolved: [] }
+      : installCommands.length > 0
+        ? await installAiSkills(installCommands, {
+            cwd: projectDirectory,
+            runCommand: input.runCommand ?? missingSkillInstallCommandRunner
+          })
+        : {
+            installed: [],
+            unresolved: []
+          };
   const baseLock: SkillsLock = existingLock ?? {
     schemaVersion: 1,
+    mode,
+    linkMode,
     targets,
     installed: input.manifest.aiSkills.installed,
-    local: [],
+    planned: input.manifest.aiSkills.planned,
+    local: input.manifest.aiSkills.local,
     unresolved: input.manifest.aiSkills.unresolved
   };
 
   return {
     lock: {
       schemaVersion: 1,
+      mode,
+      linkMode,
       targets,
       installed: mergeSkillDependencies(baseLock.installed, installResult.installed),
+      planned: mergeSkillDependencies(baseLock.planned, mode === "plan" ? installableSkills : []),
       local: mergeSkillDependencies(baseLock.local, local),
       unresolved: mergeSkillDependencies(baseLock.unresolved, [...initiallyUnresolved, ...installResult.unresolved])
     }
@@ -1673,6 +2877,36 @@ function validateModuleConflicts(modules: readonly StackkitModule[]): void {
       }
     }
   }
+}
+
+function validateAuthProviderConflicts(modules: readonly StackkitModule[]): void {
+  const providers: string[] = [];
+
+  for (const module of modules) {
+    const provider = authProviderKey(module);
+
+    if (provider && !providers.includes(provider)) {
+      providers.push(provider);
+    }
+  }
+
+  if (providers.length > 1) {
+    throw new Error(`Conflicting auth providers: ${providers.join(", ")}. Select only one auth provider.`);
+  }
+}
+
+function authProviderKey(module: StackkitModule): string | undefined {
+  if (module.category !== "auth" && !module.id.startsWith("auth/")) {
+    return undefined;
+  }
+
+  const authModule = module.id.slice("auth/".length);
+
+  if (authModule.startsWith("auth0-")) {
+    return "auth0";
+  }
+
+  return authModule;
 }
 
 function resolveConfiguredModules(config: StackkitConfig, availableModules: readonly StackkitModule[]): StackkitModule[] {

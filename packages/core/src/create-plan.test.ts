@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createCreatePlan, defineModule } from "./index.js";
+import { createCreatePlan, defineModule, validateProjectSlug } from "./index.js";
 
 const availableModules = [
   defineModule({
@@ -35,6 +35,19 @@ const availableModules = [
     ]
   })
 ] as const;
+
+describe("validateProjectSlug", () => {
+  it("accepts lowercase slug names", () => {
+    expect(validateProjectSlug("acme-dashboard")).toBe("acme-dashboard");
+    expect(validateProjectSlug("app2")).toBe("app2");
+  });
+
+  it("rejects names that are not v1 Stackkit slugs", () => {
+    expect(() => validateProjectSlug("Acme Dashboard")).toThrow('Invalid project name: "Acme Dashboard"');
+    expect(() => validateProjectSlug("acme_dashboard")).toThrow('Invalid project name: "acme_dashboard"');
+    expect(() => validateProjectSlug("@acme/dashboard")).toThrow('Invalid project name: "@acme/dashboard"');
+  });
+});
 
 describe("createCreatePlan", () => {
   it("builds a dry-run create plan from parsed config and available modules", () => {
@@ -144,6 +157,11 @@ describe("createCreatePlan", () => {
     expect(plan.filePlan.files).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          path: "stackkit.config.json",
+          owner: "stackkit/config",
+          overwrite: "never"
+        }),
+        expect.objectContaining({
           path: "apps/web/package.json",
           owner: "web/nextjs",
           overwrite: "if-owned"
@@ -157,7 +175,54 @@ describe("createCreatePlan", () => {
     );
   });
 
-  it("plans foundation template files and keeps earlier duplicate paths", () => {
+  it("plans a human-editable stackkit.config.json", () => {
+    const plan = createCreatePlan({
+      config: {
+        projectName: "acme",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo", "workspace/typescript"],
+        ai: { skillTargets: ["codex"] }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "pnpm workspace with Turborepo task orchestration",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "workspace/typescript",
+          version: "1.0.0",
+          title: "TypeScript",
+          description: "TypeScript config",
+          requires: ["workspace/node"],
+          provides: ["typescript"]
+        })
+      ],
+      curatedSkillSourceAllowlist: []
+    });
+
+    const configFile = plan.filePlan.files.find((file) => file.path === "stackkit.config.json");
+
+    expect(configFile).toEqual(
+      expect.objectContaining({
+        owner: "stackkit/config",
+        overwrite: "never"
+      })
+    );
+    expect(JSON.parse(configFile?.content ?? "{}")).toEqual(
+      expect.objectContaining({
+        $schema: "https://stackkit.dev/schema.json",
+        projectName: "acme",
+        packageManager: "pnpm",
+        ai: { skillTargets: ["codex"] }
+      })
+    );
+  });
+
+  it("plans foundation template files, generated README, and keeps earlier duplicate paths", () => {
     const plan = createCreatePlan({
       config: {
         projectName: "acme-dashboard",
@@ -226,12 +291,135 @@ describe("createCreatePlan", () => {
         }),
         expect.objectContaining({
           path: "README.md",
-          owner: "custom/readme",
-          content: "# Acme\n"
+          owner: "docs/readme",
+          content: expect.stringContaining("# acme-dashboard")
         })
       ])
     );
     expect(plan.filePlan.files.filter((file) => file.path === "package.json")).toHaveLength(1);
+  });
+
+  it("uses package-manager adapter metadata when planning foundation files", () => {
+    const plan = createCreatePlan({
+      config: {
+        projectName: "bun-app",
+        packageManager: "bun",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "Workspace foundation",
+          provides: ["workspace/node"]
+        })
+      ]
+    });
+    const packageJson = JSON.parse(plan.filePlan.files.find((file) => file.path === "package.json")?.content ?? "{}");
+
+    expect(plan.packageManager).toBe("bun");
+    expect(packageJson.packageManager).toBe("bun@1.2.15");
+    expect(packageJson.workspaces).toEqual(["apps/*", "packages/*"]);
+    expect(plan.filePlan.files.some((file) => file.path === "pnpm-workspace.yaml")).toBe(false);
+  });
+
+  it("uses package-manager adapter commands when planning Docker files", () => {
+    const plan = createCreatePlan({
+      config: {
+        projectName: "bun-docker",
+        packageManager: "bun",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo", "web/nextjs", "deploy/docker"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "Workspace foundation",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js app",
+          requires: ["workspace/node"],
+          provides: ["nextjs-app"]
+        }),
+        defineModule({
+          id: "deploy/docker",
+          version: "1.0.0",
+          title: "Docker",
+          description: "Docker deployment",
+          requires: ["nextjs-app"]
+        })
+      ]
+    });
+    const dockerfile = plan.filePlan.files.find((file) => file.path === "apps/web/Dockerfile")?.content ?? "";
+
+    expect(dockerfile).toContain("RUN bun install");
+    expect(dockerfile).toContain("RUN bun run build");
+    expect(dockerfile).toContain('CMD ["bun", "run", "start"]');
+    expect(dockerfile).not.toContain("pnpm");
+  });
+
+  it("enables Corepack for Yarn when planning Docker files", () => {
+    const plan = createCreatePlan({
+      config: {
+        projectName: "yarn-docker",
+        packageManager: "yarn",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo", "web/nextjs", "deploy/docker"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "Workspace foundation",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js app",
+          requires: ["workspace/node"],
+          provides: ["nextjs-app"]
+        }),
+        defineModule({
+          id: "deploy/docker",
+          version: "1.0.0",
+          title: "Docker",
+          description: "Docker deployment",
+          requires: ["nextjs-app"]
+        })
+      ]
+    });
+    const dockerCompose = plan.filePlan.files.find((file) => file.path === "docker-compose.yml")?.content ?? "";
+    const dockerfile = plan.filePlan.files.find((file) => file.path === "apps/web/Dockerfile")?.content ?? "";
+    const appPackageJson = JSON.parse(
+      plan.filePlan.files.find((file) => file.path === "apps/web/package.json")?.content ?? "{}"
+    );
+
+    expect(dockerCompose).toContain("build: ./apps/web");
+    expect(appPackageJson.packageManager).toBe("yarn@4.9.4");
+    expect(dockerfile).toContain("RUN corepack enable && yarn install");
+    expect(dockerfile).toContain("RUN yarn build");
+    expect(dockerfile).toContain('CMD ["yarn", "start"]');
+    expect(dockerfile).not.toContain("pnpm");
   });
 
   it("only plans foundation files owned by selected foundation modules", () => {
@@ -256,8 +444,16 @@ describe("createCreatePlan", () => {
       ]
     });
 
-    expect(plan.filePlan.files.map((file) => file.path)).toEqual(["tsconfig.base.json"]);
+    expect(plan.filePlan.files.map((file) => file.path)).toEqual(["stackkit.config.json", "README.md", "tsconfig.base.json"]);
     expect(plan.filePlan.files).toEqual([
+      expect.objectContaining({
+        path: "stackkit.config.json",
+        owner: "stackkit/config"
+      }),
+      expect.objectContaining({
+        path: "README.md",
+        owner: "docs/readme"
+      }),
       expect.objectContaining({
         path: "tsconfig.base.json",
         owner: "workspace/typescript"
@@ -287,7 +483,14 @@ describe("createCreatePlan", () => {
       ]
     });
 
-    expect(plan.filePlan.files.map((file) => file.path)).toEqual(["apps/api/pyproject.toml", "apps/api/app/main.py"]);
+    expect(plan.filePlan.files.map((file) => file.path)).toEqual([
+      "stackkit.config.json",
+      "README.md",
+      "apps/api/package.json",
+      "apps/api/pyproject.toml",
+      "apps/api/app/main.py",
+      "apps/api/tests/test_health.py"
+    ]);
     expect(plan.filePlan.files.some((file) => file.owner === "quality/pytest")).toBe(false);
   });
 

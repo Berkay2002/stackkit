@@ -1,6 +1,6 @@
 # Stackkit Slice 06 Info, Doctor, Diff, And Discovery Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not create a worktree, branch, commit, stage, reset, or revert unless the user explicitly asks.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Use the existing `codex/stackkit-cli-v1` branch, do not create worktrees, and commit after each verified milestone.
 
 **Goal:** Add product-grade inspection commands: `info`, better `doctor` recommendations, scoped `module` discovery, and file-oriented diff/view behavior.
 
@@ -18,6 +18,19 @@
 - `packages/core/src/diff.test.ts`: structured diff behavior.
 - `packages/cli/src/index.ts`: add `info`, `module list/search/inspect`, `--json`, `--diff`, and `--view` output.
 - `packages/cli/src/cli.test.ts`: command output.
+
+## Prerequisites
+
+- Slice 01 must add manifest `packageManager`, `source`, and `paths` fields before `collectInfo` relies on them.
+- Slice 04 must add alias/category metadata before module discovery can expose friendly module output. If Slice 04 is not complete, move the minimal alias/category schema work into this slice before Task 3.
+
+## Review Hardening
+
+- Implement `stackkit diff --file <path>` before doctor recommends it.
+- `collectInfo` must read manifest fields that actually exist. If the current manifest schema lacks `packageManager`, `source`, or `paths`, add them here or keep Slice 06 blocked on Slice 01.
+- Module discovery uses friendly aliases in output but returns canonical IDs in JSON.
+- CLI tests should use `runProgram` and update exact command-surface assertions intentionally.
+- Avoid invented fixture helpers. Use existing temp helpers or add `packages/core/src/test-helpers.ts` deliberately.
 
 ## Task 1: Add `collectInfo`
 
@@ -93,6 +106,14 @@ export type StackkitInfo = {
   paths: Record<string, string>;
   ai: { targets: string[]; installed: number; local: number; unresolved: number };
 };
+```
+
+If these fields are missing from manifest schema, add them before implementing `collectInfo`:
+
+```ts
+packageManager: packageManagerSchema.default("pnpm"),
+source: z.object({ kind: z.string(), path: z.string().optional(), preset: z.string().optional(), recipeCode: z.string().optional() }).nullable(),
+paths: z.record(z.string(), z.string()).default({})
 ```
 
 - [ ] **Step 4: Add CLI command**
@@ -191,6 +212,49 @@ pnpm --filter @stackkit/cli test -- cli
 
 Expected: pass.
 
+## Task 2B: Add `diff --file`
+
+**Files:**
+- Create: `packages/core/src/diff.test.ts`
+- Modify: `packages/core/src/index.ts`
+- Modify: `packages/cli/src/index.ts`
+- Modify: `packages/cli/src/cli.test.ts`
+
+- [ ] **Step 1: Add failing focused diff tests**
+
+Create a generated project fixture with a modified managed file. Assert:
+
+```ts
+const result = await diffManagedFile(projectDirectory, "apps/web/package.json");
+expect(result.path).toBe("apps/web/package.json");
+expect(result.currentHash).not.toBe(result.expectedHash);
+expect(result.diff.parts.length).toBeGreaterThan(0);
+```
+
+- [ ] **Step 2: Add failing CLI test**
+
+Use:
+
+```ts
+const output = await runProgram(["diff", "--file", "apps/web/package.json", "--cwd", projectDirectory]);
+expect(output.stdout).toContain("apps/web/package.json");
+```
+
+- [ ] **Step 3: Implement file diff from manifest hashes and deterministic re-rendering**
+
+Read `.stackkit/project.json`, find the managed file, re-render expected content from recorded module versions/options, compare current file content, and return structured diff data.
+
+- [ ] **Step 4: Run diff tests**
+
+Run:
+
+```powershell
+pnpm --filter @stackkit/core test -- diff
+pnpm --filter @stackkit/cli test -- cli
+```
+
+Expected: pass.
+
 ## Task 3: Add Module Discovery Commands
 
 **Files:**
@@ -204,14 +268,14 @@ Add to `packages/cli/src/cli.test.ts`:
 
 ```ts
 it("lists modules by friendly alias", async () => {
-  const output = await runCli(["node", "stackkit", "module", "list"]);
+  const output = await runProgram(["module", "list"]);
 
   expect(output.stdout).toContain("fastapi");
   expect(output.stdout).toContain("Next.js");
 });
 
 it("inspects a module alias as JSON", async () => {
-  const output = await runCli(["node", "stackkit", "module", "inspect", "fastapi", "--json"]);
+  const output = await runProgram(["module", "inspect", "fastapi", "--json"]);
 
   expect(JSON.parse(output.stdout)).toEqual(expect.objectContaining({ id: "api/fastapi" }));
 });
@@ -351,4 +415,3 @@ Expected: pass.
 - [ ] **Step 3: Update status**
 
 Update `docs/status.md` with `info`, doctor actions, module discovery, and diff/view only if verified.
-

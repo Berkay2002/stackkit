@@ -1,6 +1,6 @@
 # Stackkit Slice 01 Create UX And Config Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not create a worktree, branch, commit, stage, reset, or revert unless the user explicitly asks.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Use the existing `codex/stackkit-cli-v1` branch, do not create worktrees, and commit after each verified milestone.
 
 **Goal:** Make `stackkit create` behave like the intended product surface: slug positional name, compact confirmation, `--yes`, `--dry-run`, root `stackkit.config.json`, and safer target directory handling.
 
@@ -14,21 +14,33 @@
 
 - `packages/schemas/src/index.ts`: add source/config fields needed for generated config and manifest provenance.
 - `packages/core/src/index.ts`: add project slug validation, normalized create config, target directory safety, config write planning, and create result next-command data.
+- `packages/schemas/src/config.test.ts`: verify strict project slug validation and manifest provenance schema.
 - `packages/core/src/create-plan.test.ts`: cover name/config normalization and generated config file planning.
 - `packages/core/src/create-apply.test.ts`: cover target directory refusal and `stackkit.config.json` writing.
 - `packages/cli/src/index.ts`: change `create` signature to `create [name]`, add `--yes`, compact summary confirmation, and config path behavior.
 - `packages/cli/src/cli.test.ts`: cover create command UX and safety.
 - `docs/status.md`: update after verification.
 
+## Review Hardening
+
+- Put the slug contract in shared schema/core normalization, not only in an exported helper. It must apply to config files, positional names, interactive answers, `config validate`, and `createCreatePlan`.
+- Add manifest schema and writer support for `packageManager` and source provenance in this slice. Later `info`, `doctor`, and `diff` depend on it.
+- `stackkit.config.json` is owned by `stackkit/config`, not `workspace/pnpm-turbo`, because generated configs are Stackkit-owned even when the workspace module is not selected.
+- Scripted `stackkit create acme --dry-run` must not enter Clack prompts. Implement a deterministic `createPlanFromCreateOptions` style path that uses positional `name`, optional `--config`, optional `--preset`, and defaults.
+- Existing Stackkit-managed target directories are refused and should suggest `add`, `update`, or `diff`. Keep unmanaged non-empty refusal separate from managed-project refusal.
+- CLI tests in this repo use `runProgram`, not `runCli`. Match the current harness unless a helper is intentionally added.
+
 ## Task 1: Add Project Slug Validation
 
 **Files:**
+- Modify: `packages/schemas/src/index.ts`
+- Modify: `packages/schemas/src/config.test.ts`
 - Modify: `packages/core/src/index.ts`
 - Modify: `packages/core/src/create-plan.test.ts`
 
 - [ ] **Step 1: Add failing tests**
 
-Add tests to `packages/core/src/create-plan.test.ts`:
+Add tests to `packages/core/src/create-plan.test.ts` and `packages/schemas/src/config.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -48,6 +60,8 @@ describe("validateProjectSlug", () => {
   });
 });
 ```
+
+Also add a schema test that rejects invalid `projectName` in `stackkitConfigSchema.parse(...)`.
 
 - [ ] **Step 2: Run the failing test**
 
@@ -113,7 +127,7 @@ it("plans a human-editable stackkit.config.json", () => {
 
   expect(configFile).toEqual(
     expect.objectContaining({
-      owner: "workspace/pnpm-turbo",
+      owner: "stackkit/config",
       overwrite: "never"
     })
   );
@@ -149,7 +163,7 @@ function renderStackkitConfig(config: StackkitConfig): FileOperation {
   return {
     kind: "write",
     path: "stackkit.config.json",
-    owner: "workspace/pnpm-turbo",
+    owner: "stackkit/config",
     overwrite: "never",
     content: `${JSON.stringify(
       {
@@ -184,6 +198,43 @@ pnpm --filter @stackkit/core test -- create-plan create-apply
 ```
 
 Expected: pass after adjusting expected managed files in tests that assert exact file lists.
+
+## Task 2B: Persist Manifest Provenance
+
+**Files:**
+- Modify: `packages/schemas/src/index.ts`
+- Modify: `packages/schemas/src/config.test.ts`
+- Modify: `packages/core/src/index.ts`
+- Modify: `packages/core/src/create-apply.test.ts`
+
+- [ ] **Step 1: Add failing manifest schema and apply tests**
+
+Assert that `.stackkit/project.json` includes:
+
+```json
+{
+  "packageManager": "pnpm",
+  "source": { "kind": "config", "path": "stackkit.config.json" },
+  "paths": { "root": "." }
+}
+```
+
+Cover config-path create and scripted positional create.
+
+- [ ] **Step 2: Implement schema and manifest write support**
+
+Add manifest fields for `packageManager`, `source`, and `paths`. Write them from the resolved create plan in `applyCreatePlan`.
+
+- [ ] **Step 3: Run focused tests**
+
+Run:
+
+```powershell
+pnpm --filter @stackkit/schemas test -- config
+pnpm --filter @stackkit/core test -- create-apply
+```
+
+Expected: pass.
 
 ## Task 3: Refuse Non-Empty Create Targets
 
@@ -229,6 +280,8 @@ it("allows create in an existing empty target directory", async () => {
   expect(result.projectDirectory).toBe(targetDirectory);
 });
 ```
+
+Add a third test for an existing directory containing `.stackkit/project.json`. It must reject with a message that suggests `stackkit add`, `stackkit update`, or `stackkit diff`.
 
 Use existing helpers in the file where available.
 
@@ -287,13 +340,13 @@ Add tests to `packages/cli/src/cli.test.ts`:
 
 ```ts
 it("accepts a project name positional argument for create", async () => {
-  const output = await runCli(["node", "stackkit", "create", "acme", "--dry-run"]);
+  const output = await runProgram(["create", "acme", "--dry-run"]);
 
   expect(output.stdout).toContain("Stackkit create plan for acme");
 });
 
 it("rejects invalid scripted project names", async () => {
-  await expect(runCli(["node", "stackkit", "create", "Acme Dashboard", "--dry-run"])).rejects.toThrow(
+  await expect(runProgram(["create", "Acme Dashboard", "--dry-run"])).rejects.toThrow(
     "Invalid project name"
   );
 });
@@ -339,6 +392,8 @@ Update action signature:
 
 When no config is provided, pass `name` into interactive config construction. When config is provided and `name` exists, override `projectName` with the positional name after validation.
 
+If `name` is provided and no `--config` is provided, do not enter prompts. Resolve the same default config used by interactive mode, then apply CLI overrides. If neither `name` nor `--config` is present and stdin is interactive, prompts may run.
+
 - [ ] **Step 4: Add compact summary formatter**
 
 Add:
@@ -381,6 +436,7 @@ Run:
 
 ```powershell
 pnpm --filter @stackkit/core test -- create-plan create-apply
+pnpm --filter @stackkit/schemas test -- config
 pnpm --filter @stackkit/cli test -- cli
 ```
 
@@ -399,4 +455,3 @@ Expected: pass.
 - [ ] **Step 3: Update status**
 
 Update `docs/status.md` to move positional create, config writing, and target directory safety into verified or usable state only if the checks above passed.
-

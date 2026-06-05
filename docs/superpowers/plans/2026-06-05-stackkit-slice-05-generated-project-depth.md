@@ -1,6 +1,6 @@
 # Stackkit Slice 05 Generated Project Depth Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not create a worktree, branch, commit, stage, reset, or revert unless the user explicitly asks.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Use the existing `codex/stackkit-cli-v1` branch, do not create worktrees, and commit after each verified milestone.
 
 **Goal:** Make official generated projects deeper and coherent: deterministic README, env metadata, root scripts, health endpoints, tests, lint/format configs, and coherent DB/auth ownership for Next/FastAPI/Auth0.
 
@@ -22,6 +22,15 @@
 - `packages/registry/src/index.ts`: adjust presets and metadata.
 - `packages/registry/src/presets.test.ts`: one DB owner rule.
 - `packages/test-utils/src/create-integration.test.ts`: generated project assertions.
+
+## Review Hardening
+
+- README metadata must cover stack, layout, prerequisites, install commands, dev commands, verification commands, environment variables, and the Stackkit section. Do not stop at stack/layout/commands.
+- `.env.example` and README env tables must be generated from the same env metadata. Duplicate env vars must be compatible or fail validation.
+- Root generated projects must include `dev`, `build`, `test`, `typecheck`, `lint`, and `format` scripts where applicable, plus Turbo task wiring.
+- FastAPI `pyproject.toml` must include runtime deps and dev/test tooling: FastAPI, uvicorn, pytest, httpx, and Ruff in the appropriate dependency groups.
+- Official generated project depth must be verified through at least one full-stack generated project, not only file assertions. Use `next-fastapi-postgres-auth0` as the representative path.
+- If `uv` is unavailable on the machine, integration tests may skip Python execution with an explicit guard, but the plan must still include the command and record the skip reason.
 
 ## Task 1: Add README Metadata And Composer
 
@@ -91,6 +100,10 @@ Add to `packages/schemas/src/index.ts`:
 export const readmeMetadataSchema = z.object({
   stack: z.array(z.string()).default([]),
   layout: z.array(z.object({ path: z.string(), description: z.string() })).default([]),
+  prerequisites: z.array(z.string()).default([]),
+  installCommands: z.array(z.object({ label: z.string(), command: z.string() })).default([]),
+  devCommands: z.array(z.object({ label: z.string(), command: z.string() })).default([]),
+  verificationCommands: z.array(z.object({ label: z.string(), command: z.string() })).default([]),
   commands: z.array(z.object({ label: z.string(), command: z.string() })).default([])
 });
 ```
@@ -103,7 +116,10 @@ Add `composeReadme` in `packages/core/src/index.ts` with fixed section order:
 # project
 ## Stack
 ## Project Layout
-## Getting Started
+## Prerequisites
+## Install
+## Development
+## Verification
 ## Commands
 ## Environment
 ## Stackkit
@@ -172,6 +188,13 @@ target: z.enum(["root", "web", "api", "db"]).default("root")
 
 Group by target with stable headings. Keep blank examples for real secrets. Do not write `.env`.
 
+Before writing, validate duplicate names:
+
+- same name and compatible example/required/description metadata: render once.
+- same name but incompatible metadata: fail create planning with a validation error.
+
+Use the same ordered env metadata for `.env.example` and README environment tables.
+
 - [ ] **Step 5: Run focused tests**
 
 Run:
@@ -237,6 +260,22 @@ Use scripts:
 }
 ```
 
+In `pyproject.toml`, include:
+
+```toml
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]"
+]
+
+[dependency-groups]
+dev = [
+  "httpx",
+  "pytest",
+  "ruff"
+]
+```
+
 - [ ] **Step 4: Run template tests**
 
 Run:
@@ -290,6 +329,39 @@ pnpm --filter @stackkit/registry test -- presets
 
 Expected: pass.
 
+## Task 4B: Add Root Scripts And Quality Configs
+
+**Files:**
+- Modify: `packages/templates/src/index.ts`
+- Modify: `packages/templates/src/foundation.test.ts`
+- Modify: `packages/templates/src/web-nextjs.test.ts`
+- Modify: `packages/templates/src/api-fastapi.test.ts`
+
+- [ ] **Step 1: Add failing template tests**
+
+Assert generated root files include:
+
+```text
+package.json scripts: dev, build, test, typecheck, lint, format
+turbo.json tasks: dev, build, test, typecheck, lint, format
+```
+
+Assert app package bridges exist for web and api packages.
+
+- [ ] **Step 2: Implement root and app script wiring**
+
+Use package-manager adapter commands from Slice 02 when commands are shown in README or next actions.
+
+- [ ] **Step 3: Run template tests**
+
+Run:
+
+```powershell
+pnpm --filter @stackkit/templates test -- foundation web-nextjs api-fastapi
+```
+
+Expected: pass.
+
 ## Task 5: Verify Generated Project Depth
 
 **Files:**
@@ -306,6 +378,18 @@ README.md
 apps/api/package.json
 apps/api/tests/test_health.py
 ```
+
+Also run, when dependencies are available:
+
+```powershell
+pnpm install --lockfile-only
+pnpm test
+pnpm typecheck
+pnpm --dir apps/api exec uv run pytest
+stackkit doctor
+```
+
+If `uv` is not installed, skip only the API runtime command with an explicit skip message. Do not skip generated file, root script, README, env, or doctor checks.
 
 - [ ] **Step 2: Run integration tests**
 
@@ -332,4 +416,3 @@ Expected: pass.
 - [ ] **Step 4: Update status**
 
 Update `docs/status.md` with verified generated project depth.
-

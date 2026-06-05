@@ -116,6 +116,13 @@ describe("installAiSkills", () => {
 
 describe("skill sync", () => {
   const skill = installCommand.skill;
+  const failedSkill = {
+    source: "https://github.com/vercel-labs/agent-skills",
+    skills: ["vercel-react-best-practices"],
+    trust: "unresolved" as const,
+    causedBy: "web/nextjs" as const,
+    reason: "Skill install failed: network unavailable"
+  };
 
   it("plans skill sync commands from skills lock", () => {
     const commands = planSkillSyncCommands({
@@ -141,24 +148,89 @@ describe("skill sync", () => {
         targets: [{ agent: "codex", directory: ".agents", enabled: true }],
         installed: [],
         local: [],
-        unresolved: [skill]
+        unresolved: [failedSkill]
       },
       {
         runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
       }
     );
 
-    expect(result.installed).toEqual([skill]);
+    expect(result.installed).toEqual([
+      expect.objectContaining({
+        source: "https://github.com/vercel-labs/agent-skills",
+        skills: ["vercel-react-best-practices"],
+        trust: "official",
+        causedBy: "web/nextjs"
+      })
+    ]);
+    expect(result.unresolved).toEqual([]);
+  });
+
+  it("plans retry commands for unresolved failed installs with source and skill names", () => {
+    const commands = planSkillSyncCommands({
+      schemaVersion: 1,
+      targets: [{ agent: "codex", directory: ".agents", enabled: true }],
+      installed: [],
+      local: [],
+      unresolved: [failedSkill]
+    });
+
+    expect(commands).toEqual([
+      expect.objectContaining({
+        command: "npx",
+        args: [
+          "-y",
+          "skills",
+          "add",
+          "https://github.com/vercel-labs/agent-skills",
+          "--skill",
+          "vercel-react-best-practices",
+          "--agent",
+          "codex",
+          "-y",
+          "--copy"
+        ],
+        skill: expect.objectContaining({
+          source: "https://github.com/vercel-labs/agent-skills",
+          skills: ["vercel-react-best-practices"],
+          trust: "official",
+          causedBy: "web/nextjs"
+        })
+      })
+    ]);
+  });
+
+  it("removes the unresolved failed entry after a successful retry", async () => {
+    const result = await applySkillSync(
+      {
+        schemaVersion: 1,
+        targets: [{ agent: "codex", directory: ".agents", enabled: true }],
+        installed: [],
+        local: [],
+        unresolved: [failedSkill]
+      },
+      {
+        runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
+      }
+    );
+
+    expect(result.installed).toEqual([
+      expect.objectContaining({
+        source: "https://github.com/vercel-labs/agent-skills",
+        skills: ["vercel-react-best-practices"],
+        trust: "official",
+        causedBy: "web/nextjs"
+      })
+    ]);
     expect(result.unresolved).toEqual([]);
   });
 
   it("retains previously-unresolved skills that cannot be retried during sync", async () => {
     const unresolvedSkill = {
-      source: "https://github.com/example/private-skill",
       skills: ["private-guidance"],
       trust: "unresolved" as const,
       causedBy: "web/nextjs" as const,
-      reason: "Skill install failed: network unavailable"
+      reason: "No accepted official or curated skill source is configured"
     };
 
     const result = await applySkillSync(

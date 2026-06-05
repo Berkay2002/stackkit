@@ -1,7 +1,13 @@
 {
   "name": "@stackkit/schemas",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Shared schemas for Stackkit monorepo generation.",
+  "license": "MIT",
   "type": "module",
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

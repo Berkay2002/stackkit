@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { applyCreatePlan, createCreatePlan, defineModule } from "./index.js";
 
@@ -55,11 +55,19 @@ describe("applyCreatePlan", () => {
         schemaVersion: 1,
         stackkitVersion: "0.1.0",
         projectName: "acme-dashboard",
+        packageManager: "pnpm",
+        source: { kind: "config", path: "stackkit.config.json" },
+        paths: { root: "." },
         createdAt: "2026-06-02T00:00:00.000Z",
         modules: [{ id: "workspace/pnpm-turbo", version: "1.0.0", options: {} }]
       })
     );
-    expect(manifest.files).toEqual(expect.arrayContaining([expect.objectContaining({ path: "package.json" })]));
+    expect(manifest.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "stackkit.config.json", owner: "stackkit/config" }),
+        expect.objectContaining({ path: "package.json" })
+      ])
+    );
     expect(result.manifest).toEqual(manifest);
   });
 
@@ -96,7 +104,38 @@ describe("applyCreatePlan", () => {
     );
   });
 
-  it("rejects existing unowned files with conflict reasons", async () => {
+  it("records scripted create provenance in the manifest", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
+    tempDirectories.push(parentDirectory);
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "scripted-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      source: { kind: "scripted" },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "pnpm workspace with Turborepo task orchestration"
+        })
+      ]
+    });
+
+    const result = await applyCreatePlan(plan, { parentDirectory, installSkills: false });
+
+    expect(result.manifest.source).toEqual({ kind: "scripted" });
+    expect(result.manifest.paths).toEqual({ root: "." });
+  });
+
+  it("refuses to create in a non-empty unmanaged directory", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
     tempDirectories.push(parentDirectory);
     const targetDirectory = join(parentDirectory, "acme-dashboard");
@@ -124,8 +163,71 @@ describe("applyCreatePlan", () => {
       ]
     });
 
+    await expect(applyCreatePlan(plan, { parentDirectory })).rejects.toThrow("Refusing to create in non-empty directory");
+  });
+
+  it("allows create in an existing empty target directory", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
+    tempDirectories.push(parentDirectory);
+    const targetDirectory = join(parentDirectory, "empty");
+
+    await mkdir(targetDirectory, { recursive: true });
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "acme-dashboard",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "pnpm workspace with Turborepo task orchestration"
+        })
+      ]
+    });
+
+    const result = await applyCreatePlan(plan, { parentDirectory, targetDirectory, installSkills: false });
+
+    expect(result.projectDirectory).toBe(targetDirectory);
+  });
+
+  it("refuses to create in an existing Stackkit-managed directory", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
+    tempDirectories.push(parentDirectory);
+    const targetDirectory = join(parentDirectory, "acme-dashboard");
+
+    await mkdir(join(targetDirectory, ".stackkit"), { recursive: true });
+    await writeFile(join(targetDirectory, ".stackkit", "project.json"), "{}\n", "utf8");
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "acme-dashboard",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "pnpm workspace with Turborepo task orchestration"
+        })
+      ]
+    });
+
     await expect(applyCreatePlan(plan, { parentDirectory })).rejects.toThrow(
-      "Create target has conflicts: package.json (exists-unowned)"
+      "already Stackkit-managed. Use stackkit add, stackkit update, or stackkit diff"
     );
   });
 
@@ -153,7 +255,7 @@ describe("applyCreatePlan", () => {
           })
         ]
       })
-    ).toThrow("Create target directory must be a single relative directory name: ../outside");
+    ).toThrow('Invalid project name: "../outside"');
   });
 
   it("records only official and curated AI skills as installed", async () => {
@@ -243,6 +345,22 @@ describe("applyCreatePlan", () => {
       })
     ]);
     expect(lock.installed).toEqual([]);
+    expect(result.manifest.aiSkills.local).toEqual([
+      expect.objectContaining({
+        skills: ["stackkit-kubernetes-guidance"],
+        trust: "local",
+        causedBy: "deploy/kubernetes"
+      })
+    ]);
+
+    const manifest = JSON.parse(await readFile(join(result.projectDirectory, ".stackkit", "project.json"), "utf8"));
+    expect(manifest.aiSkills.local).toEqual([
+      expect.objectContaining({
+        skills: ["stackkit-kubernetes-guidance"],
+        trust: "local",
+        causedBy: "deploy/kubernetes"
+      })
+    ]);
 
     const guidance = await readFile(
       join(result.projectDirectory, ".agents", "skills", "stackkit-kubernetes-guidance", "SKILL.md"),
@@ -308,6 +426,149 @@ describe("applyCreatePlan", () => {
     const lock = JSON.parse(await readFile(join(result.projectDirectory, "skills-lock.json"), "utf8"));
     expect(lock.installed).toEqual([]);
     expect(lock.unresolved).toEqual(expectedUnresolved);
+  });
+
+  it("writes planned external skills without running installs in plan mode", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
+    tempDirectories.push(parentDirectory);
+    const runCommand = vi.fn(async () => ({ exitCode: 0, stdout: "ok", stderr: "" }));
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "skills-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["web/nextjs"],
+        ai: {
+          skillTargets: ["codex"],
+          skillMode: "plan",
+          linkMode: "copy"
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js web application",
+          aiSkills: [
+            {
+              source: "https://github.com/vercel-labs/agent-skills",
+              skills: ["vercel-react-best-practices"],
+              trust: "official",
+              causedBy: "web/nextjs",
+              reason: "React and Next.js app code"
+            }
+          ]
+        })
+      ]
+    });
+
+    const result = await applyCreatePlan(plan, { parentDirectory, runCommand });
+
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(result.manifest.aiSkills).toEqual(
+      expect.objectContaining({
+        mode: "plan",
+        linkMode: "copy",
+        installed: [],
+        planned: [
+          expect.objectContaining({
+            skills: ["vercel-react-best-practices"],
+            trust: "official",
+            causedBy: "web/nextjs"
+          })
+        ],
+        unresolved: []
+      })
+    );
+
+    const lock = JSON.parse(await readFile(join(result.projectDirectory, "skills-lock.json"), "utf8"));
+    expect(lock).toEqual(
+      expect.objectContaining({
+        mode: "plan",
+        linkMode: "copy",
+        installed: [],
+        planned: [
+          expect.objectContaining({
+            skills: ["vercel-react-best-practices"],
+            trust: "official",
+            causedBy: "web/nextjs"
+          })
+        ],
+        unresolved: []
+      })
+    );
+  });
+
+  it("skips skill commands and skill artifacts in skip mode", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-apply-"));
+    tempDirectories.push(parentDirectory);
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "skip-skills-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["web/nextjs", "custom/local-skill"],
+        ai: {
+          skillTargets: ["codex", "claude-code"],
+          skillMode: "skip",
+          linkMode: "symlink"
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js web application",
+          aiSkills: [
+            {
+              source: "https://github.com/vercel-labs/agent-skills",
+              skills: ["vercel-react-best-practices"],
+              trust: "official",
+              causedBy: "web/nextjs",
+              reason: "React and Next.js app code"
+            }
+          ]
+        }),
+        defineModule({
+          id: "custom/local-skill",
+          version: "1.0.0",
+          title: "Local skill",
+          description: "Local fallback guidance",
+          aiSkills: [
+            {
+              skills: ["stackkit-local-guidance"],
+              trust: "local",
+              causedBy: "custom/local-skill",
+              reason: "No external skill is configured"
+            }
+          ]
+        })
+      ]
+    });
+
+    expect(plan.skillInstallCommands).toEqual([]);
+    expect(plan.aiSkills.local).toEqual([]);
+    expect(plan.aiSkills.planned).toEqual([]);
+    expect(plan.aiSkills.unresolved).toEqual([]);
+
+    const result = await applyCreatePlan(plan, { parentDirectory });
+
+    expect(result.manifest.aiSkills).toEqual(
+      expect.objectContaining({
+        mode: "skip",
+        linkMode: "symlink",
+        installed: [],
+        planned: [],
+        unresolved: []
+      })
+    );
+    await expect(readFile(join(result.projectDirectory, "skills-lock.json"), "utf8")).rejects.toThrow();
+    await expect(stat(join(result.projectDirectory, ".agents", "skills"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(result.projectDirectory, ".claude", "skills"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("includes package and env operations in the manifest", async () => {

@@ -59,9 +59,56 @@ describe("runDoctor", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "files.package.json",
-          status: "warning"
+          status: "warning",
+          actions: ["stackkit diff --file package.json"]
         })
       ])
+    );
+  });
+
+  it("returns concrete actions for unresolved skills", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-doctor-unresolved-"));
+    tempDirectories.push(directory);
+    await mkdir(join(directory, ".stackkit"), { recursive: true });
+    await writeFile(
+      join(directory, ".stackkit", "project.json"),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          stackkitVersion: "0.0.0",
+          projectName: "acme",
+          createdAt: "2026-06-02T00:00:00.000Z",
+          modules: [],
+          files: [],
+          aiSkills: {
+            targets: [],
+            installed: [],
+            unresolved: [
+              {
+                source: "https://example.com/missing-skills",
+                skills: ["missing"],
+                trust: "unresolved",
+                causedBy: "web/nextjs",
+                reason: "Skill install failed: missing"
+              }
+            ]
+          },
+          migrations: { applied: [] }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const result = await runDoctor(directory);
+    const check = result.checks.find((item) => item.id === "skills.unresolved");
+
+    expect(check).toEqual(
+      expect.objectContaining({
+        status: "warning",
+        actions: ["stackkit skills sync --apply"]
+      })
     );
   });
 });

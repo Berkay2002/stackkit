@@ -14,6 +14,14 @@ Stackkit always resolves a declarative plan before changing files. It records wh
 
 For v1, Stackkit should focus on new project generation, managed project inspection, deterministic config, offline recipes, AI skill installation, and a small set of polished presets. Existing-project adoption through `init` is deferred.
 
+The full lifecycle command surface is intentional, but commands have different v1 stability levels:
+
+- Stable v1: `create`, `doctor`, `info`, `diff`, `preset`, `module`, `recipe`, `config validate`, `skills sync`.
+- Experimental v1: `add`, `remove`, `update`, `migrate`, `skills update`.
+- Deferred: `init` and existing-project adoption.
+
+Experimental lifecycle commands may ship read-only planning first. Any command that writes must support `--dry-run`, refuse unmanaged edits, and rely on `.stackkit/project.json` ownership.
+
 ## Primary User
 
 The first user is a developer who already understands monorepos and wants a fast way to generate a conventional stack:
@@ -58,6 +66,8 @@ Command groups use singular nouns: `preset`, `module`, `recipe`, `registry`.
 
 `info` describes the project. `doctor` validates the project and recommends concrete commands.
 
+`update` and `migrate` default to a read-only plan. They only write with `--apply`.
+
 ## Create Behavior
 
 `create` accepts a positional slug:
@@ -84,6 +94,14 @@ Interactive mode may ask for a name and propose a slug, but scripted mode should
 - Existing Stackkit-managed directory: refuse and suggest `add`, `update`, or `diff`.
 
 `--dir <path>` means exact target directory. `--cwd` can be added later if parent-directory semantics are needed.
+
+`--config <path>` loads human-authored intent. Precedence is:
+
+```text
+defaults < preset < recipe < config < explicit CLI flags < positional name
+```
+
+`--config` may include `projectName`. A positional name overrides it after strict slug validation. `--config` and `--recipe` cannot be combined in v1. Without `--config`, a scripted `create <name>` must not enter interactive prompts; it must resolve from preset, recipe, or documented defaults. Interactive mode is only used when required inputs are missing and stdin is interactive.
 
 ## Presets, Axes, And Friendly Aliases
 
@@ -141,6 +159,8 @@ Official preset rule:
 If a preset is official, Stackkit must be able to generate it, install it where applicable, run its verification commands, and pass doctor.
 ```
 
+AI skill installation does not make `create` fail by default. For official preset verification, unresolved AI skills are allowed only as doctor warnings unless the run uses `--skills require` or an equivalent strict verification mode. Non-AI project checks must pass.
+
 ## Package Managers
 
 Stackkit supports multiple package managers at create time:
@@ -165,6 +185,17 @@ The adapter owns:
 - dlx command
 
 Changing package manager after generation is deferred.
+
+Support matrix:
+
+| Manager | v1 support |
+| --- | --- |
+| pnpm | default; full generated-project verification target |
+| npm | create-time metadata, install/run/add/dlx commands, workspace package support |
+| yarn | create-time metadata, install/run/add/dlx commands, workspace package support |
+| bun | create-time metadata, install/run/add/dlx commands, workspace package support |
+
+If a generated module cannot honestly support all package managers yet, the module must declare that limitation and doctor must report it. Do not silently emit pnpm-only commands for a non-pnpm project.
 
 ## Config, Manifest, And Locks
 
@@ -193,6 +224,10 @@ skills-lock.json          AI skills lock and retry state
 - applied migrations
 
 `skills-lock.json` is always written unless the user explicitly skips all AI skill output.
+
+The manifest records canonical module IDs, package manager, source provenance, local paths, managed file hashes, AI skill targets, AI skill mode, link mode, installed skills, planned skills, and unresolved skills. Friendly aliases are never stored as canonical ownership state.
+
+Hash-only ownership is acceptable only when the generator can deterministically re-render the expected content from recorded module IDs, versions, options, and registry source. Remote registry content is deferred unless the manifest stores a content-addressed registry/template lock. Built-in registry modules use built-in versioned content.
 
 ## Offline Recipes
 
@@ -233,11 +268,14 @@ CLI shape:
 --skills install
 --skills plan
 --skills skip
+--skills require
 --skill-link copy
 --skill-link symlink
 ```
 
 Default behavior should attempt skill installation, record failures as unresolved, and continue project creation. Skill install failures do not fail `create`.
+
+`--skills plan` records installable skills as planned and does not run external install commands. `--skills skip` writes no skill lock, `.agents/skills`, `.claude/skills`, or local skill guidance. `--skills require` fails if any required skill cannot be installed.
 
 ## Generated Project Standards
 
@@ -338,6 +376,8 @@ Core should return structured diff data. CLI owns color and formatting.
 
 Stackkit should not store full file snapshots in `.stackkit`. It should rely on hashes and deterministic re-rendering from recorded module versions and options.
 
+`doctor` may recommend `stackkit diff --file <path>` only after `diff --file` exists.
+
 ## Registries
 
 Registry support should exist as an advanced extension point, but should not dominate the default product.
@@ -348,7 +388,7 @@ Security rules:
 
 - Built-in registry is trusted.
 - External registries are declarative by default.
-- Remote registries may include inline file content in v1.
+- Remote registries are deferred in v1 unless content-addressed locking is implemented first.
 - Local registry folders may reference local template files.
 - Remote registry template fetching, arbitrary code, and lifecycle hooks require explicit future trust design.
 
@@ -360,3 +400,4 @@ It should feel like onboarding: large toggle buttons with framework and service 
 
 The customizer is designed now but implemented after the CLI generation path is solid.
 
+The first customizer implementation should consume shared catalog, resolver, and recipe APIs only. It should not introduce hosted preset IDs, remote recipe storage, accounts, or duplicated registry logic.

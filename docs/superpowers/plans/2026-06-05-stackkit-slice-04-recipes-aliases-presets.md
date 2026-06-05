@@ -1,6 +1,6 @@
 # Stackkit Slice 04 Recipes, Aliases, And Presets Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not create a worktree, branch, commit, stage, reset, or revert unless the user explicitly asks.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Use the existing `codex/stackkit-cli-v1` branch, do not create worktrees, and commit after each verified milestone.
 
 **Goal:** Add friendly aliases, stack-axis create flags, polished built-in preset metadata, and offline recipe encode/decode support.
 
@@ -20,6 +20,20 @@
 - `packages/core/src/module-aliases.test.ts`: alias resolution behavior.
 - `packages/cli/src/index.ts`: add stack-axis flags and `recipe` command group.
 - `packages/cli/src/cli.test.ts`: CLI coverage.
+
+## Prerequisites
+
+- Slice 01 must have deterministic scripted `create <name> --dry-run` and schema-level slug validation.
+- Slice 03 should have extracted reusable `packageManagerSchema` and `aiConfigSchema`, or this slice must extract them before adding recipe schemas.
+
+## Review Hardening
+
+- Friendly aliases are CLI/user-facing only. Manifests and ownership records store canonical module IDs.
+- Stack-axis flags are part of this slice. Implement and test `--web`, `--api`, `--db`, `--db-client`, `--auth`, `--with`, and `--deploy`.
+- Official preset metadata and IDs are part of this slice. Verify the exact IDs from the spec, especially `next-postgres-better-auth`, `next-fastapi-postgres-auth0`, and `next-axum-postgres-auth0`.
+- Resolver behavior must be table-driven and deterministic for common stacks. Cover `next`, `next+postgres+clerk`, `next+fastapi+postgres+auth0`, `next+axum+postgres+auth0`, Docker, Kubernetes, and mutually exclusive auth providers.
+- Recipes must exclude `projectName`, use offline encoded config only, and round-trip through the same schema as CLI/config create.
+- CLI tests should use `runProgram`. Update command-surface tests intentionally when adding `recipe` and stack-axis flags.
 
 ## Task 1: Add Alias Metadata To Registry
 
@@ -211,12 +225,70 @@ export function resolveModuleAlias(input: string, modules: readonly StackkitModu
 
 Add `resolveStackAxes` with explicit v1 mappings for common axes. Keep it small and deterministic.
 
+Minimum v1 resolver table:
+
+| Input | Resolved modules |
+| --- | --- |
+| `--web next` | `workspace/pnpm-turbo`, `workspace/typescript`, `web/nextjs`, `ui/shadcn` |
+| `--web next --db postgres --auth clerk` | Next.js stack plus `db/postgres`, `db/drizzle`, `auth/clerk` |
+| `--web next --api fastapi --db postgres --auth auth0` | Next.js, FastAPI, `db/postgres`, `db/sqlalchemy`, `auth/auth0-nextjs`, `auth/auth0-fastapi` |
+| `--web next --api axum --db postgres --auth auth0` | Next.js, Axum, `db/postgres`, `db/sqlx`, `auth/auth0-nextjs`, `auth/auth0-axum` if available |
+| `--with docker` | `deploy/docker` when selected modules provide the required capability |
+| `--deploy kubernetes` | `deploy/kubernetes` and a container-capable deployment path |
+
+Throw on mutually exclusive auth selections and unknown aliases.
+
 - [ ] **Step 4: Run resolver tests**
 
 Run:
 
 ```powershell
 pnpm --filter @stackkit/core test -- module-aliases
+```
+
+Expected: pass.
+
+## Task 2B: Wire Stack-Axis Flags Into Create
+
+**Files:**
+- Modify: `packages/cli/src/index.ts`
+- Modify: `packages/cli/src/cli.test.ts`
+- Modify: `packages/core/src/index.ts`
+
+- [ ] **Step 1: Add failing CLI tests**
+
+Add tests for:
+
+```ts
+await runProgram(["create", "acme", "--web", "next", "--api", "fastapi", "--db", "postgres", "--auth", "auth0", "--dry-run"]);
+await runProgram(["create", "acme", "--preset", "next-postgres-clerk", "--with", "docker", "--deploy", "vercel", "--dry-run"]);
+```
+
+Assert dry-run JSON contains canonical module IDs and human output uses friendly titles.
+
+- [ ] **Step 2: Implement flags**
+
+Add create flags:
+
+```ts
+.option("--web <alias>")
+.option("--api <alias>")
+.option("--db <alias>")
+.option("--db-client <alias>")
+.option("--auth <alias>")
+.option("--with <aliases>")
+.option("--deploy <aliases>")
+```
+
+Normalize comma-separated values where a flag can take multiple aliases, resolve through core, and write canonical IDs into the create config.
+
+- [ ] **Step 3: Run CLI tests**
+
+Run:
+
+```powershell
+pnpm --filter @stackkit/core test -- module-aliases
+pnpm --filter @stackkit/cli test -- cli
 ```
 
 Expected: pass.
@@ -288,7 +360,7 @@ export const stackkitRecipeSchema = z.object({
 });
 ```
 
-Extract `aiConfigSchema` if needed from `stackkitConfigSchema`.
+Extract and export `packageManagerSchema`, `aiConfigSchema`, and `StackkitRecipe` if they do not already exist.
 
 In `packages/core/src/index.ts`, add:
 
@@ -334,12 +406,12 @@ Add to `packages/cli/src/cli.test.ts`:
 
 ```ts
 it("encodes and decodes recipes", async () => {
-  const encoded = await runCli(["node", "stackkit", "recipe", "encode", "--preset", "next"]);
+  const encoded = await runProgram(["recipe", "encode", "--preset", "next"]);
   const code = encoded.stdout.trim();
 
   expect(code).toMatch(/^sk_/);
 
-  const decoded = await runCli(["node", "stackkit", "recipe", "decode", code, "--json"]);
+  const decoded = await runProgram(["recipe", "decode", code, "--json"]);
 
   expect(JSON.parse(decoded.stdout)).toEqual(expect.objectContaining({ preset: "next" }));
 });
@@ -378,6 +450,41 @@ pnpm --filter @stackkit/cli test -- cli
 
 Expected: pass.
 
+## Task 4B: Polish Official Presets
+
+**Files:**
+- Modify: `packages/registry/src/index.ts`
+- Modify: `packages/registry/src/presets.test.ts`
+
+- [ ] **Step 1: Add failing preset metadata tests**
+
+Assert built-in presets include exactly:
+
+```text
+next
+next-postgres-clerk
+next-postgres-better-auth
+next-fastapi-postgres-auth0
+next-axum-postgres-auth0
+containerized
+```
+
+Also assert full-stack presets use one DB owner: Drizzle for Next-only DB access, SQLAlchemy for FastAPI, SQLx for Axum.
+
+- [ ] **Step 2: Update registry metadata**
+
+Add titles, descriptions, aliases/categories where needed, and fix module lists so the ownership rule is true.
+
+- [ ] **Step 3: Run registry tests**
+
+Run:
+
+```powershell
+pnpm --filter @stackkit/registry test -- presets
+```
+
+Expected: pass.
+
 ## Task 5: Verify Slice
 
 **Files:**
@@ -411,4 +518,3 @@ Expected: pass.
 - [ ] **Step 3: Update status**
 
 Update `docs/status.md` only with behavior verified above.
-

@@ -1,4 +1,5 @@
 import { defineModule, definePreset } from "@stackkit/core";
+import { stackkitRegistrySchema } from "@stackkit/schemas";
 
 export const curatedSkillSourceAllowlist = [
   "https://github.com/affaan-m/everything-claude-code",
@@ -28,23 +29,47 @@ export const builtinModules = [
     version: "1.0.0",
     title: "pnpm and Turborepo",
     description: "pnpm workspace with Turborepo task orchestration",
-    provides: ["workspace/node"]
+    aliases: ["workspace"],
+    category: "workspace",
+    provides: ["workspace/node"],
+    readme: {
+      stack: ["pnpm workspace", "Turborepo"],
+      layout: [
+        { path: "apps", description: "Generated applications" },
+        { path: "packages", description: "Shared workspace packages" }
+      ],
+      prerequisites: ["Node.js 22", "Corepack"],
+      stackkit: ["Generated files are tracked in .stackkit/project.json."]
+    }
   }),
   defineModule({
     id: "workspace/typescript",
     version: "1.0.0",
     title: "TypeScript",
     description: "Shared TypeScript configuration",
+    aliases: ["typescript"],
+    category: "workspace",
     requires: ["workspace/node"],
-    provides: ["typescript"]
+    provides: ["typescript"],
+    readme: {
+      stack: ["TypeScript"],
+      layout: [{ path: "tsconfig.base.json", description: "Shared TypeScript compiler defaults" }]
+    }
   }),
   defineModule({
     id: "web/nextjs",
     version: "1.0.0",
     title: "Next.js",
     description: "Next.js web application",
+    aliases: ["next", "nextjs"],
+    category: "web",
+    icon: "nextjs",
     requires: ["workspace/node"],
     provides: ["web-app", "nextjs-app", "react"],
+    readme: {
+      stack: ["Next.js", "React"],
+      layout: [{ path: "apps/web", description: "Next.js App Router web application" }]
+    },
     aiSkills: [
       {
         source: "https://github.com/vercel-labs/agent-skills",
@@ -71,7 +96,17 @@ export const builtinModules = [
     version: "1.0.0",
     title: "ShadCN",
     description: "ShadCN UI components",
+    aliases: ["shadcn"],
+    category: "ui",
+    icon: "shadcn",
     requires: ["react"],
+    readme: {
+      stack: ["ShadCN UI", "Tailwind CSS"],
+      layout: [
+        { path: "apps/web/components.json", description: "ShadCN component registry configuration" },
+        { path: "apps/web/app/globals.css", description: "Tailwind CSS entrypoint" }
+      ]
+    },
     aiSkills: [
       {
         source: "https://github.com/shadcn/ui",
@@ -87,6 +122,8 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Tailwind CSS",
     description: "Tailwind CSS styling system",
+    aliases: ["tailwind"],
+    category: "ui",
     requires: ["workspace/node"],
     provides: ["css", "tailwind"],
     aiSkills: [
@@ -120,7 +157,18 @@ export const builtinModules = [
     version: "1.0.0",
     title: "FastAPI",
     description: "FastAPI API service",
+    aliases: ["fastapi"],
+    category: "api",
+    icon: "fastapi",
     provides: ["api", "python"],
+    readme: {
+      stack: ["FastAPI", "uv", "pytest", "Ruff"],
+      layout: [
+        { path: "apps/api", description: "FastAPI service package" },
+        { path: "apps/api/tests", description: "FastAPI health and API tests" }
+      ],
+      prerequisites: ["Python 3.12", "uv"]
+    },
     aiSkills: [
       {
         source: "https://github.com/fastapi/fastapi",
@@ -136,6 +184,8 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Flask",
     description: "Flask API service",
+    aliases: ["flask"],
+    category: "api",
     provides: ["api", "python"],
     aiSkills: [
       {
@@ -184,7 +234,13 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Postgres",
     description: "Postgres database family",
+    aliases: ["postgres"],
+    category: "database",
+    icon: "postgres",
     provides: ["postgres"],
+    readme: {
+      stack: ["Postgres"]
+    },
     aiSkills: [
       {
         source: "https://github.com/supabase/agent-skills",
@@ -200,8 +256,23 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Drizzle",
     description: "TypeScript database toolkit for Postgres",
+    aliases: ["drizzle"],
+    category: "database-client",
+    icon: "drizzle",
     requires: ["postgres", "typescript"],
     provides: ["typescript-db"],
+    envVars: [
+      {
+        name: "DATABASE_URL",
+        description: "Postgres connection string.",
+        required: true,
+        example: "",
+        target: "web"
+      }
+    ],
+    readme: {
+      stack: ["Drizzle ORM"]
+    },
     aiSkills: localGuidance("db/drizzle", "stackkit-drizzle-guidance", "Drizzle schema and migration guidance")
   }),
   defineModule({
@@ -225,8 +296,23 @@ export const builtinModules = [
     version: "1.0.0",
     title: "SQLAlchemy",
     description: "Python database toolkit for Postgres",
+    aliases: ["sqlalchemy"],
+    category: "database-client",
+    icon: "sqlalchemy",
     requires: ["postgres", "python"],
     provides: ["python-db"],
+    envVars: [
+      {
+        name: "DATABASE_URL",
+        description: "Postgres connection string.",
+        required: true,
+        example: "",
+        target: "api"
+      }
+    ],
+    readme: {
+      stack: ["SQLAlchemy"]
+    },
     aiSkills: localGuidance("db/sqlalchemy", "stackkit-sqlalchemy-guidance", "SQLAlchemy model, session, and migration guidance")
   }),
   defineModule({
@@ -234,6 +320,8 @@ export const builtinModules = [
     version: "1.0.0",
     title: "SQLx",
     description: "SQLx database access for Postgres",
+    aliases: ["sqlx"],
+    category: "database-client",
     requires: ["postgres"],
     provides: ["sqlx-db"],
     aiSkills: [
@@ -282,6 +370,9 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Clerk",
     description: "Clerk hosted auth",
+    aliases: ["clerk"],
+    category: "auth",
+    icon: "clerk",
     requires: ["react"],
     provides: ["auth"],
     aiSkills: [
@@ -299,6 +390,9 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Better Auth",
     description: "Self-hosted TypeScript auth",
+    aliases: ["better-auth"],
+    category: "auth",
+    icon: "better-auth",
     requires: ["typescript"],
     provides: ["auth"],
     aiSkills: [
@@ -316,8 +410,51 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Auth0 for Next.js",
     description: "Auth0 Next.js integration",
+    aliases: ["auth0-nextjs"],
+    category: "auth",
+    icon: "auth0",
     requires: ["react"],
     provides: ["auth"],
+    envVars: [
+      {
+        name: "AUTH0_DOMAIN",
+        description: "Auth0 tenant domain.",
+        required: true,
+        example: "",
+        target: "root"
+      },
+      {
+        name: "AUTH0_CLIENT_ID",
+        description: "Auth0 application client ID.",
+        required: true,
+        example: "",
+        target: "web"
+      },
+      {
+        name: "AUTH0_CLIENT_SECRET",
+        description: "Auth0 application client secret.",
+        required: true,
+        example: "",
+        target: "web"
+      },
+      {
+        name: "AUTH0_SECRET",
+        description: "Secret used to encrypt the web auth session.",
+        required: true,
+        example: "",
+        target: "web"
+      },
+      {
+        name: "APP_BASE_URL",
+        description: "Public base URL for the Next.js application.",
+        required: true,
+        example: "http://localhost:3000",
+        target: "web"
+      }
+    ],
+    readme: {
+      stack: ["Auth0 for Next.js"]
+    },
     aiSkills: [
       {
         source: "https://github.com/auth0/agent-skills",
@@ -333,8 +470,30 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Auth0 for FastAPI",
     description: "Auth0 FastAPI API protection",
+    aliases: ["auth0-fastapi"],
+    category: "auth",
+    icon: "auth0",
     requires: ["python"],
     provides: ["auth"],
+    envVars: [
+      {
+        name: "AUTH0_DOMAIN",
+        description: "Auth0 tenant domain.",
+        required: true,
+        example: "",
+        target: "root"
+      },
+      {
+        name: "AUTH0_AUDIENCE",
+        description: "Auth0 API audience.",
+        required: true,
+        example: "",
+        target: "api"
+      }
+    ],
+    readme: {
+      stack: ["Auth0 for FastAPI"]
+    },
     aiSkills: [
       {
         source: "https://github.com/auth0/agent-skills",
@@ -350,6 +509,9 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Auth0 for Flask",
     description: "Auth0 Flask integration",
+    aliases: ["auth0-flask"],
+    category: "auth",
+    icon: "auth0",
     requires: ["python"],
     provides: ["auth"],
     aiSkills: [
@@ -375,8 +537,14 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Vercel",
     description: "Vercel deployment",
+    aliases: ["vercel"],
+    category: "deploy",
+    icon: "vercel",
     requires: ["web-app"],
     provides: ["deploy"],
+    readme: {
+      stack: ["Vercel"]
+    },
     aiSkills: [
       {
         source: "https://github.com/vercel-labs/agent-skills",
@@ -392,6 +560,8 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Django",
     description: "Django web application",
+    aliases: ["django"],
+    category: "web",
     conflicts: ["web/nextjs"],
     provides: ["web-app", "python"],
     aiSkills: [
@@ -409,6 +579,8 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Tokio",
     description: "Tokio async Rust runtime",
+    aliases: ["tokio"],
+    category: "rust",
     provides: ["rust-async"],
     aiSkills: [
       {
@@ -425,6 +597,8 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Axum",
     description: "Rust web API service",
+    aliases: ["axum", "rust"],
+    category: "api",
     requires: ["rust-async"],
     provides: ["api", "rust"],
     aiSkills: localGuidance("rust/axum", "stackkit-axum-guidance", "Axum service structure and async handler guidance")
@@ -464,6 +638,8 @@ export const builtinModules = [
     version: "1.0.0",
     title: "sqlx",
     description: "Rust SQL toolkit for Postgres",
+    aliases: ["rust-sqlx"],
+    category: "database-client",
     requires: ["postgres", "rust"],
     provides: ["rust-db"],
     aiSkills: localGuidance("rust/sqlx", "stackkit-rust-sqlx-guidance", "Rust SQLx query and migration guidance")
@@ -507,8 +683,18 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Docker",
     description: "Container build configuration",
+    aliases: ["docker"],
+    category: "deploy",
+    icon: "docker",
     requires: ["nextjs-app"],
     provides: ["container"],
+    readme: {
+      stack: ["Docker"],
+      layout: [
+        { path: "docker-compose.yml", description: "Local container orchestration" },
+        { path: "apps/web/Dockerfile", description: "Next.js container image" }
+      ]
+    },
     aiSkills: localGuidance("deploy/docker", "stackkit-docker-guidance", "Dockerfile and image build guidance")
   }),
   defineModule({
@@ -533,6 +719,9 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Kubernetes",
     description: "Baseline Kubernetes deployment",
+    aliases: ["kubernetes", "k8s"],
+    category: "deploy",
+    icon: "kubernetes",
     requires: ["container"],
     provides: ["deploy"],
     aiSkills: [
@@ -604,9 +793,9 @@ export const builtinModules = [
 
 export const builtinPresets = [
   definePreset({
-    id: "next-only",
-    title: "Next.js only",
-    description: "A pnpm/Turborepo workspace with a Next.js app",
+    id: "next",
+    title: "Next.js",
+    description: "A pnpm and Turborepo workspace with a Next.js app and ShadCN UI",
     modules: ["workspace/pnpm-turbo", "workspace/typescript", "web/nextjs", "ui/shadcn", "quality/eslint", "quality/prettier"]
   }),
   definePreset({
@@ -627,9 +816,26 @@ export const builtinPresets = [
     ]
   }),
   definePreset({
+    id: "next-postgres-better-auth",
+    title: "Next.js, Postgres, and Better Auth",
+    description: "A Next.js app with ShadCN, Postgres, Drizzle, and self-hosted Better Auth",
+    modules: [
+      "workspace/pnpm-turbo",
+      "workspace/typescript",
+      "web/nextjs",
+      "ui/shadcn",
+      "db/postgres",
+      "db/drizzle",
+      "auth/better-auth",
+      "deploy/vercel",
+      "quality/eslint",
+      "quality/prettier"
+    ]
+  }),
+  definePreset({
     id: "next-fastapi-postgres-auth0",
     title: "Next.js, FastAPI, Postgres, and Auth0",
-    description: "A multi-language app with Next.js, FastAPI, Postgres, and Auth0",
+    description: "A multi-language app with Next.js, FastAPI, Postgres, SQLAlchemy, and Auth0",
     modules: [
       "workspace/pnpm-turbo",
       "workspace/typescript",
@@ -637,7 +843,6 @@ export const builtinPresets = [
       "ui/shadcn",
       "api/fastapi",
       "db/postgres",
-      "db/drizzle",
       "db/sqlalchemy",
       "auth/auth0-nextjs",
       "auth/auth0-fastapi",
@@ -650,18 +855,18 @@ export const builtinPresets = [
     ]
   }),
   definePreset({
-    id: "next-rust-postgres-auth0",
-    title: "Next.js, Rust, Postgres, and Auth0",
-    description: "A Next.js app with Rust service, Postgres, and Auth0",
+    id: "next-axum-postgres-auth0",
+    title: "Next.js, Axum, Postgres, and Auth0",
+    description: "A Next.js app with an Axum service, Postgres, Rust SQLx, and Auth0 where supported",
     modules: [
       "workspace/pnpm-turbo",
       "workspace/typescript",
       "web/nextjs",
       "ui/shadcn",
-      "rust/axum",
       "rust/tokio",
-      "rust/sqlx",
+      "rust/axum",
       "db/postgres",
+      "rust/sqlx",
       "auth/auth0-nextjs",
       "deploy/vercel",
       "deploy/docker",
@@ -671,9 +876,9 @@ export const builtinPresets = [
     ]
   }),
   definePreset({
-    id: "fullstack-containerized",
-    title: "Full stack containerized",
-    description: "A Docker-ready Next.js and API workspace",
+    id: "containerized",
+    title: "Containerized Next.js and FastAPI",
+    description: "A Docker-ready Next.js and FastAPI workspace with local Compose support",
     modules: [
       "workspace/pnpm-turbo",
       "workspace/typescript",
@@ -682,25 +887,17 @@ export const builtinPresets = [
       "ui/shadcn",
       "api/fastapi",
       "db/postgres",
+      "db/sqlalchemy",
       "deploy/docker",
       "docs/local-dev"
     ]
-  }),
-  definePreset({
-    id: "work-kubernetes-ready",
-    title: "Work Kubernetes ready",
-    description: "A containerized workspace with Kubernetes manifests",
-    modules: [
-      "workspace/pnpm-turbo",
-      "workspace/typescript",
-      "workspace/github-actions",
-      "web/nextjs",
-      "api/fastapi",
-      "db/postgres",
-      "deploy/docker",
-      "deploy/kubernetes",
-      "docs/architecture",
-      "docs/env"
-    ]
   })
 ] as const;
+
+export const builtinRegistry = stackkitRegistrySchema.parse({
+  schemaVersion: 1,
+  namespace: "@stackkit",
+  name: "Stackkit built-in registry",
+  modules: builtinModules,
+  presets: builtinPresets
+});

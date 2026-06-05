@@ -10,6 +10,7 @@ import {
   applyCreatePlan,
   createCreatePlan,
   defineModule,
+  planEnvExampleFiles,
   runLifecycleHooks,
   type EnvVarDefinition,
   type PackageChange
@@ -63,6 +64,90 @@ describe("create execution helpers", () => {
     await expect(readFile(join(directory, ".env.example"), "utf8")).resolves.toContain(
       "DATABASE_URL=postgres://postgres:postgres@localhost:5432/app"
     );
+  });
+
+  it("groups env examples from selected modules", async () => {
+    const operations = await planEnvExampleFiles("C:\\project", [
+      {
+        name: "DATABASE_URL",
+        description: "Database connection string.",
+        required: true,
+        example: "",
+        target: "api"
+      },
+      {
+        name: "AUTH0_CLIENT_SECRET",
+        description: "Auth0 client secret.",
+        required: true,
+        example: "",
+        target: "web"
+      }
+    ]);
+
+    expect(operations[0]?.content).toContain("# Web");
+    expect(operations[0]?.content).toContain("AUTH0_CLIENT_SECRET=");
+    expect(operations[0]?.content).toContain("# API");
+    expect(operations[0]?.content).toContain("DATABASE_URL=");
+  });
+
+  it("renders compatible duplicate env vars once", async () => {
+    const operations = await planEnvExampleFiles("C:\\project", [
+      {
+        name: "DATABASE_URL",
+        description: "Database connection string.",
+        required: true,
+        example: "",
+        target: "api"
+      },
+      {
+        name: "DATABASE_URL",
+        description: "Database connection string.",
+        required: true,
+        example: "",
+        target: "api"
+      }
+    ]);
+
+    expect(operations[0]?.content?.match(/DATABASE_URL=/g)).toHaveLength(1);
+  });
+
+  it("rejects incompatible duplicate env vars during planning", async () => {
+    await expect(
+      planEnvExampleFiles("C:\\project", [
+        {
+          name: "DATABASE_URL",
+          description: "Database connection string.",
+          required: true,
+          example: "",
+          target: "api"
+        },
+        {
+          name: "DATABASE_URL",
+          description: "Web database connection string.",
+          required: true,
+          example: "",
+          target: "web"
+        }
+      ])
+    ).rejects.toThrow("Incompatible environment variable metadata for DATABASE_URL");
+  });
+
+  it("writes .env.example but never writes .env", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-env-no-dotenv-"));
+    tempDirectories.push(directory);
+
+    await applyEnvExamples(directory, [
+      {
+        name: "DATABASE_URL",
+        description: "Database connection string.",
+        required: true,
+        example: "",
+        target: "api"
+      }
+    ]);
+
+    await expect(readFile(join(directory, ".env.example"), "utf8")).resolves.toContain("DATABASE_URL=");
+    await expect(readFile(join(directory, ".env"), "utf8")).rejects.toThrow();
   });
 
   it("runs lifecycle hooks with the injected command runner", async () => {
@@ -148,12 +233,14 @@ describe("create execution helpers", () => {
 
     const result = await applyCreatePlan(plan, { parentDirectory });
 
-    expect(result.manifest.files).toEqual([
-      expect.objectContaining({
-        path: ".env.example",
-        owner: "docs/env"
-      })
-    ]);
+    expect(result.manifest.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: ".env.example",
+          owner: "docs/env"
+        })
+      ])
+    );
     await expect(readFile(join(result.projectDirectory, ".env.example"), "utf8")).resolves.toContain("EXISTING=value");
   });
 });

@@ -28,6 +28,44 @@ const django = defineModule({
   provides: ["web-app", "python"]
 });
 
+const fastapi = defineModule({
+  id: "api/fastapi",
+  version: "1.0.0",
+  title: "FastAPI",
+  description: "FastAPI API",
+  provides: ["api", "python"]
+});
+
+const clerk = defineModule({
+  id: "auth/clerk",
+  version: "1.0.0",
+  title: "Clerk",
+  description: "Clerk auth",
+  category: "auth",
+  requires: ["react"],
+  provides: ["auth"]
+});
+
+const auth0Nextjs = defineModule({
+  id: "auth/auth0-nextjs",
+  version: "1.0.0",
+  title: "Auth0 for Next.js",
+  description: "Auth0 Next.js auth",
+  category: "auth",
+  requires: ["react"],
+  provides: ["auth"]
+});
+
+const auth0Fastapi = defineModule({
+  id: "auth/auth0-fastapi",
+  version: "1.0.0",
+  title: "Auth0 for FastAPI",
+  description: "Auth0 FastAPI auth",
+  category: "auth",
+  requires: ["python"],
+  provides: ["auth"]
+});
+
 describe("resolveModuleGraph", () => {
   it("orders selected modules deterministically and validates requirements", () => {
     const graph = resolveModuleGraph([next, workspace]);
@@ -41,6 +79,24 @@ describe("resolveModuleGraph", () => {
 
   it("fails when selected modules conflict", () => {
     expect(() => resolveModuleGraph([workspace, next, django])).toThrow("Module web/django conflicts with web/nextjs");
+  });
+
+  it("fails when concrete auth modules select different providers", () => {
+    expect(() => resolveModuleGraph([workspace, next, clerk, auth0Nextjs])).toThrow(
+      "Conflicting auth providers: clerk, auth0"
+    );
+  });
+
+  it("allows multiple concrete Auth0 modules for selected frameworks", () => {
+    const graph = resolveModuleGraph([workspace, next, fastapi, auth0Nextjs, auth0Fastapi]);
+
+    expect(graph.map((module) => module.id)).toEqual([
+      "workspace/pnpm-turbo",
+      "web/nextjs",
+      "api/fastapi",
+      "auth/auth0-nextjs",
+      "auth/auth0-fastapi"
+    ]);
   });
 
   it("expands presets into modules before resolving", () => {

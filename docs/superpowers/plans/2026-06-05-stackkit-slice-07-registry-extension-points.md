@@ -1,10 +1,10 @@
 # Stackkit Slice 07 Registry Extension Points Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not create a worktree, branch, commit, stage, reset, or revert unless the user explicitly asks.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Use the existing `codex/stackkit-cli-v1` branch, do not create worktrees, and commit after each verified milestone.
 
 **Goal:** Prepare maintainable registry extension points without making external registries part of the default user flow.
 
-**Architecture:** Treat the built-in registry as a `StackkitRegistry` object. Add schema support for project-level registry declarations. Keep external registry loading read-only and local-file-only in this slice. Remote fetching and trusted lifecycle hooks remain deferred.
+**Architecture:** Treat the built-in registry as a `StackkitRegistry` object. Add schema support for project-level registry declarations. Keep external registry loading read-only and local-file-only in this slice. Remote fetching and trusted lifecycle hooks remain deferred. Keep `@stackkit/core` registry-neutral to avoid cycles; CLI and registry consumers pass registries into core helpers.
 
 **Tech Stack:** TypeScript, Zod, Vitest, Node fs/path APIs.
 
@@ -19,6 +19,16 @@
 - `packages/core/src/registry.test.ts`: registry resolution tests.
 - `packages/cli/src/index.ts`: add read-only `registry list` for built-in/project config.
 - `packages/cli/src/cli.test.ts`: registry command coverage.
+
+## Review Hardening
+
+- Do not make `@stackkit/core` import `@stackkit/registry`. Current registry code imports shared definitions used by core, so core importing the built-in registry risks a dependency cycle.
+- If core helpers need registry data, pass `builtinRegistry` or loaded registries as function input from CLI or tests.
+- Add `stackkitRegistrySchema` after module and preset schemas are defined, then add `registries` to `stackkitConfigSchema`.
+- Configured registries must have a visible read-only flow. Implement `stackkit registry list --config <path>` or do not expose the config field yet.
+- Local registry loading is allowed. Remote registry URLs must produce a clear unsupported error.
+- Tests should parse `builtinRegistry` through `stackkitRegistrySchema` and use `runProgram(["registry", "list"])`.
+- Update exact command-surface tests intentionally when adding the `registry` command group.
 
 ## Task 1: Add Registry Schema
 
@@ -93,6 +103,8 @@ export const builtinRegistry = {
 ```
 
 If schema parsing requires mutable arrays, define modules and presets first, then parse with `stackkitRegistrySchema`.
+
+Add a test that imports `stackkitRegistrySchema` from `@stackkit/schemas` and asserts `stackkitRegistrySchema.parse(builtinRegistry)` succeeds.
 
 - [ ] **Step 5: Run registry tests**
 
@@ -263,7 +275,7 @@ Add to `packages/cli/src/cli.test.ts`:
 
 ```ts
 it("lists the built-in registry", async () => {
-  const output = await runCli(["node", "stackkit", "registry", "list"]);
+  const output = await runProgram(["registry", "list"]);
 
   expect(output.stdout).toContain("@stackkit");
 });
@@ -292,6 +304,14 @@ registry.command("list").option("--json", "Output JSON").action(() => {
 ```
 
 Do not add `registry add/remove` in this slice.
+
+Also support:
+
+```bash
+stackkit registry list --config stackkit.config.json
+```
+
+This loads local registries declared in the config, prints built-in plus local registry summaries, and rejects remote registry URLs with "Remote registries are not supported yet".
 
 - [ ] **Step 4: Run CLI tests**
 
@@ -336,4 +356,3 @@ Expected: pass.
 - [ ] **Step 3: Update status**
 
 Update `docs/status.md` to say registry extension points exist only if verified. Do not claim remote registry support.
-

@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyAddModules,
@@ -222,6 +222,391 @@ describe("applyAddModules", () => {
     await expect(
       readFile(join(projectDirectory, ".agents", "skills", "custom-local-guidance", "SKILL.md"), "utf8")
     ).resolves.toContain("custom/local-skill");
+  });
+
+  it("does not install or write skill artifacts when the manifest skill mode is skip", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-add-"));
+    tempDirectories.push(projectDirectory);
+    const manifest = await writeManifest(projectDirectory, {
+      ...baseManifest(),
+      aiSkills: {
+        ...baseManifest().aiSkills,
+        mode: "skip",
+        linkMode: "symlink"
+      }
+    });
+    const runCommand = vi.fn(async () => ({ exitCode: 0, stdout: "installed", stderr: "" }));
+
+    const result = await applyAddModules({
+      projectDirectory,
+      manifest,
+      moduleIds: ["web/nextjs", "custom/local-skill"],
+      runCommand,
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "Workspace",
+          description: "Existing workspace",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js app",
+          requires: ["workspace/node"],
+          aiSkills: [
+            {
+              source: "https://github.com/vercel-labs/agent-skills",
+              skills: ["vercel-react-best-practices"],
+              trust: "official",
+              causedBy: "web/nextjs",
+              reason: "React and Next.js app code"
+            }
+          ]
+        }),
+        defineModule({
+          id: "custom/local-skill",
+          version: "1.0.0",
+          title: "Local skill",
+          description: "Local skill guidance",
+          aiSkills: [
+            {
+              skills: ["custom-local-guidance"],
+              trust: "local",
+              causedBy: "custom/local-skill",
+              reason: "No external skill is configured"
+            }
+          ]
+        })
+      ]
+    });
+
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(result.manifest.aiSkills).toEqual(
+      expect.objectContaining({
+        mode: "skip",
+        linkMode: "symlink",
+        installed: [],
+        planned: [],
+        local: [],
+        unresolved: []
+      })
+    );
+    await expect(stat(join(projectDirectory, "skills-lock.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(projectDirectory, ".agents", "skills"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("records addable external skills as planned without installing when the manifest skill mode is plan", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-add-"));
+    tempDirectories.push(projectDirectory);
+    const manifest = await writeManifest(projectDirectory, {
+      ...baseManifest(),
+      aiSkills: {
+        ...baseManifest().aiSkills,
+        mode: "plan",
+        linkMode: "symlink"
+      }
+    });
+    const runCommand = vi.fn(async () => ({ exitCode: 0, stdout: "installed", stderr: "" }));
+
+    const result = await applyAddModules({
+      projectDirectory,
+      manifest,
+      moduleIds: ["web/nextjs"],
+      runCommand,
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "Workspace",
+          description: "Existing workspace",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js app",
+          requires: ["workspace/node"],
+          aiSkills: [
+            {
+              source: "https://github.com/vercel-labs/agent-skills",
+              skills: ["vercel-react-best-practices"],
+              trust: "official",
+              causedBy: "web/nextjs",
+              reason: "React and Next.js app code"
+            }
+          ]
+        })
+      ]
+    });
+
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(result.manifest.aiSkills).toEqual(
+      expect.objectContaining({
+        mode: "plan",
+        linkMode: "symlink",
+        installed: [],
+        planned: [
+          expect.objectContaining({
+            skills: ["vercel-react-best-practices"],
+            trust: "official",
+            causedBy: "web/nextjs"
+          })
+        ],
+        local: [],
+        unresolved: []
+      })
+    );
+
+    const lock = await readOptionalSkillsLock(projectDirectory);
+    expect(lock).toEqual(
+      expect.objectContaining({
+        mode: "plan",
+        linkMode: "symlink",
+        installed: [],
+        planned: [
+          expect.objectContaining({
+            skills: ["vercel-react-best-practices"],
+            trust: "official",
+            causedBy: "web/nextjs"
+          })
+        ],
+        local: [],
+        unresolved: []
+      })
+    );
+  });
+
+  it("records allowlisted curated external skills as planned in plan mode", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-add-"));
+    tempDirectories.push(projectDirectory);
+    const manifest = await writeManifest(projectDirectory, {
+      ...baseManifest(),
+      aiSkills: {
+        ...baseManifest().aiSkills,
+        mode: "plan",
+        linkMode: "symlink"
+      }
+    });
+    const runCommand = vi.fn(async () => ({ exitCode: 0, stdout: "installed", stderr: "" }));
+
+    const result = await applyAddModules({
+      projectDirectory,
+      manifest,
+      moduleIds: ["web/django"],
+      runCommand,
+      curatedSkillSourceAllowlist: ["https://github.com/example/curated-skills"],
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "Workspace",
+          description: "Existing workspace"
+        }),
+        defineModule({
+          id: "web/django",
+          version: "1.0.0",
+          title: "Django",
+          description: "Django app",
+          aiSkills: [
+            {
+              source: "https://github.com/example/curated-skills",
+              skills: ["django-patterns"],
+              trust: "curated",
+              causedBy: "web/django",
+              reason: "Allowlisted Django guidance"
+            }
+          ]
+        })
+      ]
+    });
+
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(result.manifest.aiSkills.planned).toEqual([
+      expect.objectContaining({
+        source: "https://github.com/example/curated-skills",
+        skills: ["django-patterns"],
+        trust: "curated",
+        causedBy: "web/django"
+      })
+    ]);
+    expect(result.manifest.aiSkills.unresolved).toEqual([]);
+  });
+
+  it("installs allowlisted curated external skills in install mode", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-add-"));
+    tempDirectories.push(projectDirectory);
+    const manifest = await writeManifest(projectDirectory, baseManifest());
+    const runCommand = vi.fn(async () => ({ exitCode: 0, stdout: "installed", stderr: "" }));
+
+    const result = await applyAddModules({
+      projectDirectory,
+      manifest,
+      moduleIds: ["rust/tokio"],
+      runCommand,
+      curatedSkillSourceAllowlist: ["https://github.com/example/rust-skills"],
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "Workspace",
+          description: "Existing workspace"
+        }),
+        defineModule({
+          id: "rust/tokio",
+          version: "1.0.0",
+          title: "Tokio",
+          description: "Tokio async runtime",
+          aiSkills: [
+            {
+              source: "https://github.com/example/rust-skills",
+              skills: ["rust-async-patterns"],
+              trust: "curated",
+              causedBy: "rust/tokio",
+              reason: "Allowlisted Rust guidance"
+            }
+          ]
+        })
+      ]
+    });
+
+    expect(runCommand).toHaveBeenCalledWith(
+      "npx",
+      expect.arrayContaining(["skills", "add", "https://github.com/example/rust-skills", "--skill", "rust-async-patterns"]),
+      { cwd: projectDirectory }
+    );
+    expect(result.manifest.aiSkills.installed).toEqual([
+      expect.objectContaining({
+        source: "https://github.com/example/rust-skills",
+        skills: ["rust-async-patterns"],
+        trust: "curated",
+        causedBy: "rust/tokio"
+      })
+    ]);
+    expect(result.manifest.aiSkills.unresolved).toEqual([]);
+  });
+
+  it("does not mark addable external skills as installed without a command runner", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-add-"));
+    tempDirectories.push(projectDirectory);
+    const manifest = await writeManifest(projectDirectory, baseManifest());
+
+    const result = await applyAddModules({
+      projectDirectory,
+      manifest,
+      moduleIds: ["web/nextjs", "custom/local-skill"],
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "Workspace",
+          description: "Existing workspace",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js app",
+          requires: ["workspace/node"],
+          aiSkills: [
+            {
+              source: "https://github.com/vercel-labs/agent-skills",
+              skills: ["vercel-react-best-practices"],
+              trust: "official",
+              causedBy: "web/nextjs",
+              reason: "React and Next.js app code"
+            }
+          ]
+        }),
+        defineModule({
+          id: "custom/local-skill",
+          version: "1.0.0",
+          title: "Local skill",
+          description: "Local skill guidance",
+          aiSkills: [
+            {
+              skills: ["custom-local-guidance"],
+              trust: "local",
+              causedBy: "custom/local-skill",
+              reason: "No external skill is configured"
+            }
+          ]
+        })
+      ]
+    });
+
+    expect(result.manifest.aiSkills.installed).toEqual([]);
+    expect(result.manifest.aiSkills.unresolved).toEqual([
+      {
+        source: "https://github.com/vercel-labs/agent-skills",
+        skills: ["vercel-react-best-practices"],
+        trust: "unresolved",
+        causedBy: "web/nextjs",
+        reason: "Skill install failed: No command runner configured for AI skill installation"
+      }
+    ]);
+    expect(result.manifest.aiSkills.local).toEqual([
+      expect.objectContaining({
+        skills: ["custom-local-guidance"],
+        trust: "local",
+        causedBy: "custom/local-skill"
+      })
+    ]);
+
+    const lock = await readOptionalSkillsLock(projectDirectory);
+    expect(lock?.installed).toEqual([]);
+    expect(lock?.unresolved).toEqual(result.manifest.aiSkills.unresolved);
+    await expect(
+      readFile(join(projectDirectory, ".agents", "skills", "custom-local-guidance", "SKILL.md"), "utf8")
+    ).resolves.toContain("custom/local-skill");
+  });
+
+  it("uses the manifest package manager when adding generated module files", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-add-"));
+    tempDirectories.push(projectDirectory);
+    const manifest = await writeManifest(projectDirectory, {
+      ...baseManifest(),
+      packageManager: "bun"
+    });
+
+    await applyAddModules({
+      projectDirectory,
+      manifest,
+      moduleIds: ["web/nextjs", "deploy/docker"],
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "Workspace",
+          description: "Existing workspace",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js app",
+          requires: ["workspace/node"],
+          provides: ["nextjs-app"]
+        }),
+        defineModule({
+          id: "deploy/docker",
+          version: "1.0.0",
+          title: "Docker",
+          description: "Docker deployment",
+          requires: ["nextjs-app"]
+        })
+      ]
+    });
+
+    const dockerfile = await readFile(join(projectDirectory, "apps", "web", "Dockerfile"), "utf8");
+
+    expect(dockerfile).toContain("RUN bun install");
+    expect(dockerfile).not.toContain("pnpm");
   });
 });
 

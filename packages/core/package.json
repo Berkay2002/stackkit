@@ -1,7 +1,13 @@
 {
   "name": "@stackkit/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Core project planning and lifecycle engine for Stackkit.",
+  "license": "MIT",
   "type": "module",
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

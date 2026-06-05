@@ -2,7 +2,31 @@
 
 ## Task Completion Requirements
 
+Before changing code, inspect the relevant package, docs, tests, and existing patterns. Do not patch from memory when local code can answer the question.
+
+Keep work in the current checkout unless the user explicitly asks for a branch or worktree. For large Stackkit changes, work in reviewable chunks and verify each meaningful milestone before moving on.
+
+When there is a product, CLI UX, output-format, or lifecycle-contract uncertainty, surface it instead of guessing. Stackkit should be designed as a long-term generator platform, not a narrow frontend-only TypeScript MVP.
+
+Run the narrowest useful verification first. For package-scoped changes, start with that package's `pnpm --filter <package> test` and `pnpm --filter <package> typecheck` where applicable. For shared contracts, generated output, or CLI behavior, also run the relevant root checks: `pnpm test`, `pnpm typecheck`, `pnpm build`, or `pnpm smoke`.
+
+For CLI entrypoint changes, build and run a direct CLI smoke check such as `node packages/cli/dist/index.js --help`. For generated-project behavior, verify a real generated project path when the change affects files, manifests, doctor, diff, lifecycle, skills, package-manager output, or end-to-end commands.
+
+Do not call lifecycle work done just because core APIs exist. Add, remove, update, migrate, skills sync, and skills update are only complete when the CLI surface, manifest behavior, dry-run behavior, and verification path all agree.
+
+Do not leave generated `packages/**/dist` output or `*.tsbuildinfo` files in the review unless the user explicitly asked for build artifacts.
+
 ## Project Snapshot
+
+Stackkit is a TypeScript pnpm/Turborepo monorepo for a CLI that generates and maintains multi-language monorepos.
+
+The CLI creates managed projects from presets, stack-axis flags, config files, and offline recipes. It records ownership and provenance in `.stackkit/project.json`, tracks AI skill state in `skills-lock.json`, and uses deterministic templates so doctor, diff, add, remove, update, and migration flows can reason about generated files.
+
+Stackkit is currently an internal alpha. The platform mechanics are partly wired: create, config validation, presets, recipes, module discovery, registry listing, info, doctor, diff, AI skill planning, and several lifecycle command paths exist. Generated app implementations are still uneven: Next.js, ShadCN, FastAPI, Postgres metadata, Auth0 metadata, Vercel, Docker, and Kubernetes have starter-level support, while deeper auth, database, and Rust service templates still need work.
+
+Python and Rust are first-class Stackkit targets. Do not collapse planning or package boundaries into a Next.js-only or TypeScript-only view.
+
+AI skills are part of the product contract. Prefer official skills first, curated skills second, and local Stackkit guidance when no suitable external skill exists. Verify real `npx skills` behavior before changing skill-install logic.
 
 Proposing sweeping changes that improve long-term maintainability is encouraged.
 
@@ -20,6 +44,20 @@ Long term maintainability is a core priority. If you add new functionality, firs
 
 ## Package Roles
 
+`packages/schemas` owns public Zod schemas and TypeScript types. Put shared config, manifest, lifecycle, registry, file-operation, and command data shapes here when multiple packages need the contract. Avoid importing runtime planning, CLI, or template behavior into schemas.
+
+`packages/templates` owns deterministic file rendering from typed inputs. Keep generated file content, package-manager-aware output, README/env composition, Docker/deploy files, and starter app templates here when they are pure rendering concerns. Templates should not resolve modules, mutate disk, parse CLI flags, or make registry policy decisions.
+
+`packages/registry` owns built-in modules, presets, aliases, capability declarations, conflicts, AI-skill metadata, and local declarative registry shape. It should describe what exists and what it requires; it should not write files or own CLI formatting.
+
+`packages/core` owns resolution, planning, safety checks, file plans, manifests, skill-install planning, doctor, diff, info, recipes, customizer catalog data, and lifecycle engines. Shared behavior belongs here before it is duplicated in CLI commands or tests.
+
+`packages/cli` owns command registration, flags, prompts, stdout/stderr formatting, JSON markers, process exit behavior, and user-facing command flow. Keep business logic thin here; delegate validation, planning, and execution to core.
+
+`packages/test-utils` is private test infrastructure. Use it for generated-project fixtures, integration helpers, and smoke paths that should not leak into published packages.
+
+Dependency direction should stay predictable: schemas are the contract base; templates and registry consume schemas; core consumes schemas, templates, and registry-facing contracts; CLI consumes core, registry, and schemas. Do not introduce cycles.
+
 ## Autonomous build runs (the `ship` workflow)
 
 When a build is driven end-to-end with no human gate (the `ship` skill — user AFK), these overrides hold for that run:
@@ -33,3 +71,8 @@ When a build is driven end-to-end with no human gate (the `ship` skill — user 
 
 ## Reference Repos
 
+No external reference repositories are pinned here yet.
+
+When adding or using a reference repo, record the repo URL, commit or release, why it is relevant, and which Stackkit package or generated-project path it informs. Treat reference repos as evidence, not authority: verify behavior against current Stackkit contracts before copying patterns.
+
+For AI-skill and framework behavior, prefer primary sources and official docs where possible. For curated skill sources, verify repo existence, skill names, and install behavior with `npx skills ... --list`, `npx skills find <query>`, or `gh repo view <owner/repo>` before recording the source in Stackkit docs or registry metadata.

@@ -34,7 +34,7 @@ describe("CLI e2e smoke", () => {
       "utf8"
     );
 
-    const { stdout } = await execFileAsync("node", [cliEntry, "create", "--config", configPath, "--dir", targetDirectory], {
+    const { stdout } = await execFileAsync("node", [cliEntry, "create", "--config", configPath, "--dir", targetDirectory, "--yes"], {
       cwd: repoRoot
     });
 

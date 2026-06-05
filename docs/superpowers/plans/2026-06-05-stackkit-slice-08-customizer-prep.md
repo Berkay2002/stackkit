@@ -1,6 +1,6 @@
 # Stackkit Slice 08 Customizer Prep Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not create a worktree, branch, commit, stage, reset, or revert unless the user explicitly asks.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Use the existing `codex/stackkit-cli-v1` branch, do not create worktrees, and commit after each verified milestone.
 
 **Goal:** Prepare shared APIs so a future Next.js/shadcn visual customizer can render stack choices and produce offline recipe commands without duplicating CLI logic.
 
@@ -17,6 +17,19 @@
 - `packages/registry/src/index.ts`: ensure modules/presets expose title, alias, category, and icon key where useful.
 - `packages/schemas/src/index.ts`: add optional `icon` metadata.
 - `docs/status.md`: note customizer is designed but not implemented.
+
+## Prerequisites
+
+- Slice 04 must add aliases, categories, recipe encode/decode, and stack-axis resolver before this slice can expose full customizer-ready choices.
+- If Slice 04 is not complete, keep this slice limited to catalog display data and do not claim recipe-command generation.
+
+## Review Hardening
+
+- This slice does not build `apps/customizer`.
+- Catalog output must be deterministic: sort presets by title or ID and sort categories and choices consistently.
+- The catalog can expose display data and canonical IDs. It should not duplicate resolver rules.
+- If recipe APIs are missing, document that catalog consumers can display choices only until Slice 04 lands.
+- Use icon keys as strings, not imported React components.
 
 ## Task 1: Add Icon Metadata
 
@@ -208,13 +221,17 @@ export function buildCustomizerCatalog(input: {
   }
 
   return {
-    presets: input.presets.map((preset) => ({
-      id: preset.id,
-      title: preset.title,
-      description: preset.description,
-      modules: [...preset.modules]
-    })),
-    categories
+    presets: input.presets
+      .map((preset) => ({
+        id: preset.id,
+        title: preset.title,
+        description: preset.description,
+        modules: [...preset.modules]
+      }))
+      .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id)),
+    categories: Object.fromEntries(
+      Object.entries(categories).sort(([left], [right]) => left.localeCompare(right))
+    )
   };
 }
 ```
@@ -262,6 +279,8 @@ No accounts, hosted recipe IDs, or backend storage are part of the first customi
 
 Add a short note in `docs/status.md` that customizer prep is a shared API only and the app is not implemented.
 
+If Slice 04 recipe APIs are not complete, state that offline recipe command output remains blocked by Slice 04.
+
 - [ ] **Step 3: Run docs existence check**
 
 Run:
@@ -300,4 +319,3 @@ pnpm smoke
 ```
 
 Expected: pass.
-

@@ -1,6 +1,6 @@
 # Stackkit Slice 03 AI Skills Modes Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not create a worktree, branch, commit, stage, reset, or revert unless the user explicitly asks.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Use the existing `codex/stackkit-cli-v1` branch, do not create worktrees, and commit after each verified milestone.
 
 **Goal:** Make AI skill behavior explicit and product-ready: default Codex `.agents`, optional Claude Code `.claude`, install/plan/skip modes, copy/symlink link mode metadata, and non-fatal skill install failures.
 
@@ -13,11 +13,22 @@
 ## File Structure
 
 - `packages/schemas/src/index.ts`: add `ai.skillMode` and `ai.linkMode`.
+- `packages/schemas/src/index.ts`: add `skillsLock.planned` and manifest AI state fields if they do not already exist.
 - `packages/core/src/index.ts`: respect skill mode and link mode in planning/apply.
 - `packages/core/src/ai-skill-targets.test.ts`: target/link mode behavior.
 - `packages/core/src/create-apply.test.ts`: skills-lock/local guidance behavior.
 - `packages/cli/src/index.ts`: add `--ai`, `--skills`, and `--skill-link`.
 - `packages/cli/src/cli.test.ts`: flag behavior.
+
+## Review Hardening
+
+- Represent planned skills separately from unresolved failures. Add `planned` to `skillsLockSchema`, `CreatePlan.aiSkills`, and manifest AI state if the current schemas cannot express it.
+- `--skills plan` records planned external installs but runs no external commands.
+- `--skills skip` bypasses all skill output: no `skills-lock.json`, no `.agents/skills`, no `.claude/skills`, no local skill guidance files, and no install commands in dry-run JSON.
+- `--skills install` runs installs and records failures as unresolved without failing `create`.
+- `--skills require` may be added here or left for the verification harness, but if the flag is exposed it must fail on unresolved required skills.
+- `linkMode` is metadata unless the real `npx skills` CLI support is verified in this slice. Do not invent symlink flags from memory.
+- CLI tests should use `runProgram`; create/apply tests should use existing temp helpers or add a shared `test-helpers.ts` deliberately.
 
 ## Task 1: Extend AI Config Schema
 
@@ -78,6 +89,14 @@ linkMode: aiSkillLinkModeSchema.default("copy")
 ```
 
 Export inferred types.
+
+If not already present, extend the skill lock and manifest schemas:
+
+```ts
+planned: z.array(aiSkillDependencySchema).default([])
+```
+
+Keep `unresolved` for failures only.
 
 - [ ] **Step 4: Run schema tests**
 
@@ -169,8 +188,8 @@ aiSkills: {
 Behavior:
 
 - `install`: run install commands, failures unresolved.
-- `plan`: do not run commands, record installable skills in lock as unresolved or planned according to existing lock schema. Prefer `unresolved` only for failures; if schema cannot represent planned yet, store installable in `installed` with a reason-free record and do not claim they were fetched in output.
-- `skip`: do not write local skill files or lock.
+- `plan`: do not run commands, record installable skills in `planned`.
+- `skip`: do not write local skill files, local guidance, install commands, or lock.
 
 If the current lock schema cannot clearly represent planned skills, add a `planned` array in `skillsLockSchema` and manifest AI state in the same task.
 
@@ -196,9 +215,7 @@ Add to `packages/cli/src/cli.test.ts`:
 
 ```ts
 it("accepts comma-separated AI targets", async () => {
-  const output = await runCli([
-    "node",
-    "stackkit",
+  const output = await runProgram([
     "create",
     "acme",
     "--dry-run",
@@ -211,7 +228,7 @@ it("accepts comma-separated AI targets", async () => {
 });
 
 it("accepts skills plan mode", async () => {
-  const output = await runCli(["node", "stackkit", "create", "acme", "--dry-run", "--skills", "plan"]);
+  const output = await runProgram(["create", "acme", "--dry-run", "--skills", "plan"]);
 
   expect(output.stdout).toContain('"skillMode": "plan"');
 });
@@ -246,6 +263,8 @@ function parseCommaList(value: string | undefined): string[] | undefined {
 ```
 
 Pass into config before schema parse.
+
+For `--skill-link symlink`, first verify the current `npx skills` CLI behavior. If no supported symlink behavior exists, store link mode in manifest/lock and keep file output copied until a later slice can implement real symlinking safely.
 
 - [ ] **Step 4: Run CLI tests**
 
@@ -289,4 +308,3 @@ Expected: pass.
 - [ ] **Step 3: Update status**
 
 Update `docs/status.md` with implemented AI skill modes only after all checks pass.
-
