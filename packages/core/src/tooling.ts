@@ -45,6 +45,10 @@ function localGuidance(moduleId: string, skill: string, reason: string): AiSkill
   return [{ skills: [skill], trust: "local", causedBy: moduleId, reason }];
 }
 
+function curatedGuidance(moduleId: string, source: string, skills: string[], reason: string): AiSkillDependency[] {
+  return [{ source, skills, trust: "curated", causedBy: moduleId, reason }];
+}
+
 /**
  * The single source of truth for developer-tooling choices. Each entry is a tool that fills one or
  * more Tooling Slots for a language. Exactly one tool is the default per (language, slot). Combined
@@ -80,7 +84,12 @@ export const toolingCatalog: ToolingToolSpec[] = [
     slots: ["lint", "format"],
     isDefault: false,
     aliases: ["biome"],
-    aiSkills: localGuidance("quality/biome", "stackkit-biome-guidance", "Biome lint and format configuration guidance")
+    aiSkills: curatedGuidance(
+      "quality/biome",
+      "https://github.com/paulrberg/agent-skills",
+      ["biome-js"],
+      "Biome lint and format configuration guidance"
+    )
   },
   {
     moduleId: "quality/tsc",
@@ -110,7 +119,12 @@ export const toolingCatalog: ToolingToolSpec[] = [
     slots: ["typecheck"],
     isDefault: true,
     aliases: ["mypy"],
-    aiSkills: localGuidance("quality/mypy", "stackkit-mypy-guidance", "mypy configuration and type-annotation guidance")
+    aiSkills: curatedGuidance(
+      "quality/mypy",
+      "https://github.com/bobmatnyc/claude-mpm-skills",
+      ["mypy"],
+      "mypy configuration and type-annotation guidance"
+    )
   },
   {
     moduleId: "quality/pyright",

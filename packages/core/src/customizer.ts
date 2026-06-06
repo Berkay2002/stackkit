@@ -18,6 +18,18 @@ export {
   type ResolveModuleGraphOptions
 } from "./module-graph.js";
 
+export type {
+  ToolingLanguage,
+  ToolingSlot,
+  ToolingToolSpec
+} from "./tooling.js";
+export {
+  buildQualityModules,
+  toolingCatalog,
+  slotCapability,
+  languageCapability
+} from "./tooling.js";
+
 export type CustomizerCatalogChoice = {
   id: string;
   alias: string;

@@ -1,8 +1,10 @@
-import { buildQualityModules } from "@berkayorhan/stackkit-core";
-import { defineModule, definePreset } from "@berkayorhan/stackkit-core/customizer";
+import { buildQualityModules, defineModule, definePreset } from "@berkayorhan/stackkit-core/customizer";
 import { stackkitRegistrySchema } from "@berkayorhan/stackkit-schemas";
 
 export const curatedSkillSourceAllowlist = [
+  "https://github.com/antfu/skills",
+  "https://github.com/deckardger/tanstack-agent-skills",
+  "https://github.com/paulrberg/agent-skills",
   "https://github.com/affaan-m/everything-claude-code",
   "https://github.com/vintasoftware/django-ai-plugins",
   "https://github.com/mindrally/skills",
@@ -108,7 +110,15 @@ export const builtinModules = [
       stack: ["Vite", "React"],
       layout: [{ path: "apps/web", description: "Vite React single-page application" }]
     },
-    aiSkills: localGuidance("web/vite", "stackkit-vite-guidance", "Vite React app structure and build configuration guidance")
+    aiSkills: [
+      {
+        source: "https://github.com/antfu/skills",
+        skills: ["vite"],
+        trust: "curated",
+        causedBy: "web/vite",
+        reason: "Vite build tool, plugin, and SSR guidance"
+      }
+    ]
   }),
   defineModule({
     id: "web/tanstack-start",
@@ -125,7 +135,15 @@ export const builtinModules = [
       stack: ["TanStack Start", "React"],
       layout: [{ path: "apps/web", description: "TanStack Start full-stack React application" }]
     },
-    aiSkills: localGuidance("web/tanstack-start", "stackkit-tanstack-start-guidance", "TanStack Start routing, SSR, and server-function guidance")
+    aiSkills: [
+      {
+        source: "https://github.com/deckardger/tanstack-agent-skills",
+        skills: ["tanstack-start-best-practices"],
+        trust: "curated",
+        causedBy: "web/tanstack-start",
+        reason: "TanStack Start SSR, server functions, middleware, and routing guidance"
+      }
+    ]
   }),
   defineModule({
     id: "ui/shadcn",

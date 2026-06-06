@@ -67,6 +67,26 @@ describe("builtin AI skill registry", () => {
     expect(skills).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          source: "https://github.com/antfu/skills",
+          skills: ["vite"],
+          causedBy: "web/vite"
+        }),
+        expect.objectContaining({
+          source: "https://github.com/deckardger/tanstack-agent-skills",
+          skills: ["tanstack-start-best-practices"],
+          causedBy: "web/tanstack-start"
+        }),
+        expect.objectContaining({
+          source: "https://github.com/paulrberg/agent-skills",
+          skills: ["biome-js"],
+          causedBy: "quality/biome"
+        }),
+        expect.objectContaining({
+          source: "https://github.com/bobmatnyc/claude-mpm-skills",
+          skills: ["mypy"],
+          causedBy: "quality/mypy"
+        }),
+        expect.objectContaining({
           source: "https://github.com/affaan-m/everything-claude-code",
           skills: ["django-patterns", "django-security", "django-tdd", "django-verification"],
           causedBy: "web/django"
