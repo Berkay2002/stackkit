@@ -1,6 +1,6 @@
 {
   "name": "@berkayorhan/stackkit-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Core project planning and lifecycle engine for Stackkit.",
   "license": "MIT",
   "type": "module",
@@ -11,7 +11,9 @@
   },
   "homepage": "https://github.com/Berkay2002/stackkit#readme",
   "bugs": "https://github.com/Berkay2002/stackkit/issues",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public"
   },

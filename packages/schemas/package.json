@@ -1,6 +1,6 @@
 {
   "name": "@berkayorhan/stackkit-schemas",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared schemas for Stackkit monorepo generation.",
   "license": "MIT",
   "type": "module",
@@ -11,7 +11,9 @@
   },
   "homepage": "https://github.com/Berkay2002/stackkit#readme",
   "bugs": "https://github.com/Berkay2002/stackkit/issues",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public"
   },
