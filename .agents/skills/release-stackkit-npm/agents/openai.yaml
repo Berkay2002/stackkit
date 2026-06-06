@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Stackkit npm"
+  short_description: "Version and publish Stackkit packages"
+  default_prompt: "Use $release-stackkit-npm to prepare and verify a new Stackkit npm release."
