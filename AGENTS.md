@@ -10,6 +10,8 @@ When there is a product, CLI UX, output-format, or lifecycle-contract uncertaint
 
 Run the narrowest useful verification first. For package-scoped changes, start with that package's `pnpm --filter <package> test` and `pnpm --filter <package> typecheck` where applicable. For shared contracts, generated output, or CLI behavior, also run the relevant root checks: `pnpm test`, `pnpm typecheck`, `pnpm build`, or `pnpm smoke`.
 
+For app-scoped changes, run the app's package checks first: `pnpm --filter @berkayorhan/stackkit-customizer test`, `pnpm --filter @berkayorhan/stackkit-customizer typecheck`, `pnpm --filter @berkayorhan/stackkit-customizer build`, or the equivalent `@berkayorhan/stackkit-docs` commands. For visual or routing changes, also run the relevant dev server and verify the page in a browser.
+
 For CLI entrypoint changes, build and run a direct CLI smoke check such as `node packages/cli/dist/index.js --help`. For generated-project behavior, verify a real generated project path when the change affects files, manifests, doctor, diff, lifecycle, skills, package-manager output, or end-to-end commands.
 
 Do not call lifecycle work done just because core APIs exist. Add, remove, update, migrate, skills sync, and skills update are only complete when the CLI surface, manifest behavior, dry-run behavior, and verification path all agree.
@@ -18,11 +20,11 @@ Do not leave generated `packages/**/dist` output or `*.tsbuildinfo` files in the
 
 ## Project Snapshot
 
-Stackkit is a TypeScript pnpm/Turborepo monorepo for a CLI that generates and maintains multi-language monorepos.
+Stackkit is a TypeScript pnpm/Turborepo monorepo for a CLI, shared generator packages, and first-party apps around a long-term multi-language monorepo generator platform.
 
 The CLI creates managed projects from presets, stack-axis flags, config files, and offline recipes. It records ownership and provenance in `.stackkit/project.json`, tracks AI skill state in `skills-lock.json`, and uses deterministic templates so doctor, diff, add, remove, update, and migration flows can reason about generated files.
 
-Stackkit is currently an internal alpha. The platform mechanics are partly wired: create, config validation, presets, recipes, module discovery, registry listing, info, doctor, diff, AI skill planning, and several lifecycle command paths exist. Generated app implementations are still uneven: Next.js, ShadCN, FastAPI, Postgres metadata, Auth0 metadata, Vercel, Docker, and Kubernetes have starter-level support, while deeper auth, database, and Rust service templates still need work.
+Stackkit is currently an internal alpha. The platform mechanics are partly wired: create, config validation, presets, recipes, module discovery, registry listing, info, doctor, diff, AI skill planning, several lifecycle command paths, a local recipe customizer, and a docs app exist. Generated app implementations are still uneven: Next.js, ShadCN, FastAPI, Postgres metadata, Auth0 metadata, Vercel, Docker, and Kubernetes have starter-level support, while deeper auth, database, and Rust service templates still need work.
 
 Python and Rust are first-class Stackkit targets. Do not collapse planning or package boundaries into a Next.js-only or TypeScript-only view.
 
@@ -57,6 +59,12 @@ Long term maintainability is a core priority. If you add new functionality, firs
 `packages/test-utils` is private test infrastructure. Use it for generated-project fixtures, integration helpers, and smoke paths that should not leak into published packages.
 
 Dependency direction should stay predictable: schemas are the contract base; templates and registry consume schemas; core consumes schemas, templates, and registry-facing contracts; CLI consumes core, registry, and schemas. Do not introduce cycles.
+
+## App Roles
+
+`apps/customizer` is a local Next.js app for composing Stackkit projects visually and copying offline `stackkit create <name> --recipe <code>` commands. It should consume the shared customizer catalog, resolver, registry, and recipe APIs from `@berkayorhan/stackkit-core/customizer`, `@berkayorhan/stackkit-core`, and `@berkayorhan/stackkit-registry`. Do not duplicate module resolution, preset expansion, recipe encoding, or registry policy in UI code. Keep it offline unless the product contract changes: no accounts, hosted recipe IDs, persistence, telemetry, or backend storage.
+
+`apps/docs` is the Fumadocs/Next.js documentation app for Stackkit. Keep docs content and docs routing inside the app's Fumadocs conventions, and keep package behavior aligned with the workspace contracts rather than hand-copying CLI, registry, or generated-project truth into isolated app logic. When documenting current behavior, prefer verified CLI output, package tests, and `docs/status.md` over stale assumptions.
 
 ## Autonomous build runs (the `ship` workflow)
 
