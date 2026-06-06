@@ -1,6 +1,6 @@
 {
   "name": "@berkayorhan/stackkit-core",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Core project planning and lifecycle engine for Stackkit.",
   "license": "MIT",
   "type": "module",
