@@ -69,7 +69,7 @@ stackkit create <project-name> [flags]
 | `--db <database>` | Database module (e.g. `postgres`) |
 | `--db-provider <host>` | Postgres host/provider: `neon`, `supabase`, `supabase-local`, `postgres-local` (omit for bring-your-own `DATABASE_URL`) |
 | `--db-runtime <mode>` | Database client runtime: `node` (default) or `edge`. `edge` applies to Neon + Drizzle and emits the `@neondatabase/serverless` client |
-| `--auth <provider>` | Auth provider (e.g. `auth0`) |
+| `--auth <provider>` | Auth provider (e.g. `auth0`, `clerk`) |
 | `--with <modules>` | Comma-separated additional modules (e.g. `shadcn,docker`) |
 | `--deploy <target>` | Deployment target (e.g. `vercel`) |
 | `--ts-quality <eslint-prettier\|biome>` | TypeScript lint + format toolchain (default `eslint-prettier`; `biome` replaces ESLint + Prettier) |
@@ -106,6 +106,18 @@ stackkit create my-app --web vite --ui none
 ```
 
 The `--ui` flag tunes the UI layer for the stack-axis flags above. It does not apply to `--recipe` or `--config`, which carry their own complete module list.
+
+ShadCN setup is delegated to the ShadCN CLI for supported Next.js stacks. Clerk setup is delegated to the Clerk CLI for supported Next.js stacks. Stackkit still records managed files in `.stackkit/project.json` so `doctor` and `diff` can validate the generated project.
+
+**Auth examples**
+
+```bash
+# Next.js with Clerk.
+stackkit create my-app --web next --auth clerk
+
+# Next.js and FastAPI with Auth0 metadata.
+stackkit create my-app --web next --api fastapi --auth auth0
+```
 
 **Tooling slots**
 
@@ -156,6 +168,8 @@ Preview the planned output without writing anything to disk.
 ```bash
 stackkit create my-app --preset next-postgres-clerk --dry-run
 ```
+
+`next-postgres-clerk` resolves to a Next.js app with ShadCN, Postgres, Drizzle, Clerk, Docker, and Vercel modules.
 
 **Preview an explicit stack as JSON**
 

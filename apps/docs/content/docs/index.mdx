@@ -51,9 +51,12 @@ A **module** is the core unit of declared behavior. Each module can specify:
 | `files` | Generated file operations |
 | `packageChanges` | `package.json` script and dependency additions |
 | `envVars` | `.env.example` entries |
+| `nativeInitializers` | Official CLI setup commands Stackkit delegates to during generation |
 | `postCreate` / `postAdd` | Lifecycle hooks run after generation |
 | `migrations` | Versioned changes for managed updates |
 | `aiSkills` | Official, curated, local, or unresolved AI guidance targets |
+
+When a module has an official initializer, Stackkit prefers that CLI over hand-written setup. For example, ShadCN and Clerk setup runs through their native commands during project creation, and Stackkit records the files it expects to manage afterward. This keeps generated projects closer to the upstream tools as their defaults evolve.
 
 ## Status: Early Alpha
 
@@ -61,6 +64,7 @@ Stackkit can generate and validate real starter monorepos today. The following a
 
 - pnpm / npm / yarn / bun project metadata
 - Next.js, Vite, and TanStack Start web frameworks, plus ShadCN, FastAPI, Postgres, and Auth0 metadata
+- Native initializer delegation for ShadCN and Clerk in generated Next.js stacks
 - Postgres hosts: Neon, Supabase (cloud), Supabase (local CLI), and local Docker, with a generated Drizzle/Prisma client
 - Vercel, Docker, and Kubernetes file generation
 - Deterministic `README.md` and `.env.example`

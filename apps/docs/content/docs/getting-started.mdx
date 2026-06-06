@@ -88,6 +88,8 @@ stackkit create my-app --web tanstack
 
 React frameworks include ShadCN UI by default. Add `--ui none` to skip ShadCN, or `--ui tailwind` to swap it for plain Tailwind CSS.
 
+Stackkit delegates ShadCN setup to the ShadCN CLI when that module is enabled. Clerk-backed Next.js stacks use the Clerk CLI as well, so official initializer behavior stays in the upstream tools instead of being copied into Stackkit templates.
+
 <Callout title="Tip: skip AI skill installation for quick tests" type="info">
 Pass `--skills skip --yes` to bypass the AI skill installation step and accept all prompts automatically — useful when you just want to see the generated output locally:
 
@@ -110,6 +112,10 @@ stackkit create my-app --preset next-fastapi-postgres-auth0 --dry-run
 
 ```bash
 stackkit create my-app --web next --api fastapi --db postgres --auth auth0 --dry-run --json
+```
+
+```bash
+stackkit create my-app --preset next-postgres-clerk --dry-run --json
 ```
 
 **Inspect a single planned file**
