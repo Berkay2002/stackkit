@@ -1,4 +1,4 @@
-import { defineModule, definePreset } from "@berkayorhan/stackkit-core";
+import { defineModule, definePreset } from "@berkayorhan/stackkit-core/customizer";
 import { stackkitRegistrySchema } from "@berkayorhan/stackkit-schemas";
 
 export const curatedSkillSourceAllowlist = [

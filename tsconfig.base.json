@@ -14,6 +14,7 @@
     "paths": {
       "@berkayorhan/stackkit": ["packages/cli/src/index.ts"],
       "@berkayorhan/stackkit-core": ["packages/core/src/index.ts"],
+      "@berkayorhan/stackkit-core/customizer": ["packages/core/src/customizer.ts"],
       "@berkayorhan/stackkit-registry": ["packages/registry/src/index.ts"],
       "@berkayorhan/stackkit-schemas": ["packages/schemas/src/index.ts"],
       "@berkayorhan/stackkit-templates": ["packages/templates/src/index.ts"],

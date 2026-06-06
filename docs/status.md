@@ -1,6 +1,6 @@
 # Stackkit Status
 
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 ## Current State
 
@@ -12,7 +12,7 @@ Generated project depth now covers deterministic docs, environment examples, roo
 
 Friendly aliases, stack-axis create flags, official preset IDs, and offline recipe codes are now wired through schemas, registry, core, and CLI. Output manifests and dry-run JSON still store canonical module IDs.
 
-Customizer prep is shared API only. Core can now expose UI-neutral catalog data for future customizer surfaces, and future recipe command output should consume the existing recipe encoder and resolver. `apps/customizer` is not implemented.
+The local web customizer is now implemented in `apps/customizer`. It renders friendly technology choices from shared Stackkit catalog data, uses the shared resolver and recipe encoder, previews resolved modules, and outputs offline `stackkit create <name> --recipe <code>` commands.
 
 Registry extension points are now present for local declarative registry files. The built-in registry is exposed as a registry object, project configs can declare local registry file paths, and `stackkit registry list --config <path>` can inspect those declarations read-only. Remote registry URLs are rejected because remote registry fetching is not supported yet.
 
@@ -32,6 +32,7 @@ Project inspection is now available through `stackkit info`, doctor actions, mod
 - `stackkit create <name> --web next --api fastapi --db postgres --auth auth0 --dry-run` resolves to canonical module IDs for Next.js, FastAPI, Postgres, SQLAlchemy, and framework-specific Auth0 modules.
 - `stackkit create <name> --preset next-postgres-clerk --with docker --deploy vercel --dry-run` merges preset modules with stack-axis additions.
 - `stackkit recipe encode --preset next`, `stackkit recipe decode <code> --json`, and `stackkit create <name> --recipe <code> --dry-run` round-trip offline recipe data without embedding `projectName`.
+- `apps/customizer` can generate an offline recipe command from friendly technology choices.
 - Official built-in presets are `next`, `next-postgres-clerk`, `next-postgres-better-auth`, `next-fastapi-postgres-auth0`, `next-axum-postgres-auth0`, and `containerized`.
 - Generated projects include a root `stackkit.config.json` and manifest source provenance.
 - `stackkit create` refuses existing non-empty or already Stackkit-managed target directories.
@@ -88,6 +89,7 @@ Project inspection is now available through `stackkit info`, doctor actions, mod
 - `stackkit preset list`
 - `stackkit preset inspect <preset>`
 - `stackkit config validate <path>`
+- `pnpm --filter @berkayorhan/stackkit-customizer dev`
 
 The CLI also exposes `add`, `remove`, `update`, `migrate`, `skills sync`, and `skills update`. These paths have tests, but they need more real generated-project verification before they should be treated as stable.
 
@@ -112,6 +114,7 @@ The CLI also exposes `add`, `remove`, `update`, `migrate`, `skills sync`, and `s
 - Auth and database modules mostly resolve metadata and AI skills. They do not yet generate meaningful application integration code.
 - Auth0 provider selection resolves to the supported framework modules. `next --api axum --auth auth0` includes Auth0 for Next.js; an Axum Auth0 module will only be added after that module exists.
 - Rust modules are declared, but Rust service templates are not implemented yet.
+- The web customizer is local-only. It does not host recipe IDs, persist configurations, or provide accounts.
 - Remote registries are not supported yet. Configured `http` and `https` registry URLs are rejected instead of fetched.
 - `--skill-link symlink` omits `--copy` from external install commands. Stackkit does not emit a separate `--symlink` flag because the verified `npx skills` behavior handles the non-copy path by default.
 - `init` is registered in the CLI but not implemented.

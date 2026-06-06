@@ -34,7 +34,7 @@ Known gaps:
 - auth and database modules mostly emit metadata, docs, env examples, and AI skills rather than full application integration code
 - Rust services are declared but not deeply templated yet
 - remote registries are intentionally unsupported
-- the visual customizer is planned, not implemented
+- the visual customizer is local-only and does not host or persist recipes
 
 ## Install
 
@@ -122,6 +122,16 @@ stackkit create my-app --recipe sk_...
 ```
 
 Recipes are local and offline. They do not require hosted preset IDs or a Stackkit account.
+
+## Web Customizer
+
+Run the local visual customizer:
+
+```bash
+pnpm --filter @berkayorhan/stackkit-customizer dev
+```
+
+The app lets you choose a small set of polished presets or customize the stack with friendly technology names. It outputs an offline `stackkit create <name> --recipe <code>` command and previews the canonical modules behind that command.
 
 ## Inspect And Maintain
 

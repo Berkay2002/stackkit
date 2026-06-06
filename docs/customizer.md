@@ -1,17 +1,17 @@
 # Stackkit Customizer
 
-The customizer is planned as a future Next.js and shadcn/ui app.
+`apps/customizer` is a local Next.js app for building offline Stackkit recipe commands visually.
 
-It should render choices from the shared Stackkit catalog and output offline recipe commands. It must not duplicate module, preset, recipe, or resolver logic from the CLI.
+It renders choices from the shared Stackkit catalog and outputs offline recipe commands. It must not duplicate module, preset, recipe, or resolver logic from the CLI.
 
 The shared boundary is:
 
-- read UI-neutral catalog data from `buildCustomizerCatalog`
+- read UI-neutral catalog data from `@berkayorhan/stackkit-core/customizer`
 - show canonical module and preset IDs alongside display labels
-- use existing recipe encode/decode APIs for copied `stackkit create <name> --recipe <code>` commands
-- use existing resolver behavior to preview resolved modules
+- use the shared recipe encode/decode APIs for copied `stackkit create <name> --recipe <code>` commands
+- use shared resolver behavior to preview resolved modules
 
-The first customizer should be client-side only:
+The current customizer is client-side only:
 
 - choose preset
 - choose package manager
@@ -22,4 +22,8 @@ The first customizer should be client-side only:
 
 No accounts, hosted recipe IDs, or backend storage are part of the first customizer.
 
-This repository does not implement `apps/customizer` yet.
+Run it locally:
+
+```bash
+pnpm --filter @berkayorhan/stackkit-customizer dev
+```
