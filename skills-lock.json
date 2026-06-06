@@ -24,6 +24,12 @@
       "sourceType": "github",
       "skillPath": "skills/readme-i18n/SKILL.md",
       "computedHash": "d441385bfe267d3c66de52af6f969a837d9d3a35a3dac78568605aaad52e7241"
+    },
+    "review": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/in-progress/review/SKILL.md",
+      "computedHash": "fc4ca8a9495e93692282bebeb3bc99a6d46e27e2fccf4730001df98451b72f80"
     }
   }
 }
