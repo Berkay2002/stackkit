@@ -11,7 +11,8 @@
 **Verified facts:**
 - `web/nextjs` provides `["web-app","nextjs-app","react"]`; `ui/shadcn` requires `["react"]` only (registry/src/index.ts:68, :102).
 - `deploy/vercel` requires `["web-app"]`; `deploy/docker` requires `["nextjs-app"]` (registry/src/index.ts:642, :788).
-- `resolveStackAxes` force-appends `ui/shadcn` under `hasNext` (module-graph.ts:69-76) and is **duplicated** in customizer.ts:115-167 (customizer's copy lacks `dbProvider`).
+- `resolveStackAxes` force-appends `ui/shadcn` under `hasNext` (module-graph.ts:69-76) and is **an exact duplicate** in customizer.ts:115-167 (verified byte-identical, incl. `dbProvider`/`appendDatabaseProvider`). Consolidation is a pure refactor, not a drift-fix.
+- **Line numbers in this plan are indicative — grep by symbol name, not by line** (CLI/customizer targets drift a few lines from source).
 - `renderCreateFiles` appends ShadCN (create.ts:219) **before** the web framework (create.ts:223); `appendSelectedFileOperations` filters ops by `selectedModuleIds.has(operation.owner)` and dedups by path via `seenPaths` (create.ts:580-591, 563-578).
 - `renderShadcnUi` hardcodes `rsc:true` + `app/globals.css` (templates/src/index.ts:276-308); Next `layout.tsx` does NOT import globals.css (templates/src/index.ts:184-187).
 - `module-graph.ts` imports only `@berkayorhan/stackkit-schemas` (pure → safe for the browser `/customizer` entry).
@@ -632,6 +633,18 @@ describe("ui axis", () => {
       resolveStackAxes({ web: "vite", ui: "none", deploy: ["vercel"] }, mods)
     ).not.toThrow();
   });
+
+  it("BACKWARD-COMPAT: --web next yields the exact pre-refactor module list and order", () => {
+    // Locks the generalization against today's hasNext branch (module-graph.ts:69-76).
+    // Note: NO quality/prettier on the axis path (it lives only in presets).
+    expect(resolveStackAxes({ web: "next" }, mods)).toEqual([
+      "workspace/pnpm-turbo",
+      "workspace/typescript",
+      "web/nextjs",
+      "ui/shadcn",
+      "quality/eslint"
+    ]);
+  });
 });
 ```
 
@@ -718,9 +731,16 @@ it("customizer re-exports the single resolveStackAxes implementation", () => {
 Run: `pnpm --filter @berkayorhan/stackkit-core test customizer-browser`
 Expected: FAIL or drift on a `dbProvider`/`ui` case (customizer copy is stale).
 
-- [ ] **Step 3: Implement — replace duplication with re-exports**
+- [ ] **Step 3: Implement — replace ONLY the pure-graph duplication with re-exports**
 
-In `packages/core/src/customizer.ts`, remove the duplicated `StackAxes` type, `resolveStackAxes`, `resolveModuleGraph`, `resolveModuleAlias`, and every private resolver helper listed above. Replace the import block / add re-exports:
+In `packages/core/src/customizer.ts`, remove the duplicated `StackAxes` /
+`ResolveModuleGraphOptions` types, `resolveStackAxes`, `resolveModuleGraph`,
+`resolveModuleAlias`, and every private graph helper (`normalizeSingleAuth`,
+`appendDatabaseClient`, `resolveDatabaseClientAlias`, `appendAuthProvider`,
+`resolveDeploymentModules`, `appendExistingModules`, `hasModule`, `appendModule`,
+`expandPresetModules`, `dedupeModules`, `orderModulesByRequirements`,
+`validateModuleRequirements`, `validateModuleConflicts`, `validateAuthProviderConflicts`,
+`authProviderKey`). Add re-exports:
 
 ```ts
 export {
@@ -732,14 +752,69 @@ export {
 } from "./module-graph.js";
 ```
 
-Keep customizer-specific code only: `CustomizerCatalogChoice`, `CustomizerCatalog`, `buildCustomizerCatalog`, `compareCatalogChoices`, `defineModule`, `definePreset`, `encodeRecipe`, `decodeRecipe`, `toBase64Url`, `fromBase64Url`. Confirm `module-graph.ts` exports `ResolveModuleGraphOptions` and `StackAxes` (it does at :8 and :15); if `resolveModuleAlias`/`resolveStackAxes`/`resolveModuleGraph` are not yet exported by name from customizer's consumers, they are exported from module-graph.ts (:41, :59, :243).
+**STRICT BOUNDARY — do NOT touch these (keep as local browser-safe implementations in
+customizer.ts):** `defineModule`, `definePreset`, `buildCustomizerCatalog`,
+`compareCatalogChoices`, `encodeRecipe`, `decodeRecipe`, `toBase64Url`, `fromBase64Url`,
+`CustomizerCatalogChoice`, `CustomizerCatalog`. These intentionally differ from the Node-side
+siblings (`recipe.ts` uses `node:buffer`; `registry.ts`/`discovery.ts` use `node:fs`/
+`node:path`). Re-exporting any of them from those modules would pull `node:*` into the
+`/customizer` browser bundle. `customizer.ts` already implements `encodeRecipe`/`decodeRecipe`
+via `btoa`/`atob`/`TextEncoder` (customizer.ts:186-202, 450-463) and `defineModule`/
+`definePreset` via the schema parse (customizer.ts:49-55) — leave them exactly as-is.
 
-Verify the `/customizer` entry remains node-free: `module-graph.ts` imports only `@berkayorhan/stackkit-schemas`.
+`module-graph.ts` exports `ResolveModuleGraphOptions` (:8), `StackAxes` (:15),
+`resolveModuleAlias` (:41), `resolveStackAxes` (:59), `resolveModuleGraph` (:243).
+`module-graph.ts` imports only `@berkayorhan/stackkit-schemas`, so the re-export keeps the
+entry node-free.
 
 - [ ] **Step 4: Run → pass**
 
 Run: `pnpm --filter @berkayorhan/stackkit-core test`
 Expected: PASS (customizer-browser, customizer-catalog, module-graph all green).
+
+- [ ] **Step 5: Add a real browser-safety guard (static import allowlist)**
+
+The existing `customizer-browser.test.ts` runs under Node and would NOT fail on a leaked
+`node:*` import. Add a deterministic source-level guard — it needs no build because both
+files only import the pure schemas package:
+
+```ts
+// packages/core/src/customizer-imports.test.ts
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+function importSpecifiers(relPath: string): string[] {
+  const src = readFileSync(fileURLToPath(new URL(relPath, import.meta.url)), "utf8");
+  return [...src.matchAll(/(?:from|import)\s+["']([^"']+)["']/g)].map((m) => m[1]);
+}
+
+describe("/customizer entry is browser-safe", () => {
+  const ALLOWED = new Set(["./module-graph.js", "@berkayorhan/stackkit-schemas"]);
+
+  it("customizer.ts imports only pure, node-free modules", () => {
+    for (const spec of importSpecifiers("./customizer.ts")) {
+      expect(spec.startsWith("node:"), `leaked node import: ${spec}`).toBe(false);
+      // any relative import must be the pure module-graph; no node-side siblings
+      if (spec.startsWith(".")) {
+        expect(ALLOWED.has(spec), `disallowed relative import: ${spec}`).toBe(true);
+      }
+    }
+  });
+
+  it("module-graph.ts imports only the schemas package", () => {
+    for (const spec of importSpecifiers("./module-graph.ts")) {
+      expect(spec.startsWith("node:"), `leaked node import: ${spec}`).toBe(false);
+      if (spec.startsWith(".")) {
+        throw new Error(`module-graph.ts must stay relative-import-free, found ${spec}`);
+      }
+    }
+  });
+});
+```
+
+Run: `pnpm --filter @berkayorhan/stackkit-core test customizer-imports`
+Expected: PASS. (If a future edit re-exports `encodeRecipe` from `./recipe.js`, this fails.)
 
 ### Task 3.3 — Wire Vite/TanStack into `renderCreateFiles` with CSS coordination
 
@@ -776,9 +851,21 @@ it("renders TanStack Start routes", () => {
   expect(paths).toContain("apps/web/src/routes/__root.tsx");
   expect(paths).toContain("apps/web/src/router.tsx");
 });
+
+it("DOCTOR: manifest reconstruction reproduces the Vite+ShadCN file plan", () => {
+  // buildExpectedManagedFilePlan rebuilds modules WITHOUT `provides`
+  // (manifestModuleToStackkitModule, create.ts:459-466). This passes only if
+  // renderCreateFiles derives framework/withShadcn from module IDs, not capabilities.
+  const plan = createCreatePlan(viteShadcnInput());
+  const manifest = manifestFromPlan(plan); // helper: modules -> manifest module list
+  const expected = buildExpectedManagedFilePlan(manifest);
+  expect(expected.files.map((f) => `${f.path}:${f.owner}`).sort()).toEqual(
+    plan.filePlan.files.map((f) => `${f.path}:${f.owner}`).sort()
+  );
+});
 ```
 
-(Implement `viteShadcnInput`/`viteNoUiInput`/`tanstackInput` as small local helpers copying the shape of the file's existing `createCreatePlan` inputs.)
+(Implement `viteShadcnInput`/`viteNoUiInput`/`tanstackInput` as small local helpers copying the shape of the file's existing `createCreatePlan` inputs. `buildExpectedManagedFilePlan` is exported from `create.ts:437`; `manifestFromPlan` builds a minimal `StackkitManifest` from `plan.modules` + `plan.projectName`/`packageManager`, mirroring an existing manifest fixture in the core tests.)
 
 - [ ] **Step 2: Run → fail**
 
@@ -898,18 +985,178 @@ Expected: PASS.
 
 ---
 
-## Milestone 5 — Verify + live E2E
+## Milestone 5 — Apps: customizer (Vite/TanStack + UI choice) + docs
+
+Files: `apps/customizer/src/stackkit-customizer.ts`, `apps/customizer/app/page.tsx`,
+`apps/customizer/src/stackkit-customizer.test.ts`; `apps/docs/content/docs/cli-reference.mdx`,
+`getting-started.mdx`, `index.mdx`.
+Test cmd: `pnpm --filter @berkayorhan/stackkit-customizer test`
+
+The customizer's `resolveStackAxes` (imported from `@berkayorhan/stackkit-core/customizer`)
+already understands the `ui` axis after M3's consolidation, so the app only adds choices and
+threads `ui` through — no resolution logic is duplicated.
+
+### Task 5.1 — Customizer state: Vite/TanStack web choices + UI choice
+
+**Files:**
+- Modify: `apps/customizer/src/stackkit-customizer.ts` (`WebChoice` :12; `CustomizerState` :21-35; `createInitialCustomizerState` :56-72; `resolveStateModuleIds` :141-163; `webModule` :169-175; add `uiModule`)
+- Modify: `apps/customizer/src/stackkit-customizer.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+// add to apps/customizer/src/stackkit-customizer.test.ts
+import { buildCustomizerState, createInitialCustomizerState } from "./stackkit-customizer.js";
+
+it("includes web/vite when web is vite", () => {
+  const state = { ...createInitialCustomizerState(), web: "vite" as const, preset: "custom" };
+  const result = buildCustomizerState(state);
+  expect(result.ok && result.recipe.modules).toContain("web/vite");
+});
+
+it("drops ui/shadcn when ui is none", () => {
+  const state = { ...createInitialCustomizerState(), web: "vite" as const, ui: "none" as const, preset: "custom" };
+  const result = buildCustomizerState(state);
+  expect(result.ok && result.recipe.modules).not.toContain("ui/shadcn");
+});
+
+it("swaps to ui/tailwind when ui is tailwind", () => {
+  const state = { ...createInitialCustomizerState(), web: "tanstack" as const, ui: "tailwind" as const, preset: "custom" };
+  const result = buildCustomizerState(state);
+  expect(result.ok && result.recipe.modules).toContain("ui/tailwind");
+  expect(result.ok && result.recipe.modules).not.toContain("ui/shadcn");
+});
+```
+
+Also update the existing default-Next test (stackkit-customizer.test.ts:6-18) if it constructs state literally — add `ui: "shadcn"` to keep it explicit (default still yields `ui/shadcn`).
+
+- [ ] **Step 2: Run → fail**
+
+Run: `pnpm --filter @berkayorhan/stackkit-customizer test`
+Expected: FAIL (`ui` not on state / `vite` not a WebChoice).
+
+- [ ] **Step 3: Implement**
+
+In `apps/customizer/src/stackkit-customizer.ts`:
+
+```ts
+export type WebChoice = "nextjs" | "vite" | "tanstack" | "django" | "none";
+export type UiChoice = "shadcn" | "tailwind" | "none";
+```
+
+Add `ui: UiChoice;` to `CustomizerState`; add `ui: "shadcn",` to `createInitialCustomizerState`.
+
+Extend `webModule`:
+
+```ts
+function webModule(web: WebChoice): string | undefined {
+  return { nextjs: "next", vite: "vite", tanstack: "tanstack", django: "django", none: undefined }[web];
+}
+
+function uiModule(ui: UiChoice): string {
+  return ui; // "shadcn" | "tailwind" resolve via alias; "none" handled by resolveStackAxes
+}
+```
+
+Thread `ui` into `resolveStateModuleIds`'s `resolveStackAxes` call:
+
+```ts
+  return resolveStackAxes(
+    {
+      web: webModule(state.web),
+      api: apiModule(state.api),
+      db: state.database === "postgres" ? "postgres" : undefined,
+      dbProvider: state.database === "postgres" ? providerModule(state.dbProvider) : undefined,
+      ui: uiModule(state.ui),
+      auth: authModule(state.auth),
+      deploy: state.deploy
+    },
+    builtinModules
+  );
+```
+
+- [ ] **Step 4: Run → pass**
+
+Run: `pnpm --filter @berkayorhan/stackkit-customizer test`
+Expected: PASS.
+
+### Task 5.2 — Customizer page: Vite/TanStack + UI-choice grid
+
+**Files:**
+- Modify: `apps/customizer/app/page.tsx` (`webChoices` :50-54; add `uiChoices`; render UI grid in the "Application shape" section; add `ui` to state destructuring/patch; `simple-icons` imports :11-25)
+
+- [ ] **Step 1: Implement (UI-only; verified by typecheck + build)**
+
+- Add Vite and TanStack entries to `webChoices`:
+
+```ts
+{ value: "vite", label: "Vite", description: "React SPA with Vite", icon: siVite },
+{ value: "tanstack", label: "TanStack Start", description: "Full-stack React", iconLabel: "TS" },
+```
+
+Use `siVite` from `simple-icons` (add to the import block at :11-25). For TanStack, if
+`simple-icons` exports no TanStack brand mark, use the `iconLabel: "TS"` text fallback —
+`ChoiceIcon` (:354-377) already renders `iconLabel` when `icon` is absent. (Verify whether
+`siTanstack` exists in the installed `simple-icons`; prefer the real icon if present.)
+
+- Add a UI choice list and grid:
+
+```ts
+const uiChoices: Choice<UiChoice>[] = [
+  { value: "shadcn", label: "ShadCN", description: "shadcn/ui components", icon: siShadcnui },
+  { value: "tailwind", label: "Tailwind", description: "Tailwind CSS only", iconLabel: "TW" },
+  { value: "none", label: "No UI kit", description: "Plain framework", iconLabel: "None" }
+];
+```
+
+Render a single-select `ChoiceGrid` for `uiChoices` in the "Application shape" section
+(after the web framework grid), wired to `state.ui` / `patch({ ui: value })`, exactly like the
+web grid. Use `siShadcnui` if exported by `simple-icons`, else `iconLabel: "UI"`.
+
+- [ ] **Step 2: Typecheck + build**
+
+Run: `pnpm --filter @berkayorhan/stackkit-customizer typecheck`
+Run: `pnpm --filter @berkayorhan/stackkit-customizer build`
+Expected: both exit 0. (Page is a client component; build is the meaningful gate.)
+
+### Task 5.3 — Docs: `--ui` flag + Vite/TanStack examples
+
+**Files:**
+- Modify: `apps/docs/content/docs/cli-reference.mdx` (`--web` flag area ~:66; flags table)
+- Modify: `apps/docs/content/docs/getting-started.mdx` (examples ~:60-74)
+- Modify: `apps/docs/content/docs/index.mdx` (status line ~:63)
+
+- [ ] **Step 1: Edit MDX**
+
+- `cli-reference.mdx`: document `--ui <shadcn|tailwind|none>` ("UI layer; defaults to ShadCN
+  for React frameworks; `none` to opt out"); add a `--web vite` and a `--web tanstack`
+  example; add a one-line note that `--ui` applies to the axis path, not `--recipe`/`--config`.
+- `getting-started.mdx`: add `stackkit create my-spa --web vite` and
+  `stackkit create my-app --web tanstack` examples; mention `--ui none` to skip ShadCN.
+- `index.mdx`: update the status sentence to "Next.js, Vite, and TanStack Start web apps".
+
+- [ ] **Step 2: Build docs**
+
+Run: `pnpm --filter @berkayorhan/stackkit-docs build`
+Expected: exit 0 (MDX compiles).
+
+**M5 CHECKPOINT:** `pnpm --filter @berkayorhan/stackkit-customizer test` + `... typecheck` +
+`... build` green; `pnpm --filter @berkayorhan/stackkit-docs build` green → milestone review → M6.
+
+---
+
+## Milestone 6 — Verify + live E2E
 
 Files: `docs/status.md`.
 Test cmd: root `pnpm test`, `pnpm typecheck`, `pnpm build`.
 
-### Task 5.1 — Full workspace verification
+### Task 6.1 — Full workspace verification
 
-- [ ] **Step 1:** Run `pnpm build` → Expected: all packages build, exit 0.
+- [ ] **Step 1:** Run `pnpm build` → Expected: all packages + both apps build, exit 0.
 - [ ] **Step 2:** Run `pnpm typecheck` → Expected: exit 0.
 - [ ] **Step 3:** Run `pnpm test` → Expected: exit 0; show summary.
 
-### Task 5.2 — Live CLI end-to-end (real generated projects)
+### Task 6.2 — Live CLI end-to-end (real generated projects)
 
 Use a temp dir under the OS temp root (PowerShell: `$env:TEMP`). Build first.
 
@@ -922,11 +1169,11 @@ Use a temp dir under the OS temp root (PowerShell: `$env:TEMP`). Build first.
 - [ ] **Step 4:** `node packages/cli/dist/index.js create vite-preset --preset vite -y --dir <temp>/vite-preset`
   Expected: created; `components.json` present (preset bundles shadcn); doctor passes.
 
-### Task 5.3 — Update status doc
+### Task 6.3 — Update status doc
 
-- [ ] **Step 1:** Update `docs/status.md` frontend section: Stackkit now generates Next.js, Vite, and TanStack Start apps; ShadCN is a configurable `--ui` axis (default-on for React frameworks, `--ui none` to opt out, `--ui tailwind` to swap); note Docker remains Next-only.
+- [ ] **Step 1:** Update `docs/status.md` frontend section: Stackkit now generates Next.js, Vite, and TanStack Start apps; ShadCN is a configurable `--ui` axis (default-on for React frameworks, `--ui none` to opt out, `--ui tailwind` to swap); note `--ui` applies to the axis path (not `--recipe`/`--config`); note Docker remains Next-only; note the customizer exposes the new frameworks + UI choice.
 
-**M5 CHECKPOINT:** root `pnpm test` + `pnpm typecheck` + `pnpm build` exit 0 (output shown); all four E2E projects generated and doctor-passing → ship contract satisfied.
+**M6 CHECKPOINT:** root `pnpm test` + `pnpm typecheck` + `pnpm build` exit 0 (output shown); all four E2E projects generated and doctor-passing → ship contract satisfied.
 
 ---
 
@@ -938,8 +1185,11 @@ Use a temp dir under the OS temp root (PowerShell: `$env:TEMP`). Build first.
 - Spec §4 `ui` axis ↔ Task 3.1 (`appendUiModule`, default/none/tailwind) + Task 4.1 (CLI threading).
 - Spec §5.1 Vite template ↔ Task 2.2; §5.2 TanStack ↔ Task 2.3; §5.3 framework-aware shadcn ↔ Task 2.1; §5.4 CSS ownership ↔ Task 2.2/2.3 `withShadcn` + Task 3.3 coordination.
 - Spec §6 presets ↔ Task 1.2.
-- Spec §7.3 consolidation ↔ Task 3.2; browser-safety guard ↔ Task 3.2 Step 1.
-- Spec §7.4 CLI ↔ Task 4.1.
-- Spec §8 testing ↔ tests in every task; E2E ↔ Task 5.2.
+- Spec §7.3 consolidation (strict boundary) ↔ Task 3.2 Step 3; real browser-safety guard ↔ Task 3.2 Step 5.
+- Spec §5.4 derivation invariant ↔ Task 3.3 doctor-reconstruction test.
+- Spec §4 backward-compat lock ↔ Task 3.1 `--web next` exact-order test.
+- Spec §7.4 CLI ↔ Task 4.1; `--ui` recipe/config caveat ↔ Task 5.3 docs note.
+- Spec §7.5 apps ↔ Tasks 5.1 (customizer state), 5.2 (page), 5.3 (docs).
+- Spec §8 testing ↔ tests in every task; E2E ↔ Task 6.2.
 - Spec §10 routeTree.gen.ts ↔ Task 2.3 note + `.gitignore`.
 - Spec §11 non-goals ↔ no Docker task; no generated-app install in E2E (doctor only).

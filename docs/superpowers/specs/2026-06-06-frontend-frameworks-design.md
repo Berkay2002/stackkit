@@ -33,11 +33,15 @@ swappable, opt-out-able choice across every React framework.
 - A new `ui` stack axis (`--ui <alias>`) making ShadCN configurable: default-on for React
   frameworks (backward compatible), `--ui none` to opt out, `--ui tailwind` to swap.
 - New presets bundling ShadCN: `vite`, `tanstack-start` (parity with the `next` preset).
-- Consolidation of the duplicated `resolveStackAxes` / `resolveModuleGraph` / `StackAxes`
-  between `core/module-graph.ts` and `core/customizer.ts` into the single pure
-  `module-graph.ts`, keeping the `/customizer` entry browser-safe.
+- Consolidation of **only the pure graph functions** (`resolveStackAxes` /
+  `resolveModuleGraph` / `resolveModuleAlias` / `StackAxes` / `ResolveModuleGraphOptions`)
+  duplicated between `core/module-graph.ts` and `core/customizer.ts` into the single pure
+  `module-graph.ts`, keeping the `/customizer` entry browser-safe (see §7.3 for the strict
+  boundary).
 - `renderCreateFiles` wiring for the new frameworks, including deterministic CSS-file
   ownership coordination.
+- **Apps**: `apps/customizer` gains Vite/TanStack Start selectability and a UI choice
+  (shadcn / tailwind / none); `apps/docs` documents the new frameworks and `--ui` flag.
 - Full unit coverage at every layer plus a live CLI end-to-end check.
 
 ### Explicitly OUT of scope
@@ -113,6 +117,15 @@ Notes:
   ShadCN; new `vite` / `tanstack-start` presets ship it too (§6).
 - `ui/tailwind` already exists and provides `css`/`tailwind`; `--ui tailwind` is therefore a
   valid swap with no new module.
+- **`--ui` only affects the axis-built module set.** The `--recipe` and `--config` create
+  paths merge-add their declared modules (`cli/src/index.ts` `mergeModuleIds`) and never
+  remove; `--ui none` therefore cannot strip a `ui/shadcn` already baked into a recipe code
+  or config file. This is the existing axis-vs-recipe contract, documented here and in
+  `docs/status.md` so it is not surprising.
+- Backward-compat invariant: the `--web next` axis with default UI must produce the **exact
+  same module list and order** as today's `hasNext` branch (`workspace/pnpm-turbo`,
+  `workspace/typescript`, `web/nextjs`, `ui/shadcn`, `quality/eslint`). Note `quality/prettier`
+  is **not** in the axis path today (only in presets) and must not be added.
 
 ## 5. Templates
 
@@ -197,6 +210,15 @@ Either way the import path is stable and single-owned. Next.js keeps its current
 ShadCN owns `app/globals.css` exactly as today). This scopes the new coordination to the two
 new frameworks and leaves the Next.js manifest/ownership untouched.
 
+**Derivation invariant (load-bearing for doctor/diff).** `renderCreateFiles` must derive
+both `framework` and `withShadcn` **purely from the selected module ID set**
+(`selectedModuleIds.has("web/vite")`, `…has("ui/shadcn")`) — never from a module's `provides`
+capabilities or from config options. `buildExpectedManagedFilePlan` (`create.ts`) reconstructs
+the expected file plan from the manifest via `manifestModuleToStackkitModule`, which yields
+modules carrying only `id/version/title/description` (no `provides`). Keying off module IDs
+ensures doctor/diff reconstruction reproduces byte-identical files. §8 adds an explicit
+reconstruction-equality test for a `--web vite` project.
+
 ## 6. Registry: modules and presets
 
 New modules (abbreviated; full shape mirrors `web/nextjs`):
@@ -268,12 +290,29 @@ types (§5.4). Export the two new renderers.
 
 - `module-graph.ts`: add `ui?: string` to `StackAxes`; replace the `hasNext` UI append with
   the §4 `ui`-axis logic generalized to any React web framework.
-- `customizer.ts`: delete its duplicated `resolveStackAxes` / `resolveModuleGraph` /
-  `resolveModuleAlias` / `StackAxes` / private helpers; import them from `./module-graph.js`
-  and re-export. Keep only customizer-specific exports (`buildCustomizerCatalog`,
-  `encodeRecipe`/`decodeRecipe`, `defineModule`/`definePreset`, catalog types). The
-  `/customizer` entry stays browser-safe because `module-graph.ts` imports only
-  `@berkayorhan/stackkit-schemas` (pure). `customizer-browser.test.ts` guards this.
+- `customizer.ts`: delete **only** its duplicated pure-graph code — `resolveStackAxes`,
+  `resolveModuleGraph`, `resolveModuleAlias`, the `StackAxes` / `ResolveModuleGraphOptions`
+  types, and the private graph helpers (`normalizeSingleAuth`, `appendDatabaseClient`,
+  `resolveDatabaseClientAlias`, `appendAuthProvider`, `resolveDeploymentModules`,
+  `appendExistingModules`, `hasModule`, `appendModule`, `expandPresetModules`,
+  `dedupeModules`, `orderModulesByRequirements`, `validateModuleRequirements`,
+  `validateModuleConflicts`, `validateAuthProviderConflicts`, `authProviderKey`) — and
+  **re-export the graph symbols from `./module-graph.js`** (safe: it imports only
+  `@berkayorhan/stackkit-schemas`).
+
+  **Strict boundary (do NOT collapse these):** `encodeRecipe`/`decodeRecipe`,
+  `defineModule`/`definePreset`, and `buildCustomizerCatalog` MUST remain **local
+  browser-safe implementations in `customizer.ts`**. They are deliberate reimplementations of
+  Node-only siblings — `recipe.ts` uses `node:buffer` (`Buffer…base64url`) while
+  `customizer.ts` uses `btoa`/`atob`/`TextEncoder`; `registry.ts` (`defineModule`) and
+  `discovery.ts` (`buildCustomizerCatalog`) import `node:fs`/`node:path`. Re-exporting these
+  five from the Node-side modules would pull `node:*` into the `/customizer` bundle and break
+  the browser entry. Only the pure graph symbols may be re-exported.
+
+  Live `/customizer` consumers that must keep working: `registry/src/index.ts:1`
+  (`defineModule`, `definePreset`), `apps/customizer` (`buildCustomizerCatalog`,
+  `encodeRecipe`, `decodeRecipe`, `resolveModuleGraph`, `resolveStackAxes`,
+  `CustomizerCatalog`), and `customizer-browser.test.ts`.
 - `create.ts` `renderCreateFiles`: derive `framework` and `withShadcn` from the selected
   module set; call `renderShadcnUi({ appName: "web", framework })`; add `web/vite` and
   `web/tanstack-start` blocks calling their renderers with `withShadcn`.
@@ -282,7 +321,40 @@ types (§5.4). Export the two new renderers.
 
 Add `--ui <alias>` to `create`; add `ui` to `CreateCommandOptions`, `CreateAxisOptions`,
 `createDryRunPlanFromConfig` axes, `hasCreateAxes`, and `resolveCreateAxisModules` →
-`resolveStackAxes`.
+`resolveStackAxes`. `--ui` is honored on the **axis-built path only** (§4 note); the
+`--recipe` and `--config` paths are unchanged (merge-add semantics).
+
+### 7.5 Apps (`apps/customizer`, `apps/docs`)
+
+**`apps/customizer`** (`@berkayorhan/stackkit-customizer`). The app hard-codes its own
+choice state machine (it does not yet drive the UI off `buildCustomizerCatalog`). Changes,
+confined to `src/stackkit-customizer.ts`, `app/page.tsx`, and their tests:
+
+- `WebChoice` (`stackkit-customizer.ts:12`) gains `"vite" | "tanstack"`; `webModule()`
+  (`:169-175`) maps `vite → "vite"`, `tanstack → "tanstack"`.
+- New `UiChoice = "shadcn" | "tailwind" | "none"` and a `ui` field on `CustomizerState`
+  (default `"shadcn"`, set in `createInitialCustomizerState`).
+- `resolveStateModuleIds` (`:141-163`) threads `ui: uiModule(state.ui)` into
+  `resolveStackAxes` — which now understands the axis because of the §7.3 consolidation, so
+  no app-side resolution logic is duplicated.
+- `app/page.tsx`: add `vite`/`tanstack` entries to `webChoices` and a `uiChoices` grid
+  (single-select: ShadCN / Tailwind / None) rendered in the "Application shape" section.
+  Icons: reuse `simple-icons` (`siVite`; if no TanStack brand icon is exported, fall back to
+  the existing `iconLabel` text path — `ChoiceIcon` already degrades to text). No icon-key →
+  SVG registry is introduced (out of scope; the app keeps its hard-coded `simple-icons`
+  imports).
+- `isDeployChoiceSupported` (`:81-87`) is unchanged: Docker stays gated to `web === "nextjs"`
+  (matches the §2 Docker non-goal); Vercel stays gated to `web !== "none"` so Vite/TanStack
+  get Vercel.
+
+**`apps/docs`** (`@berkayorhan/stackkit-docs`, hand-written MDX, no registry auto-sync):
+
+- `content/docs/cli-reference.mdx`: document `--ui <shadcn|tailwind|none>`; add `--web vite`
+  and `--web tanstack` examples; note ShadCN is now optional via `--ui`.
+- `content/docs/getting-started.mdx`: add a Vite and a TanStack Start example; mention the UI
+  choice.
+- `content/docs/index.mdx`: status line updated to list Next.js, Vite, and TanStack Start as
+  generated web apps.
 
 ## 8. Testing
 
@@ -297,10 +369,24 @@ Add `--ui <alias>` to `create`; add `ui` to `CreateCommandOptions`, `CreateAxisO
   framework (extend existing ShadCN test).
 - **core**: `resolveStackAxes` — default ShadCN for `--web vite`/`--web tanstack-start`;
   `--ui none` drops it; `--ui tailwind` swaps it; `--web vite --deploy vercel` resolves;
-  pairwise web conflict throws. `renderCreateFiles` emits Vite/TanStack files with correct
-  single CSS owner under ShadCN-present and ShadCN-absent. `customizer-browser.test.ts`
-  stays green after consolidation; a regression test asserts `module-graph` and `customizer`
-  expose the same `resolveStackAxes` behavior.
+  pairwise web conflict throws. **Backward-compat lock:** assert `resolveStackAxes({ web:
+  "next" })` returns the exact same module list **and order** as before the generalization
+  (`workspace/pnpm-turbo`, `workspace/typescript`, `web/nextjs`, `ui/shadcn`, `quality/eslint`
+  — no `quality/prettier`). `renderCreateFiles` emits Vite/TanStack files with correct single
+  CSS owner under ShadCN-present and ShadCN-absent.
+- **doctor reconstruction**: assert `buildExpectedManagedFilePlan` (manifest reconstruction,
+  modules without `provides`) reproduces the same file plan as `renderCreateFiles` for a
+  `--web vite` + ShadCN project — proving `framework`/`withShadcn` derive from module IDs
+  (§5.4 invariant).
+- **consolidation**: a regression test asserts `customizer.resolveStackAxes` and
+  `module-graph.resolveStackAxes` return identical output. **Browser-safety guard (new):** a
+  static check that the built `dist/customizer.js` contains no `node:` import specifiers — the
+  existing `customizer-browser.test.ts` runs under a Node env and would NOT fail on a leaked
+  `node:*` import, so a build-output scan (or a Node-builtin-stubbed environment) is added as
+  the real guard.
+- **customizer app** (`apps/customizer`): `buildCustomizerState` with `web: "vite"` includes
+  `web/vite`; with `ui: "none"` excludes `ui/shadcn`; with `ui: "tailwind"` includes
+  `ui/tailwind`; existing default-Next test updated to reflect the explicit `ui` default.
 
 ### E2E
 
@@ -331,7 +417,9 @@ Live CLI run (built `packages/cli/dist/index.js`) generating real projects into 
 3. **Core** — `ui` axis in `resolveStackAxes`; `customizer.ts` consolidation;
    `renderCreateFiles` wiring; core tests + `customizer-browser` green.
 4. **CLI** — `--ui` flag threaded through to `resolveStackAxes`; CLI tests green.
-5. **Verify + E2E** — `pnpm test`/`typecheck`/`build`; live three-project E2E;
+5. **Apps** — `apps/customizer` Vite/TanStack/UI-choice; `apps/docs` `--ui` + framework
+   docs; customizer tests green, both apps build + typecheck.
+6. **Verify + E2E** — `pnpm test`/`typecheck`/`build`; live four-project E2E;
    update `docs/status.md`.
 
 ## 10. Open implementation details
@@ -364,5 +452,12 @@ Live CLI run (built `packages/cli/dist/index.js`) generating real projects into 
   risk has explicit coverage.
 - §3.3 deployment ↔ §8 `--web vite --deploy vercel` test and §11 Docker non-goal — no silent
   capability gap.
-- §7.3 consolidation ↔ §8 `customizer-browser` + parity test — dedup is verified, not
-  assumed.
+- §7.3 consolidation ↔ §8 parity test + build-output `node:` scan — dedup is verified and
+  the browser boundary is statically guarded, not assumed. Strict boundary keeps
+  recipe/define/catalog as local browser-safe impls.
+- §7.5 apps ↔ §8 customizer-app tests ↔ §9 M5 — Vite/TanStack/UI-choice reach the visual
+  composer and the docs, satisfying the "update apps/" requirement.
+- §5.4 derivation invariant ↔ §8 doctor-reconstruction test — `framework`/`withShadcn`
+  keyed off module IDs so manifest reconstruction stays byte-identical.
+- §4 `--ui` recipe/config caveat ↔ §8 axis-path E2E (`--web next --ui none`) — the honored
+  path is exercised; the merge-add limitation is documented, not silently assumed.

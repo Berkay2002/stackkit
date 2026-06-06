@@ -84,3 +84,8 @@ No external reference repositories are pinned here yet.
 When adding or using a reference repo, record the repo URL, commit or release, why it is relevant, and which Stackkit package or generated-project path it informs. Treat reference repos as evidence, not authority: verify behavior against current Stackkit contracts before copying patterns.
 
 For AI-skill and framework behavior, prefer primary sources and official docs where possible. For curated skill sources, verify repo existence, skill names, and install behavior with `npx skills ... --list`, `npx skills find <query>`, or `gh repo view <owner/repo>` before recording the source in Stackkit docs or registry metadata.
+
+## Contexts
+
+- [Stackkit](./docs/CONTEXT.md) — the multi-language monorepo generator platform: modules,
+  capabilities, tooling slots, presets, and recipes.
