@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Command } from "commander";
@@ -1397,7 +1397,21 @@ export function isDirectCliExecution(moduleUrl: string, argvEntry = process.argv
     return false;
   }
 
-  return resolve(fileURLToPath(moduleUrl)) === resolve(argvEntry);
+  const modulePath = fileURLToPath(moduleUrl);
+
+  if (isWindowsCliEntryPath(modulePath) || isWindowsCliEntryPath(argvEntry)) {
+    return normalizeWindowsCliEntryPath(modulePath) === normalizeWindowsCliEntryPath(argvEntry);
+  }
+
+  return resolve(modulePath) === resolve(argvEntry);
+}
+
+function isWindowsCliEntryPath(filePath: string): boolean {
+  return /^\/?[a-z]:[\\/]/i.test(filePath);
+}
+
+function normalizeWindowsCliEntryPath(filePath: string): string {
+  return win32.normalize(filePath.replace(/^\/([a-z]:[\\/])/i, "$1")).toLowerCase();
 }
 
 if (isDirectCliExecution(import.meta.url)) {

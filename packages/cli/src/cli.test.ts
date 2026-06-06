@@ -70,6 +70,7 @@ describe("createStackkitProgram", () => {
     const entrypoint = "C:\\Users\\berka\\Project\\my-monorepo\\packages\\cli\\dist\\index.js";
 
     expect(isDirectCliExecution(new URL(`file:///${entrypoint.replaceAll("\\", "/")}`).href, entrypoint)).toBe(true);
+    expect(isDirectCliExecution("file:///c:/Users/berka/Project/my-monorepo/packages/cli/dist/index.js", entrypoint)).toBe(true);
     expect(isDirectCliExecution(new URL(`file:///${entrypoint.replaceAll("\\", "/")}`).href, "C:\\different\\index.js")).toBe(false);
     expect(isDirectCliExecution(new URL(`file:///${entrypoint.replaceAll("\\", "/")}`).href, undefined)).toBe(false);
   });
