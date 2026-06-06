@@ -46,3 +46,10 @@ _Avoid_: option, parameter
 A named, ordered list of Module ids that expands into a starting selection (e.g. `next`,
 `next-fastapi-postgres-auth0`).
 _Avoid_: template, bundle, recipe (a Recipe is the offline-encoded form of a selection)
+
+**Native CLI Delegation**:
+Using a framework, library, or platform's official `create`, `init`, `setup`, or migration CLI as
+the source of generated structure before applying Stackkit-specific composition and manifest
+tracking. Prefer this over hand-written reimplementations when the upstream CLI is stable,
+non-interactive, and compatible with Stackkit ownership.
+_Avoid_: manual clone of upstream templates, hardcoded initializer

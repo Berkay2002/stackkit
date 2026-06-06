@@ -68,6 +68,11 @@ The root package, `apps/*`, and `packages/test-utils` are private and should not
    - Run `pnpm publish -r --access public --no-git-checks`.
    - Do not publish with unexplained dirty files.
 
+9. Verify the published npm state:
+   - `npm view @berkayorhan/stackkit version dist-tags --json`
+   - Spot-check at least `@berkayorhan/stackkit-core` and `@berkayorhan/stackkit-templates`.
+   - If the user is testing the global `stackkit` command, update it with `npm install -g @berkayorhan/stackkit@latest` and verify with `npm list -g @berkayorhan/stackkit --depth=0`.
+
 ## Commit Rules
 
 If the user asks to commit the release bump, stage only release files unless they explicitly ask for a broader commit:
@@ -86,5 +91,6 @@ Use a direct message such as `bump: release stackkit 0.1.2`.
 | Hand-editing versions first | Use Changesets so fixed-group versions and changelogs stay consistent. |
 | Bumping private packages | Restore private package manifests and delete private changelogs. |
 | Publishing before dry-run | Run build and publish dry-run first. |
+| npm latest is updated but local command is old | Run `npm install -g @berkayorhan/stackkit@latest` and verify the global package version. |
 | Leaving build artifacts | Remove `packages/**/dist` and `*.tsbuildinfo` before final status. |
 | Mixing unrelated work | Stage release files explicitly and leave unrelated dirty files alone. |
