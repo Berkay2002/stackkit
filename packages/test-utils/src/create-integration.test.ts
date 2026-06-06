@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { applyCreatePlan, createCreatePlan, resolveStackAxes } from "@berkayorhan/stackkit-core";
+import { applyCreatePlan, createCreatePlan, resolveSpawnCommand, resolveStackAxes } from "@berkayorhan/stackkit-core";
 import { builtinModules, curatedSkillSourceAllowlist } from "@berkayorhan/stackkit-registry";
 
 const tempDirectories: string[] = [];
@@ -460,9 +460,10 @@ async function runCommand(
   options: CommandOptions = {}
 ): Promise<CommandResult> {
   const result = await new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve, reject) => {
-    const invocation = resolveCommand(command, args);
+    const invocation = resolveSpawnCommand(command, args);
     const child = spawn(invocation.command, invocation.args, {
       cwd,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       windowsHide: true
     });
     let stdout = "";
@@ -497,21 +498,3 @@ async function runCommand(
   return result;
 }
 
-function resolveCommand(command: string, args: readonly string[]): { command: string; args: string[] } {
-  if (process.platform !== "win32") {
-    return { command, args: [...args] };
-  }
-
-  return {
-    command: "cmd.exe",
-    args: ["/d", "/s", "/c", [command, ...args].map(quoteCmdPart).join(" ")]
-  };
-}
-
-function quoteCmdPart(part: string): string {
-  if (!/[\s"&|<>^]/.test(part)) {
-    return part;
-  }
-
-  return `"${part.replaceAll('"', '\\"')}"`;
-}

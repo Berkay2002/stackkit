@@ -27,6 +27,12 @@ export type RunCommand = (
   }
 ) => Promise<CommandResult>;
 
+export type ResolvedSpawnCommand = {
+  command: string;
+  args: string[];
+  windowsVerbatimArguments?: boolean;
+};
+
 const packageManagers: Record<PackageManagerName, PackageManagerAdapter> = {
   pnpm: {
     name: "pnpm",
@@ -69,4 +75,37 @@ const packageManagers: Record<PackageManagerName, PackageManagerAdapter> = {
 
 export function getPackageManagerAdapter(name: PackageManagerName): PackageManagerAdapter {
   return packageManagers[name];
+}
+
+export function resolveSpawnCommand(
+  command: string,
+  args: readonly string[],
+  options: { platform?: NodeJS.Platform; comspec?: string } = {}
+): ResolvedSpawnCommand {
+  if ((options.platform ?? process.platform) !== "win32") {
+    return { command, args: [...args] };
+  }
+
+  const shellCommand = [escapeWindowsCommand(command), ...args.map(escapeWindowsArgument)].join(" ");
+
+  return {
+    command: options.comspec ?? process.env.ComSpec ?? process.env.comspec ?? "cmd.exe",
+    args: ["/d", "/s", "/c", `"${shellCommand}"`],
+    windowsVerbatimArguments: true
+  };
+}
+
+const windowsCmdMetaChars = /([()\][%!^"`<>&|;, *?])/g;
+
+function escapeWindowsCommand(command: string): string {
+  return command.replace(windowsCmdMetaChars, "^$1");
+}
+
+function escapeWindowsArgument(argument: string): string {
+  let escaped = `${argument}`;
+  escaped = escaped.replace(/(?=(\\+?)?)\1"/g, '$1$1\\"');
+  escaped = escaped.replace(/(?=(\\+?)?)\1$/, "$1$1");
+  escaped = `"${escaped}"`;
+
+  return escaped.replace(windowsCmdMetaChars, "^$1");
 }

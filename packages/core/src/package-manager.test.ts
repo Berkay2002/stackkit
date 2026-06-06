@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getPackageManagerAdapter } from "./index.js";
+import { getPackageManagerAdapter, resolveSpawnCommand } from "./index.js";
 
 describe("package manager adapters", () => {
   it("returns pnpm metadata and commands", () => {
@@ -54,5 +54,35 @@ describe("package manager adapters", () => {
     expect(adapter.runCommand("build")).toEqual(["bun", "run", "build"]);
     expect(adapter.addCommand(["next", "react"])).toEqual(["bun", "add", "next", "react"]);
     expect(adapter.dlxCommand("skills", ["--help"])).toEqual(["bunx", "skills", "--help"]);
+  });
+});
+
+describe("resolveSpawnCommand", () => {
+  it("keeps non-Windows commands as executable plus args", () => {
+    expect(resolveSpawnCommand("pnpm", ["test", "--", "unit"], { platform: "linux" })).toEqual({
+      command: "pnpm",
+      args: ["test", "--", "unit"]
+    });
+  });
+
+  it("routes Windows commands through cmd.exe without shell mode", () => {
+    expect(resolveSpawnCommand("pnpm", ["test", "--", "unit"], { platform: "win32", comspec: "cmd.exe" })).toEqual({
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", '"pnpm ^"test^" ^"--^" ^"unit^""'],
+      windowsVerbatimArguments: true
+    });
+  });
+
+  it("escapes Windows shell metacharacters in arguments", () => {
+    const invocation = resolveSpawnCommand("node", ['quote"here', "x&y", "path with spaces"], {
+      platform: "win32",
+      comspec: "cmd.exe"
+    });
+
+    expect(invocation).toEqual({
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", '"node ^"quote\\^"here^" ^"x^&y^" ^"path^ with^ spaces^""'],
+      windowsVerbatimArguments: true
+    });
   });
 });

@@ -38,9 +38,10 @@ export type {
   PackageManagerName,
   PackageManagerAdapter,
   CommandResult,
+  ResolvedSpawnCommand,
   RunCommand
 } from "./package-manager.js";
-export { getPackageManagerAdapter } from "./package-manager.js";
+export { getPackageManagerAdapter, resolveSpawnCommand } from "./package-manager.js";
 
 export { encodeRecipe, decodeRecipe } from "./recipe.js";
 

@@ -31,6 +31,7 @@ import {
   inspectStackkitModule,
   listStackkitModules,
   loadProjectRegistries,
+  resolveSpawnCommand,
   resolveStackAxes,
   runDoctor,
   searchStackkitModules,
@@ -1254,9 +1255,11 @@ export const runLocalCommand: RunCommand = async (command, args, options) => {
   const { spawn } = await import("node:child_process");
 
   return await new Promise((resolve) => {
-    const child = spawn(command, [...args], {
+    const invocation = resolveSpawnCommand(command, args);
+    const child = spawn(invocation.command, invocation.args, {
       cwd: options.cwd,
-      shell: process.platform === "win32",
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+      windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stdout = "";
