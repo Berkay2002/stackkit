@@ -4,3 +4,28 @@
 
 /* Make Tailwind aware of Fumadocs UI source so its classes are generated. */
 @source '../node_modules/fumadocs-ui/dist/**/*.js';
+
+@theme {
+  /* Single locked accent. Desaturated emerald — distinct from the AI-purple
+     default, reads on both the neutral light and dark presets. */
+  --color-brand: oklch(0.7 0.12 162);
+}
+
+/* Restrained, load-only entrance. Defined only when motion is welcome, so the
+   reduced-motion default renders content in its final (visible) state. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes fd-fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .anim-fade-up {
+    animation: fd-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}

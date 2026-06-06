@@ -26,10 +26,10 @@ export function PageActions({
   }
 
   const linkClass =
-    'border border-fd-border rounded-md px-2 py-1 inline-flex items-center gap-1.5 hover:bg-fd-accent hover:text-fd-accent-foreground transition-colors text-sm text-fd-muted-foreground';
+    'inline-flex items-center gap-1.5 rounded-lg border border-fd-border px-2.5 py-1 text-sm text-fd-muted-foreground transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground active:translate-y-px';
 
   return (
-    <div className="flex flex-row flex-wrap gap-2 my-4">
+    <div className="flex flex-row flex-wrap gap-2 not-prose my-4">
       <button
         type="button"
         aria-label={copied ? 'Copied to clipboard' : 'Copy page content for LLM'}
@@ -37,7 +37,7 @@ export function PageActions({
         className={linkClass}
       >
         {copied ? (
-          <CheckIcon className="size-4" />
+          <CheckIcon className="size-4 text-brand" />
         ) : (
           <CopyIcon className="size-4" />
         )}

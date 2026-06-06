@@ -22,6 +22,13 @@ export const metadata: Metadata = {
   },
   description:
     'Documentation for Stackkit — a TypeScript CLI for generating and maintaining multi-language monorepos.',
+  openGraph: {
+    type: 'website',
+    siteName: 'Stackkit Docs',
+    title: 'Stackkit Docs',
+    description:
+      'A TypeScript CLI for generating and maintaining multi-language monorepos.',
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
