@@ -4,6 +4,13 @@
   "description": "Generated project templates for Stackkit.",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Berkay2002/stackkit.git",
+    "directory": "packages/templates"
+  },
+  "homepage": "https://github.com/Berkay2002/stackkit#readme",
+  "bugs": "https://github.com/Berkay2002/stackkit/issues",
   "files": ["dist"],
   "publishConfig": {
     "access": "public"

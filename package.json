@@ -4,13 +4,24 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.5.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Berkay2002/stackkit.git"
+  },
+  "homepage": "https://github.com/Berkay2002/stackkit#readme",
+  "bugs": "https://github.com/Berkay2002/stackkit/issues",
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "smoke": "pnpm build && pnpm --filter @berkayorhan/stackkit-test-utils test -- e2e-smoke"
+    "smoke": "pnpm build && pnpm --filter @berkayorhan/stackkit-test-utils test -- e2e-smoke",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
     "@types/node": "^24.0.0",
     "turbo": "^2.9.16",
     "typescript": "^5.9.3",

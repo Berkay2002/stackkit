@@ -4,6 +4,13 @@
   "description": "CLI for generating and maintaining Stackkit monorepos.",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Berkay2002/stackkit.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/Berkay2002/stackkit#readme",
+  "bugs": "https://github.com/Berkay2002/stackkit/issues",
   "files": [
     "dist"
   ],

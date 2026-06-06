@@ -4,6 +4,13 @@
   "description": "Shared schemas for Stackkit monorepo generation.",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Berkay2002/stackkit.git",
+    "directory": "packages/schemas"
+  },
+  "homepage": "https://github.com/Berkay2002/stackkit#readme",
+  "bugs": "https://github.com/Berkay2002/stackkit/issues",
   "files": ["dist"],
   "publishConfig": {
     "access": "public"

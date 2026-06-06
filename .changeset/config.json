@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": [
+    "@changesets/changelog-github",
+    { "repo": "Berkay2002/stackkit" }
+  ],
+  "commit": false,
+  "fixed": [
+    [
+      "@berkayorhan/stackkit",
+      "@berkayorhan/stackkit-core",
+      "@berkayorhan/stackkit-registry",
+      "@berkayorhan/stackkit-schemas",
+      "@berkayorhan/stackkit-templates"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "master",
+  "updateInternalDependencies": "patch",
+  "ignore": []
+}
