@@ -59,8 +59,21 @@ describe("applyCreatePlan", () => {
         source: { kind: "config", path: "stackkit.config.json" },
         paths: { root: "." },
         createdAt: "2026-06-02T00:00:00.000Z",
-        modules: [{ id: "workspace/pnpm-turbo", version: "1.0.0", options: {} }]
+        modules: [
+          expect.objectContaining({
+            id: "workspace/pnpm-turbo",
+            version: "1.0.0",
+            options: {},
+            snapshot: expect.objectContaining({ id: "workspace/pnpm-turbo" })
+          })
+        ]
       })
+    );
+    expect(manifest.expectedFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "stackkit.config.json", owner: "stackkit/config", content: expect.any(String) }),
+        expect.objectContaining({ path: "package.json", owner: "workspace/pnpm-turbo", content: expect.any(String) })
+      ])
     );
     expect(manifest.files).toEqual(
       expect.arrayContaining([
@@ -709,5 +722,72 @@ describe("applyCreatePlan", () => {
     });
 
     expect(seen).toEqual([[join(result.projectDirectory, "apps/web"), "pnpm", "format"]]);
+  });
+
+  it("runs shadcn monorepo initialization through the package manager for Next.js shadcn projects", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-shadcn-"));
+    tempDirectories.push(parentDirectory);
+    const calls: { command: string; args: string[]; cwd?: string }[] = [];
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "shadcn-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo", "workspace/typescript", "web/nextjs", "ui/shadcn"],
+        ai: {
+          skillTargets: ["codex"],
+          skillMode: "skip"
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "Workspace",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "workspace/typescript",
+          version: "1.0.0",
+          title: "TypeScript",
+          description: "TypeScript",
+          requires: ["workspace/node"],
+          provides: ["typescript"]
+        }),
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js",
+          requires: ["workspace/node"],
+          provides: ["web-app", "nextjs-app", "react"]
+        }),
+        defineModule({
+          id: "ui/shadcn",
+          version: "1.0.0",
+          title: "shadcn/ui",
+          description: "shadcn/ui",
+          requires: ["react"]
+        })
+      ]
+    });
+
+    await applyCreatePlan(plan, {
+      parentDirectory,
+      runCommand: async (command, args, options) => {
+        calls.push({ command, args: [...args], cwd: options.cwd });
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+    });
+
+    expect(calls).toEqual([
+      {
+        command: "pnpm",
+        args: ["dlx", "shadcn@latest", "init", "-d", "--base", "radix", "--monorepo", "-t", "next", "--cwd", "."],
+        cwd: join(parentDirectory, "shadcn-app")
+      }
+    ]);
   });
 });

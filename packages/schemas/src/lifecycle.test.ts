@@ -93,6 +93,55 @@ describe("stackkitManifestSchema", () => {
       }).aiSkills.local
     ).toEqual([skill]);
   });
+
+  it("records module and expected file snapshots for lifecycle reconstruction", () => {
+    const parsed = stackkitManifestSchema.parse({
+      schemaVersion: 1,
+      stackkitVersion: "0.1.1",
+      projectName: "acme",
+      createdAt: "2026-06-02T00:00:00.000Z",
+      modules: [
+        {
+          id: "web/custom",
+          version: "1.0.0",
+          options: {},
+          snapshot: {
+            id: "web/custom",
+            version: "1.0.0",
+            title: "Custom web",
+            description: "Custom web module",
+            files: [{ kind: "write", path: "apps/web/custom.ts", owner: "web/custom", content: "export {};\n" }]
+          }
+        }
+      ],
+      files: [{ path: "apps/web/custom.ts", owner: "web/custom", hash: "abc123" }],
+      expectedFiles: [
+        {
+          path: "apps/web/custom.ts",
+          owner: "web/custom",
+          content: "export {};\n",
+          hash: "abc123"
+        }
+      ],
+      aiSkills: {
+        targets: [{ agent: "codex", directory: ".agents", enabled: true }],
+        installed: [],
+        planned: [],
+        local: [],
+        unresolved: []
+      },
+      migrations: {
+        applied: []
+      }
+    });
+
+    expect(parsed.modules[0]?.snapshot?.files).toEqual([
+      { kind: "write", path: "apps/web/custom.ts", owner: "web/custom", content: "export {};\n", overwrite: "if-owned" }
+    ]);
+    expect(parsed.expectedFiles).toEqual([
+      { path: "apps/web/custom.ts", owner: "web/custom", content: "export {};\n", hash: "abc123" }
+    ]);
+  });
 });
 
 describe("doctorResultSchema", () => {

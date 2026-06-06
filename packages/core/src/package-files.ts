@@ -28,6 +28,26 @@ export async function planPackageChangeFiles(
   }));
 }
 
+export function renderPackageChangeFiles(changes: readonly PackageChange[]): FileOperation[] {
+  const packageByPath = new Map<string, Record<string, unknown>>();
+
+  for (const change of changes) {
+    const packagePath = normalizeProjectPath(change.packagePath);
+    const existingPackage = packageByPath.get(packagePath) ?? {};
+    const nextPackage = mergePackageJson(existingPackage, change);
+
+    packageByPath.set(packagePath, nextPackage);
+  }
+
+  return [...packageByPath.entries()].map(([path, pkg]) => ({
+    kind: "write",
+    path,
+    owner: "workspace/pnpm-turbo",
+    content: `${JSON.stringify(pkg, null, 2)}\n`,
+    overwrite: "if-owned"
+  }));
+}
+
 export async function applyPackageChanges(
   projectDirectory: string,
   changes: readonly PackageChange[]

@@ -26,14 +26,22 @@ import {
   type AiSkillTarget,
   type EnvVarDefinition,
   type FileOperation,
+  type ManifestExpectedFile,
   type StackkitConfig,
   type StackkitManifest,
   type StackkitManifestSource,
   type StackkitModule,
-  type StackkitPreset
+  type StackkitPreset,
+  stackkitModuleSchema
 } from "@berkayorhan/stackkit-schemas";
 
-import { isNodeError, normalizeProjectPath, normalizeTargetDirectoryName, readExistingFile } from "./fs-utils.js";
+import {
+  hashContent,
+  isNodeError,
+  normalizeProjectPath,
+  normalizeTargetDirectoryName,
+  readExistingFile
+} from "./fs-utils.js";
 import { getPackageManagerAdapter, type PackageManagerAdapter, type RunCommand } from "./package-manager.js";
 import { composeReadme } from "./readme.js";
 import { normalizeEnvVars, renderEnvExampleContent } from "./env.js";
@@ -62,7 +70,8 @@ import { resolveConfiguredModules, resolveModuleGraph, validateProjectSlug } fro
 import {
   appendFileContent,
   mergePackageOperations,
-  planPackageChangeFiles
+  planPackageChangeFiles,
+  renderPackageChangeFiles
 } from "./package-files.js";
 import { runDoctor } from "./doctor.js";
 import { defineModule } from "./registry.js";
@@ -245,7 +254,7 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
     appendSelectedFileOperations(
       operations,
       seenPaths,
-      renderNextjsApp({ appName: "web", packageManagerField: packageManager.packageManagerField, tsTooling }),
+      renderNextjsApp({ appName: "web", packageManagerField: packageManager.packageManagerField, tsTooling, withShadcn: hasShadcn }),
       selectedModuleIds
     );
   }
@@ -374,15 +383,20 @@ export async function applyCreatePlan(
     );
   }
 
-  const files = await applyFilePlan(projectDirectory, fullFilePlan);
+  let files = await applyFilePlan(projectDirectory, fullFilePlan, {
+    ownedFiles: [],
+    conflictLabel: "Create target"
+  });
   if (options.runCommand) {
     await runLifecycleHooks(
-      plan.selectedModules.flatMap((module) => module.postCreate ?? []),
+      [...plan.selectedModules.flatMap((module) => module.postCreate ?? []), ...planShadcnInitHooks(plan)],
       { projectDirectory, runCommand: options.runCommand }
     );
+    files = await refreshManagedFileHashes(projectDirectory, files);
   }
 
   const skillInstallResult = await resolveSkillInstallResult(plan, projectDirectory, options);
+  const expectedFiles = await readManagedExpectedFiles(projectDirectory, files);
   const manifest = await writeManifest(projectDirectory, {
     schemaVersion: 1,
     stackkitVersion: options.stackkitVersion ?? "0.0.0",
@@ -391,8 +405,14 @@ export async function applyCreatePlan(
     source: plan.source,
     paths: { root: "." },
     createdAt: (options.now ?? (() => new Date()))().toISOString(),
-    modules: plan.modules.map((module) => ({ ...module, options: {} })),
+    modules: plan.selectedModules.map((module) => ({
+      id: module.id,
+      version: module.version,
+      options: {},
+      snapshot: snapshotStackkitModule(module)
+    })),
     files,
+    expectedFiles,
     aiSkills: {
       mode: plan.aiSkills.mode,
       linkMode: plan.aiSkills.linkMode,
@@ -426,6 +446,91 @@ export async function applyCreatePlan(
   const doctor = await runDoctor(projectDirectory);
 
   return { projectDirectory, manifest, doctor };
+}
+
+async function readManagedExpectedFiles(
+  projectDirectory: string,
+  files: readonly ManifestFileRecord[]
+): Promise<ManifestExpectedFile[]> {
+  const expectedFiles: ManifestExpectedFile[] = [];
+
+  for (const file of files) {
+    const content = await readExistingFile(join(projectDirectory, file.path));
+
+    if (content === undefined) {
+      continue;
+    }
+
+    expectedFiles.push({
+      path: file.path,
+      owner: file.owner,
+      content,
+      hash: hashContent(content)
+    });
+  }
+
+  return expectedFiles;
+}
+
+function planShadcnInitHooks(plan: CreatePlan): import("@berkayorhan/stackkit-schemas").LifecycleHook[] {
+  const selectedModuleIds = new Set(plan.modules.map((module) => module.id));
+
+  if (!selectedModuleIds.has("ui/shadcn")) {
+    return [];
+  }
+
+  const template =
+    selectedModuleIds.has("web/nextjs") ? "next"
+    : selectedModuleIds.has("web/vite") ? "vite"
+    : selectedModuleIds.has("web/tanstack-start") ? "start"
+    : undefined;
+
+  if (!template) {
+    return [];
+  }
+
+  const adapter = getPackageManagerAdapter(plan.packageManager);
+  const [command, ...args] = adapter.dlxCommand("shadcn@latest", [
+    "init",
+    "-d",
+    "--base",
+    "radix",
+    "--monorepo",
+    "-t",
+    template,
+    "--cwd",
+    "."
+  ]);
+
+  return [
+    {
+      name: "shadcn init",
+      command,
+      args
+    }
+  ];
+}
+
+async function refreshManagedFileHashes(
+  projectDirectory: string,
+  files: readonly ManifestFileRecord[]
+): Promise<ManifestFileRecord[]> {
+  const refreshed: ManifestFileRecord[] = [];
+
+  for (const file of files) {
+    const content = await readExistingFile(join(projectDirectory, file.path));
+
+    if (content === undefined) {
+      continue;
+    }
+
+    refreshed.push({
+      ...file,
+      hash: hashContent(content)
+    });
+  }
+
+  return refreshed;
 }
 
 async function assertCreateTargetIsSafe(projectDirectory: string): Promise<void> {
@@ -463,6 +568,92 @@ export async function planEnvExampleFiles(
   const existing = await readExistingFile(join(projectDirectory, ".env.example"));
   const existingContent = existing ?? "";
   const separator = existingContent.length === 0 || existingContent.endsWith("\n") ? "" : "\n";
+  return renderEnvExampleFiles(existingContent, envVars, separator);
+}
+
+export async function applyEnvExamples(
+  projectDirectory: string,
+  envVars: readonly EnvVarDefinition[]
+): Promise<ManifestFileRecord[]> {
+  return await applyFilePlan(projectDirectory, buildFilePlan(await planEnvExampleFiles(projectDirectory, envVars)));
+}
+
+export function buildExpectedManagedFilePlan(manifest: StackkitManifest): FilePlan {
+  if ((manifest.expectedFiles ?? []).length > 0) {
+    return expectedFilesToFilePlan(manifest.expectedFiles ?? []);
+  }
+
+  return buildReconstructedManagedFilePlan(manifest);
+}
+
+export function buildReconstructedManagedFilePlan(manifest: StackkitManifest): FilePlan {
+  const modules = manifest.modules.map((module) => manifestModuleToStackkitModule(module));
+  const config = {
+    projectName: manifest.projectName,
+    packageManager: manifest.packageManager,
+    workspace: "pnpm-turbo" as const,
+    modules: manifest.modules.map((module) => module.id),
+    registries: {},
+    ai: {
+      skillTargets: manifest.aiSkills.targets.map((target) => target.agent),
+      skillMode: manifest.aiSkills.mode,
+      linkMode: manifest.aiSkills.linkMode
+    }
+  };
+  const createOperations = renderCreateFiles(config, modules);
+  const packageOperations = renderPackageChangeFiles(modules.flatMap((module) => module.packageChanges ?? []));
+  const envOperations = renderEnvExampleFiles("", modules.flatMap((module) => module.envVars ?? []));
+
+  return buildFilePlan(mergeCreateFileOperations([...createOperations, ...packageOperations, ...envOperations]));
+}
+
+export function manifestModuleToStackkitModule(module: StackkitManifest["modules"][number]): StackkitModule {
+  if (module.snapshot) {
+    return module.snapshot;
+  }
+
+  return defineModule({
+    id: module.id,
+    version: module.version,
+    title: module.id,
+    description: module.id
+  });
+}
+
+export function filePlanToExpectedFiles(plan: FilePlan): ManifestExpectedFile[] {
+  return plan.files.map((file) => ({
+    path: file.path,
+    owner: file.owner,
+    content: file.content,
+    hash: file.hash
+  }));
+}
+
+export function expectedFilesToFilePlan(expectedFiles: readonly ManifestExpectedFile[]): FilePlan {
+  return {
+    files: expectedFiles.map((file) => ({
+      path: normalizeProjectPath(file.path),
+      owner: file.owner,
+      content: file.content,
+      hash: file.hash,
+      overwrite: "if-owned"
+    }))
+  };
+}
+
+export function snapshotStackkitModule(module: StackkitModule): StackkitModule {
+  return stackkitModuleSchema.parse(JSON.parse(JSON.stringify(module)));
+}
+
+export function renderEnvExampleFiles(
+  existingContent: string,
+  envVars: readonly EnvVarDefinition[],
+  separator = existingContent.length === 0 || existingContent.endsWith("\n") ? "" : "\n"
+): FileOperation[] {
+  if (envVars.length === 0) {
+    return [];
+  }
+
   const additions = renderEnvExampleContent(normalizeEnvVars(envVars));
 
   return [
@@ -474,44 +665,6 @@ export async function planEnvExampleFiles(
       overwrite: "if-owned"
     }
   ];
-}
-
-export async function applyEnvExamples(
-  projectDirectory: string,
-  envVars: readonly EnvVarDefinition[]
-): Promise<ManifestFileRecord[]> {
-  return await applyFilePlan(projectDirectory, buildFilePlan(await planEnvExampleFiles(projectDirectory, envVars)));
-}
-
-export function buildExpectedManagedFilePlan(manifest: StackkitManifest): FilePlan {
-  const modules = manifest.modules.map((module) => manifestModuleToStackkitModule(module));
-
-  return buildFilePlan(
-    renderCreateFiles(
-      {
-        projectName: manifest.projectName,
-        packageManager: manifest.packageManager,
-        workspace: "pnpm-turbo",
-        modules: manifest.modules.map((module) => module.id),
-        registries: {},
-        ai: {
-          skillTargets: manifest.aiSkills.targets.map((target) => target.agent),
-          skillMode: manifest.aiSkills.mode,
-          linkMode: manifest.aiSkills.linkMode
-        }
-      },
-      modules
-    )
-  );
-}
-
-export function manifestModuleToStackkitModule(module: StackkitManifest["modules"][number]): StackkitModule {
-  return defineModule({
-    id: module.id,
-    version: module.version,
-    title: module.id,
-    description: module.id
-  });
 }
 
 function attachSelectedModules(

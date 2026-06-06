@@ -58,4 +58,35 @@ describe("diffManagedFile", () => {
     expect(diff.diff.parts.some((part) => part.kind === "removed" && part.value.includes('"private": true'))).toBe(true);
     expect(diff.diff.parts.some((part) => part.kind === "added" && part.value.includes('"private": false'))).toBe(true);
   });
+
+  it("diffs module-declared files from manifest snapshots", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-diff-module-file-"));
+    tempDirectories.push(parentDirectory);
+    const moduleFile = "apps/web/generated.ts";
+    const module = defineModule({
+      id: "web/custom",
+      version: "1.0.0",
+      title: "Custom web",
+      description: "Custom web module",
+      files: [{ kind: "write", path: moduleFile, owner: "web/custom", content: "export const value = 1;\n" }]
+    });
+    const plan = createCreatePlan({
+      config: {
+        projectName: "custom-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["web/custom"],
+        ai: { skillTargets: ["codex"], skillMode: "skip", linkMode: "copy" }
+      },
+      availableModules: [module]
+    });
+    const result = await applyCreatePlan(plan, { parentDirectory, installSkills: false });
+    const filePath = join(result.projectDirectory, "apps", "web", "generated.ts");
+    await writeFile(filePath, "export const value = 2;\n", "utf8");
+
+    const diff = await diffManagedFile(result.projectDirectory, moduleFile);
+
+    expect(diff.expectedContent).toBe("export const value = 1;\n");
+    expect(diff.currentContent).toBe("export const value = 2;\n");
+  });
 });

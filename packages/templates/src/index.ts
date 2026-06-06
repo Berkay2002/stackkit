@@ -23,6 +23,7 @@ type NextjsAppOptions = {
   appName: string;
   packageManagerField?: string;
   tsTooling?: TsToolingChoice;
+  withShadcn?: boolean;
 };
 
 type FastApiServiceOptions = {
@@ -149,6 +150,20 @@ export function renderPnpmTurboFoundation({
         2
       )}\n`
     ),
+    writeFile(
+      "tsconfig.json",
+      "workspace/typescript",
+      `${JSON.stringify(
+        {
+          extends: "./tsconfig.base.json",
+          compilerOptions: {
+            paths: {}
+          }
+        },
+        null,
+        2
+      )}\n`
+    ),
     writeFile(".gitignore", workspaceOwner, "node_modules\n.turbo\ndist\n")
   ];
 
@@ -159,12 +174,27 @@ export function renderPnpmTurboFoundation({
   return files;
 }
 
-export function renderNextjsApp({ appName, packageManagerField, tsTooling = "eslint-prettier" }: NextjsAppOptions): FileOperation[] {
+export function renderNextjsApp({
+  appName,
+  packageManagerField,
+  tsTooling = "eslint-prettier",
+  withShadcn = false
+}: NextjsAppOptions): FileOperation[] {
   const root = `apps/${appName}`;
   const lintFormatScripts =
     tsTooling === "biome"
       ? { lint: "biome lint .", format: "biome format --write ." }
       : { lint: "eslint --config ../../eslint.config.mjs app next.config.ts", format: "prettier --write ." };
+  const dependencies: Record<string, string> = {
+    next: "^15.0.0",
+    react: "^19.0.0",
+    "react-dom": "^19.0.0"
+  };
+
+  if (withShadcn) {
+    dependencies["@workspace/ui"] = "workspace:*";
+  }
+
   const packageJson: Record<string, unknown> = {
     name: `@acme/${appName}`,
     private: true,
@@ -177,11 +207,7 @@ export function renderNextjsApp({ appName, packageManagerField, tsTooling = "esl
       typecheck: "tsc --noEmit",
       ...lintFormatScripts
     },
-    dependencies: {
-      next: "^15.0.0",
-      react: "^19.0.0",
-      "react-dom": "^19.0.0"
-    },
+    dependencies,
     devDependencies: {
       "@types/react": "^19.0.0",
       "@types/react-dom": "^19.0.0",
@@ -202,7 +228,7 @@ export function renderNextjsApp({ appName, packageManagerField, tsTooling = "esl
     writeFile(
       `${root}/app/layout.tsx`,
       "web/nextjs",
-      'import type { ReactNode } from "react";\n\nexport default function RootLayout({ children }: { children: ReactNode }) {\n  return (\n    <html lang="en">\n      <body>{children}</body>\n    </html>\n  );\n}\n'
+      `${withShadcn ? 'import "@workspace/ui/globals.css";\n' : ""}import type { ReactNode } from "react";\n\nexport default function RootLayout({ children }: { children: ReactNode }) {\n  return (\n    <html lang="en">\n      <body>{children}</body>\n    </html>\n  );\n}\n`
     ),
     writeFile(
       `${root}/app/page.tsx`,
@@ -295,16 +321,30 @@ export function renderDatabaseClient({ client, runtime = "node", provider }: Dat
 type ShadcnFramework = "nextjs" | "vite" | "tanstack-start";
 type ShadcnUiOptions = { appName: string; framework?: ShadcnFramework };
 
-const SHADCN_CSS_BY_FRAMEWORK: Record<ShadcnFramework, string> = {
-  nextjs: "app/globals.css",
-  vite: "src/index.css",
-  "tanstack-start": "src/styles/app.css"
-};
+const SHADCN_SHARED_CSS_PATH = "packages/ui/src/styles/globals.css";
+const SHADCN_APP_CSS_PATH = "../../packages/ui/src/styles/globals.css";
 
 export function renderShadcnUi({ appName, framework = "nextjs" }: ShadcnUiOptions): FileOperation[] {
   const root = `apps/${appName}`;
-  const cssPath = SHADCN_CSS_BY_FRAMEWORK[framework];
   const rsc = framework === "nextjs";
+  const baseConfig = {
+    $schema: "https://ui.shadcn.com/schema.json",
+    style: "radix-nova",
+    rsc,
+    tsx: true,
+    tailwind: { config: "", css: "src/styles/globals.css", baseColor: "neutral", cssVariables: true },
+    iconLibrary: "lucide",
+    aliases: {
+      components: "@workspace/ui/components",
+      utils: "@workspace/ui/lib/utils",
+      hooks: "@workspace/ui/hooks",
+      lib: "@workspace/ui/lib",
+      ui: "@workspace/ui/components"
+    },
+    rtl: false,
+    menuColor: "default",
+    menuAccent: "subtle"
+  };
 
   return [
     writeFile(
@@ -312,17 +352,77 @@ export function renderShadcnUi({ appName, framework = "nextjs" }: ShadcnUiOption
       "ui/shadcn",
       `${JSON.stringify(
         {
-          style: "new-york",
-          rsc,
-          tsx: true,
-          tailwind: { css: cssPath, baseColor: "neutral", cssVariables: true },
-          aliases: { components: "@/components", utils: "@/lib/utils" }
+          ...baseConfig,
+          tailwind: { ...baseConfig.tailwind, css: SHADCN_APP_CSS_PATH },
+          aliases: {
+            components: "@/components",
+            hooks: "@/hooks",
+            lib: "@/lib",
+            utils: "@workspace/ui/lib/utils",
+            ui: "@workspace/ui/components"
+          }
         },
         null,
         2
       )}\n`
     ),
-    writeFile(`${root}/${cssPath}`, "ui/shadcn", '@import "tailwindcss";\n\n:root {\n  color-scheme: light;\n}\n')
+    writeFile("packages/ui/components.json", "ui/shadcn", `${JSON.stringify(baseConfig, null, 2)}\n`),
+    writeFile(
+      "packages/ui/package.json",
+      "ui/shadcn",
+      `${JSON.stringify(
+        {
+          name: "@workspace/ui",
+          version: "0.0.0",
+          private: true,
+          type: "module",
+          imports: {
+            "#components/*": "./src/components/*.tsx",
+            "#lib/*": "./src/lib/*.ts",
+            "#hooks/*": "./src/hooks/*.ts"
+          },
+          scripts: {
+            typecheck: "tsc --noEmit"
+          },
+          exports: {
+            "./globals.css": "./src/styles/globals.css",
+            "./components/*": "./src/components/*.tsx",
+            "./lib/*": "./src/lib/*.ts",
+            "./hooks/*": "./src/hooks/*.ts"
+          },
+          dependencies: {
+            react: "^19.0.0",
+            "react-dom": "^19.0.0",
+            tailwindcss: "^4"
+          },
+          devDependencies: {
+            "@types/react": "^19.0.0",
+            "@types/react-dom": "^19.0.0",
+            typescript: "^5.9.3"
+          }
+        },
+        null,
+        2
+      )}\n`
+    ),
+    writeFile(
+      "packages/ui/tsconfig.json",
+      "ui/shadcn",
+      `${JSON.stringify(
+        {
+          extends: "../../tsconfig.base.json",
+          compilerOptions: {
+            lib: ["dom", "dom.iterable", "esnext"],
+            jsx: "react-jsx",
+            noEmit: true
+          },
+          include: ["src"]
+        },
+        null,
+        2
+      )}\n`
+    ),
+    writeFile(SHADCN_SHARED_CSS_PATH, "ui/shadcn", '@import "tailwindcss";\n')
   ];
 }
 
@@ -339,7 +439,7 @@ export function renderViteApp({ appName, packageManagerField, withShadcn = false
       test: "vitest run --passWithNoTests", typecheck: "tsc --noEmit",
       lint: "eslint src", format: "prettier --write ."
     },
-    dependencies: { react: "^19.0.0", "react-dom": "^19.0.0" },
+    dependencies: { ...(withShadcn ? { "@workspace/ui": "workspace:*" } : {}), react: "^19.0.0", "react-dom": "^19.0.0" },
     devDependencies: {
       "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0",
       "@vitejs/plugin-react": "^4.3.4", typescript: "^5.9.3", vite: "^6.0.0"
@@ -353,7 +453,7 @@ export function renderViteApp({ appName, packageManagerField, withShadcn = false
     writeFile(`${root}/vite.config.ts`, "web/vite", 'import { fileURLToPath, URL } from "node:url";\nimport react from "@vitejs/plugin-react";\nimport { defineConfig } from "vite";\n\nexport default defineConfig({\n  plugins: [react()],\n  resolve: {\n    alias: {\n      "@": fileURLToPath(new URL("./src", import.meta.url))\n    }\n  }\n});\n'),
     writeFile(`${root}/tsconfig.json`, "web/vite", `${JSON.stringify({ extends: "../../tsconfig.base.json", compilerOptions: { lib: ["ES2022", "DOM", "DOM.Iterable"], jsx: "react-jsx", noEmit: true, paths: { "@/*": ["./src/*"] } }, include: ["src"], references: [{ path: "./tsconfig.node.json" }] }, null, 2)}\n`),
     writeFile(`${root}/tsconfig.node.json`, "web/vite", `${JSON.stringify({ compilerOptions: { composite: true, module: "ESNext", moduleResolution: "Bundler", noEmit: true }, include: ["vite.config.ts"] }, null, 2)}\n`),
-    writeFile(`${root}/src/main.tsx`, "web/vite", 'import { StrictMode } from "react";\nimport { createRoot } from "react-dom/client";\nimport App from "./App";\nimport "./index.css";\n\ncreateRoot(document.getElementById("root")!).render(\n  <StrictMode>\n    <App />\n  </StrictMode>\n);\n'),
+    writeFile(`${root}/src/main.tsx`, "web/vite", `import { StrictMode } from "react";\nimport { createRoot } from "react-dom/client";\nimport App from "./App";\nimport ${withShadcn ? '"@workspace/ui/globals.css"' : '"./index.css"'};\n\ncreateRoot(document.getElementById("root")!).render(\n  <StrictMode>\n    <App />\n  </StrictMode>\n);\n`),
     writeFile(`${root}/src/App.tsx`, "web/vite", 'export default function App() {\n  return <main>Stackkit app</main>;\n}\n'),
     writeFile(`${root}/src/vite-env.d.ts`, "web/vite", '/// <reference types="vite/client" />\n')
   ];
@@ -377,6 +477,7 @@ export function renderTanStackStartApp({ appName, packageManagerField, withShadc
       lint: "eslint src", format: "prettier --write ."
     },
     dependencies: {
+      ...(withShadcn ? { "@workspace/ui": "workspace:*" } : {}),
       "@tanstack/react-router": "^1.95.0", "@tanstack/react-start": "^1.95.0",
       react: "^19.0.0", "react-dom": "^19.0.0"
     },
@@ -392,7 +493,7 @@ export function renderTanStackStartApp({ appName, packageManagerField, withShadc
     writeFile(`${root}/vite.config.ts`, "web/tanstack-start", 'import { tanstackStart } from "@tanstack/react-start/plugin/vite";\nimport viteReact from "@vitejs/plugin-react";\nimport { defineConfig } from "vite";\n\nexport default defineConfig({\n  server: { port: 3000 },\n  plugins: [tanstackStart(), viteReact()]\n});\n'),
     writeFile(`${root}/tsconfig.json`, "web/tanstack-start", `${JSON.stringify({ extends: "../../tsconfig.base.json", compilerOptions: { lib: ["ES2022", "DOM", "DOM.Iterable"], jsx: "react-jsx", moduleResolution: "Bundler", noEmit: true, paths: { "@/*": ["./src/*"] } }, include: ["src"] }, null, 2)}\n`),
     writeFile(`${root}/src/router.tsx`, "web/tanstack-start", 'import { createRouter as createTanStackRouter } from "@tanstack/react-router";\nimport { routeTree } from "./routeTree.gen";\n\nexport function createRouter() {\n  return createTanStackRouter({ routeTree, scrollRestoration: true });\n}\n\ndeclare module "@tanstack/react-router" {\n  interface Register {\n    router: ReturnType<typeof createRouter>;\n  }\n}\n'),
-    writeFile(`${root}/src/routes/__root.tsx`, "web/tanstack-start", 'import { Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";\nimport type { ReactNode } from "react";\n\nexport const Route = createRootRoute({\n  head: () => ({\n    meta: [\n      { charSet: "utf-8" },\n      { name: "viewport", content: "width=device-width, initial-scale=1" },\n      { title: "Stackkit app" }\n    ]\n  }),\n  component: RootComponent\n});\n\nfunction RootComponent() {\n  return (\n    <RootDocument>\n      <Outlet />\n    </RootDocument>\n  );\n}\n\nfunction RootDocument({ children }: Readonly<{ children: ReactNode }>) {\n  return (\n    <html>\n      <head>\n        <HeadContent />\n      </head>\n      <body>\n        {children}\n        <Scripts />\n      </body>\n    </html>\n  );\n}\n'),
+    writeFile(`${root}/src/routes/__root.tsx`, "web/tanstack-start", `${withShadcn ? 'import "@workspace/ui/globals.css";\n' : 'import "../styles/app.css";\n'}import { Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";\nimport type { ReactNode } from "react";\n\nexport const Route = createRootRoute({\n  head: () => ({\n    meta: [\n      { charSet: "utf-8" },\n      { name: "viewport", content: "width=device-width, initial-scale=1" },\n      { title: "Stackkit app" }\n    ]\n  }),\n  component: RootComponent\n});\n\nfunction RootComponent() {\n  return (\n    <RootDocument>\n      <Outlet />\n    </RootDocument>\n  );\n}\n\nfunction RootDocument({ children }: Readonly<{ children: ReactNode }>) {\n  return (\n    <html>\n      <head>\n        <HeadContent />\n      </head>\n      <body>\n        {children}\n        <Scripts />\n      </body>\n    </html>\n  );\n}\n`),
     writeFile(`${root}/src/routes/index.tsx`, "web/tanstack-start", 'import { createFileRoute } from "@tanstack/react-router";\n\nexport const Route = createFileRoute("/")({\n  component: Home\n});\n\nfunction Home() {\n  return <main>Stackkit app</main>;\n}\n'),
     writeFile(`${root}/.gitignore`, "web/tanstack-start", ".output\n.nitro\n.tanstack\nsrc/routeTree.gen.ts\n")
   ];

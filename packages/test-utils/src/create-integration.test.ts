@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,11 +36,25 @@ describe("create integration", () => {
 
     const result = await applyCreatePlan(plan, {
       parentDirectory: parent,
-      runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
+      runCommand: async (command, args, options) => {
+        if (command === "pnpm" && args[0] === "dlx" && args[1] === "shadcn@latest") {
+          await simulateShadcnInit(options.cwd ?? resultlessProjectDirectory(parent, "next-shadcn"));
+        }
+
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
     });
 
     await expect(readFile(join(result.projectDirectory, "apps", "web", "package.json"), "utf8")).resolves.toContain("next");
-    await expect(readFile(join(result.projectDirectory, "apps", "web", "components.json"), "utf8")).resolves.toContain("new-york");
+    await expect(readFile(join(result.projectDirectory, "apps", "web", "components.json"), "utf8")).resolves.toContain(
+      "@workspace/ui/components"
+    );
+    await expect(readFile(join(result.projectDirectory, "packages", "ui", "components.json"), "utf8")).resolves.toContain(
+      "radix-nova"
+    );
+    await expect(readFile(join(result.projectDirectory, "packages", "ui", "src", "styles", "globals.css"), "utf8")).resolves.toContain(
+      '@import "tailwindcss"'
+    );
     await expect(readFile(join(result.projectDirectory, ".stackkit", "project.json"), "utf8")).resolves.toContain("web/nextjs");
     await expect(readFile(join(result.projectDirectory, "skills-lock.json"), "utf8")).resolves.toContain("vercel-react-best-practices");
     expect(result.doctor.ok).toBe(true);
@@ -80,7 +94,13 @@ describe("create integration", () => {
 
     const result = await applyCreatePlan(plan, {
       parentDirectory: parent,
-      runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
+      runCommand: async (command, args, options) => {
+        if (command === "pnpm" && args[0] === "dlx" && args[1] === "shadcn@latest") {
+          await simulateShadcnInit(options.cwd ?? resultlessProjectDirectory(parent, "next-fastapi-postgres-auth0"));
+        }
+
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
     });
 
     await expect(readFile(join(result.projectDirectory, "README.md"), "utf8")).resolves.toContain(
@@ -154,7 +174,13 @@ describe("create integration", () => {
 
     const result = await applyCreatePlan(plan, {
       parentDirectory: parent,
-      runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
+      runCommand: async (command, args, options) => {
+        if (command === "pnpm" && args[0] === "dlx" && args[1] === "shadcn@latest") {
+          await simulateShadcnInit(options.cwd ?? resultlessProjectDirectory(parent, "final-stackkit-app"));
+        }
+
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
     });
 
     await expect(readFile(join(result.projectDirectory, "eslint.config.mjs"), "utf8")).resolves.toContain("@eslint/js");
@@ -213,7 +239,13 @@ describe("create integration", () => {
 
       const result = await applyCreatePlan(plan, {
         parentDirectory: parent,
-        runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
+        runCommand: async (command, args, options) => {
+          if (command === "pnpm" && args[0] === "dlx" && args[1] === "shadcn@latest") {
+            await simulateShadcnInit(options.cwd ?? resultlessProjectDirectory(parent, "provider-app"));
+          }
+
+          return { exitCode: 0, stdout: "ok", stderr: "" };
+        }
       });
 
       const label = `${testCase.provider}/${testCase.runtime ?? "node"}`;
@@ -255,7 +287,13 @@ describe("create integration", () => {
 
     const result = await applyCreatePlan(plan, {
       parentDirectory: parent,
-      runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
+      runCommand: async (command, args, options) => {
+        if (command === "pnpm" && args[0] === "dlx" && args[1] === "shadcn@latest") {
+          await simulateShadcnInit(options.cwd ?? resultlessProjectDirectory(parent, "api-supabase"));
+        }
+
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
     });
 
     await expect(access(join(result.projectDirectory, "apps", "web", "db", "client.ts"))).rejects.toThrow();
@@ -307,6 +345,38 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function resultlessProjectDirectory(parent: string, projectName: string): string {
+  return join(parent, projectName);
+}
+
+async function simulateShadcnInit(projectDirectory: string): Promise<void> {
+  const libDirectory = join(projectDirectory, "packages", "ui", "src", "lib");
+  const packagePath = join(projectDirectory, "packages", "ui", "package.json");
+  const pkg = JSON.parse(await readFile(packagePath, "utf8"));
+
+  await mkdir(libDirectory, { recursive: true });
+  await writeFile(
+    join(libDirectory, "utils.ts"),
+    "export function cn(...inputs: string[]) {\n  return inputs.filter(Boolean).join(\" \");\n}\n",
+    "utf8"
+  );
+  await writeFile(
+    packagePath,
+    `${JSON.stringify(
+      {
+        ...pkg,
+        dependencies: {
+          ...(pkg.dependencies ?? {}),
+          tailwindcss: "^4"
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
 }
 
 type CommandResult = { exitCode: number; stdout: string; stderr: string };

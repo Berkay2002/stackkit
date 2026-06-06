@@ -30,6 +30,11 @@ export type ManifestFileRecord = {
   hash: string;
 };
 
+export type ApplyFilePlanOptions = {
+  ownedFiles?: readonly ManifestFileRecord[];
+  conflictLabel?: string;
+};
+
 type FilePlanOperation = {
   kind: string;
   path?: string;
@@ -100,7 +105,25 @@ export async function detectFileConflicts(
   return conflicts;
 }
 
-export async function applyFilePlan(projectDirectory: string, plan: FilePlan): Promise<ManifestFileRecord[]> {
+export async function applyFilePlan(
+  projectDirectory: string,
+  plan: FilePlan,
+  options: ApplyFilePlanOptions = {}
+): Promise<ManifestFileRecord[]> {
+  const conflicts = await detectFileConflicts(projectDirectory, plan, options.ownedFiles ?? []);
+
+  if (conflicts.length > 0) {
+    throw new Error(
+      `${options.conflictLabel ?? "File plan"} has conflicts: ${conflicts
+        .map((conflict) => `${conflict.path} (${conflict.reason})`)
+        .join(", ")}`
+    );
+  }
+
+  return await applyFilePlanUnchecked(projectDirectory, plan);
+}
+
+export async function applyFilePlanUnchecked(projectDirectory: string, plan: FilePlan): Promise<ManifestFileRecord[]> {
   const records: ManifestFileRecord[] = [];
 
   for (const rawFile of plan.files) {

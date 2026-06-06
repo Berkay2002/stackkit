@@ -94,9 +94,10 @@ export type {
   PlannedFile,
   FilePlan,
   FileConflict,
-  ManifestFileRecord
+  ManifestFileRecord,
+  ApplyFilePlanOptions
 } from "./file-plan.js";
-export { buildFilePlan, detectFileConflicts, applyFilePlan } from "./file-plan.js";
+export { buildFilePlan, detectFileConflicts, applyFilePlan, applyFilePlanUnchecked } from "./file-plan.js";
 
 export {
   createManifest,

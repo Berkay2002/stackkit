@@ -157,8 +157,9 @@ export const builtinModules = [
     readme: {
       stack: ["ShadCN UI", "Tailwind CSS"],
       layout: [
-        { path: "apps/web/components.json", description: "ShadCN component registry configuration" },
-        { path: "apps/web/app/globals.css", description: "Tailwind CSS entrypoint" }
+        { path: "apps/web/components.json", description: "App-level ShadCN registry configuration" },
+        { path: "packages/ui/components.json", description: "Shared ShadCN UI package registry configuration" },
+        { path: "packages/ui/src/styles/globals.css", description: "Shared Tailwind CSS entrypoint" }
       ]
     },
     aiSkills: [

@@ -234,7 +234,7 @@ node packages/cli/dist/index.js doctor --dir "$target/my-app"
 
 ## Publishing
 
-The repo is configured for a public npm release of the runtime packages at `0.1.0`.
+The repo is configured for a public npm release of the runtime packages at `0.1.1`. The root workspace package is private and can keep its own internal version.
 
 Before publishing:
 

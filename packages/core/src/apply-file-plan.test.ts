@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -68,5 +68,18 @@ describe("applyFilePlan", () => {
         ]
       })
     ).rejects.toThrow("File path escapes project directory: foo\\..\\..\\outside.txt");
+  });
+
+  it("refuses to overwrite unmanaged files", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-apply-file-plan-"));
+    tempDirectories.push(projectDirectory);
+    await writeFile(join(projectDirectory, "README.md"), "# Existing\n", "utf8");
+
+    const plan = buildFilePlan([{ kind: "write", path: "README.md", owner: "docs/readme", content: "# Stackkit\n" }]);
+
+    await expect(applyFilePlan(projectDirectory, plan)).rejects.toThrow(
+      "File plan has conflicts: README.md (exists-unowned)"
+    );
+    await expect(readFile(join(projectDirectory, "README.md"), "utf8")).resolves.toBe("# Existing\n");
   });
 });

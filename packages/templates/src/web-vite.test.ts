@@ -22,6 +22,8 @@ describe("renderViteApp", () => {
   it("omits its own index.css when shadcn owns it", () => {
     const files = renderViteApp({ appName: "web", withShadcn: true });
     expect(files.some((f) => f.path === "apps/web/src/index.css")).toBe(false);
-    expect(files.find((f) => f.path === "apps/web/src/main.tsx")!.content).toContain('import "./index.css"');
+    expect(files.find((f) => f.path === "apps/web/src/main.tsx")!.content).toContain('import "@workspace/ui/globals.css"');
+    const pkg = JSON.parse(files.find((f) => f.path === "apps/web/package.json")!.content!);
+    expect(pkg.dependencies["@workspace/ui"]).toBe("workspace:*");
   });
 });

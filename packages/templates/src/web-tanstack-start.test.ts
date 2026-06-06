@@ -22,5 +22,10 @@ describe("renderTanStackStartApp", () => {
   it("omits its own app.css when shadcn owns it", () => {
     const files = renderTanStackStartApp({ appName: "web", withShadcn: true });
     expect(files.some((f) => f.path === "apps/web/src/styles/app.css")).toBe(false);
+    expect(files.find((f) => f.path === "apps/web/src/routes/__root.tsx")!.content).toContain(
+      'import "@workspace/ui/globals.css"'
+    );
+    const pkg = JSON.parse(files.find((f) => f.path === "apps/web/package.json")!.content!);
+    expect(pkg.dependencies["@workspace/ui"]).toBe("workspace:*");
   });
 });

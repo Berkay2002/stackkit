@@ -1,10 +1,16 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { applyAutomaticMigrations, applyModuleUpdates, planModuleMigrations, planModuleUpdates } from "./index.js";
+import {
+  applyAutomaticMigrations,
+  applyModuleUpdates,
+  hashContent,
+  planModuleMigrations,
+  planModuleUpdates
+} from "./index.js";
 
 const tempDirectories: string[] = [];
 
@@ -106,6 +112,51 @@ describe("update and migration planning", () => {
     expect(result.manifest.migrations.applied).toHaveLength(1);
   });
 
+  it("applies automatic delete migrations and removes stale manifest file records", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-migrate-delete-"));
+    tempDirectories.push(directory);
+    const legacyPath = join(directory, "apps", "web", "legacy.ts");
+    const legacyContent = "export const legacy = true;\n";
+
+    await mkdir(join(directory, "apps", "web"), { recursive: true });
+    await writeFile(legacyPath, legacyContent, "utf8");
+
+    const result = await applyAutomaticMigrations({
+      projectDirectory: directory,
+      manifest: {
+        schemaVersion: 1,
+        stackkitVersion: "0.0.0",
+        projectName: "acme",
+        createdAt: "2026-06-02T00:00:00.000Z",
+        modules: [{ id: "web/nextjs", version: "1.0.0", options: {} }],
+        files: [{ path: "apps/web/legacy.ts", owner: "web/nextjs", hash: hashContent(legacyContent) }],
+        aiSkills: { targets: [], installed: [], unresolved: [] },
+        migrations: { applied: [] }
+      },
+      modules: [
+        {
+          id: "web/nextjs",
+          version: "1.1.0",
+          title: "Next.js",
+          description: "Next.js app",
+          migrations: [
+            {
+              from: "1.0.0",
+              to: "1.1.0",
+              title: "Remove legacy file",
+              operations: [{ kind: "delete", path: "apps/web/legacy.ts" }],
+              safety: "automatic"
+            }
+          ]
+        }
+      ]
+    });
+
+    await expect(readFile(legacyPath, "utf8")).rejects.toThrow();
+    expect(result.manifest.files).toEqual([]);
+    expect(result.manifest.migrations.applied).toHaveLength(1);
+  });
+
   it("does not duplicate applied migrations or file records when run twice", async () => {
     const directory = await mkdtemp(join(tmpdir(), "stackkit-migrate-idempotent-"));
     tempDirectories.push(directory);
@@ -164,6 +215,13 @@ describe("update and migration planning", () => {
       availableModules: [{ id: "web/nextjs", version: "1.1.0", title: "Next.js", description: "Next.js app" }]
     });
 
-    expect(result.manifest.modules).toEqual([{ id: "web/nextjs", version: "1.1.0", options: {} }]);
+    expect(result.manifest.modules).toEqual([
+      expect.objectContaining({
+        id: "web/nextjs",
+        version: "1.1.0",
+        options: {},
+        snapshot: expect.objectContaining({ id: "web/nextjs", version: "1.1.0" })
+      })
+    ]);
   });
 });

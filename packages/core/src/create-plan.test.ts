@@ -452,6 +452,7 @@ describe("createCreatePlan", () => {
       "stackkit.config.json",
       "README.md",
       "tsconfig.base.json",
+      "tsconfig.json",
       "eslint.config.mjs",
       "prettier.config.mjs"
     ]);
@@ -466,6 +467,10 @@ describe("createCreatePlan", () => {
       }),
       expect.objectContaining({
         path: "tsconfig.base.json",
+        owner: "workspace/typescript"
+      }),
+      expect.objectContaining({
+        path: "tsconfig.json",
         owner: "workspace/typescript"
       }),
       expect.objectContaining({
@@ -760,14 +765,16 @@ describe("renderCreateFiles web framework wiring", () => {
     migrations: { applied: [] }
   });
 
-  it("renders a Vite app with shadcn owning the single index.css", () => {
+  it("renders a Vite app with shadcn using the shared UI package CSS", () => {
     const plan = createCreatePlan(viteShadcnInput());
     const paths = plan.filePlan.files.map((f) => f.path);
     expect(paths).toContain("apps/web/vite.config.ts");
     expect(paths).toContain("apps/web/components.json");
-    const indexCss = plan.filePlan.files.filter((f) => f.path === "apps/web/src/index.css");
-    expect(indexCss).toHaveLength(1);
-    expect(indexCss[0].owner).toBe("ui/shadcn");
+    expect(paths).toContain("packages/ui/components.json");
+    expect(paths).toContain("packages/ui/src/styles/globals.css");
+    expect(plan.filePlan.files.some((f) => f.path === "apps/web/src/index.css")).toBe(false);
+    const main = plan.filePlan.files.find((f) => f.path === "apps/web/src/main.tsx")?.content ?? "";
+    expect(main).toContain('import "@workspace/ui/globals.css"');
   });
 
   it("renders a Vite app that owns its own index.css when shadcn absent", () => {

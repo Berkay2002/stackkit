@@ -35,6 +35,12 @@ describe("renderPnpmTurboFoundation", () => {
         }),
         expect.objectContaining({
           kind: "write",
+          path: "tsconfig.json",
+          owner: "workspace/typescript",
+          overwrite: "if-owned"
+        }),
+        expect.objectContaining({
+          kind: "write",
           path: ".gitignore",
           owner: "workspace/pnpm-turbo",
           overwrite: "if-owned"
@@ -68,6 +74,7 @@ describe("renderPnpmTurboFoundation", () => {
     expect(byPath.get("turbo.json")?.content).toContain('"lint"');
     expect(byPath.get("turbo.json")?.content).toContain('"format"');
     expect(byPath.get("tsconfig.base.json")?.content).toContain('"moduleResolution": "Bundler"');
+    expect(byPath.get("tsconfig.json")?.content).toContain('"extends": "./tsconfig.base.json"');
     expect(byPath.get(".gitignore")?.content).toContain("node_modules");
   });
 

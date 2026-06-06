@@ -69,9 +69,10 @@ describe("planAddModules", () => {
     expect(plan.modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo", "web/nextjs"]);
     expect(plan.modulesToAdd.map((module) => module.id)).toEqual(["web/nextjs"]);
     expect(plan.manifest.modules).toEqual([
-      { id: "workspace/pnpm-turbo", version: "1.0.0", options: {} },
-      { id: "web/nextjs", version: "2.0.0", options: {} }
+      expect.objectContaining({ id: "workspace/pnpm-turbo", version: "1.0.0", options: {} }),
+      expect.objectContaining({ id: "web/nextjs", version: "2.0.0", options: {} })
     ]);
+    expect(plan.manifest.modules.map((module) => module.snapshot?.id)).toEqual(["workspace/pnpm-turbo", "web/nextjs"]);
   });
 });
 
@@ -126,9 +127,10 @@ describe("applyAddModules", () => {
       "export default Page;\n"
     );
     expect(result.manifest.modules).toEqual([
-      { id: "workspace/pnpm-turbo", version: "1.0.0", options: {} },
-      { id: "web/nextjs", version: "1.0.0", options: {} }
+      expect.objectContaining({ id: "workspace/pnpm-turbo", version: "1.0.0", options: {} }),
+      expect.objectContaining({ id: "web/nextjs", version: "1.0.0", options: {} })
     ]);
+    expect(result.manifest.modules.map((module) => module.snapshot?.id)).toEqual(["workspace/pnpm-turbo", "web/nextjs"]);
     expect(result.manifest.files).toEqual(
       expect.arrayContaining([
         { path: "apps/web/page.tsx", owner: "web/nextjs", hash: hashContent("export default Page;\n") }
@@ -634,5 +636,56 @@ describe("applyRemoveModules", () => {
     });
     expect(result.manifest.modules).toEqual([{ id: "workspace/pnpm-turbo", version: "1.0.0", options: {} }]);
     expect(result.manifest.files).toEqual([]);
+  });
+
+  it("regenerates unchanged shared files from the remaining module snapshots", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-remove-shared-"));
+    tempDirectories.push(projectDirectory);
+    const readmeWithWeb = "# acme\n\nStack:\n\n- Workspace\n- Next.js\n";
+    const workspaceModule = defineModule({
+      id: "workspace/pnpm-turbo",
+      version: "1.0.0",
+      title: "Workspace",
+      description: "Workspace foundation",
+      provides: ["workspace/node"]
+    });
+    const webModule = defineModule({
+      id: "web/nextjs",
+      version: "1.0.0",
+      title: "Next.js",
+      description: "Next.js app",
+      requires: ["workspace/node"]
+    });
+    await writeFile(join(projectDirectory, "README.md"), readmeWithWeb, "utf8");
+    const manifest = await writeManifest(
+      projectDirectory,
+      createManifest({
+        ...baseManifest([{ path: "README.md", owner: "docs/readme", hash: hashContent(readmeWithWeb) }]),
+        modules: [
+          { id: "workspace/pnpm-turbo", version: "1.0.0", options: {}, snapshot: workspaceModule },
+          { id: "web/nextjs", version: "1.0.0", options: {}, snapshot: webModule }
+        ],
+        expectedFiles: [
+          {
+            path: "README.md",
+            owner: "docs/readme",
+            content: readmeWithWeb,
+            hash: hashContent(readmeWithWeb)
+          }
+        ]
+      })
+    );
+
+    const result = await applyRemoveModules({ projectDirectory, manifest, moduleIds: ["web/nextjs"] });
+
+    const nextReadme = await readFile(join(projectDirectory, "README.md"), "utf8");
+    expect(nextReadme).toContain("- Workspace");
+    expect(nextReadme).not.toContain("Next.js");
+    expect(result.manifest.files).toEqual([
+      { path: "README.md", owner: "docs/readme", hash: hashContent(nextReadme) }
+    ]);
+    expect(result.manifest.expectedFiles).toEqual([
+      { path: "README.md", owner: "docs/readme", content: nextReadme, hash: hashContent(nextReadme) }
+    ]);
   });
 });

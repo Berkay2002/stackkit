@@ -102,6 +102,7 @@ describe("web templates", () => {
 
   it("renders ShadCN and Tailwind support files", () => {
     const files = renderShadcnUi({ appName: "web" });
+    const uiPackage = JSON.parse(files.find((file) => file.path === "packages/ui/package.json")?.content ?? "{}");
 
     expect(files).toEqual(
       expect.arrayContaining([
@@ -113,12 +114,39 @@ describe("web templates", () => {
         }),
         expect.objectContaining({
           kind: "write",
-          path: "apps/web/app/globals.css",
+          path: "packages/ui/components.json",
+          owner: "ui/shadcn",
+          overwrite: "if-owned"
+        }),
+        expect.objectContaining({
+          kind: "write",
+          path: "packages/ui/package.json",
+          owner: "ui/shadcn",
+          overwrite: "if-owned"
+        }),
+        expect.objectContaining({
+          kind: "write",
+          path: "packages/ui/src/styles/globals.css",
           owner: "ui/shadcn",
           content: expect.stringContaining('@import "tailwindcss"'),
           overwrite: "if-owned"
         })
       ])
+    );
+    expect(uiPackage).toEqual(
+      expect.objectContaining({
+        name: "@workspace/ui",
+        imports: expect.objectContaining({
+          "#components/*": "./src/components/*.tsx"
+        }),
+        dependencies: expect.objectContaining({
+          react: expect.any(String),
+          tailwindcss: expect.any(String)
+        }),
+        devDependencies: expect.objectContaining({
+          "@types/react": expect.any(String)
+        })
+      })
     );
   });
 });
@@ -128,22 +156,23 @@ describe("renderShadcnUi framework awareness", () => {
     const files = renderShadcnUi({ appName: "web" });
     const components = files.find((f) => f.path === "apps/web/components.json")!;
     expect(JSON.parse(components.content!).rsc).toBe(true);
-    expect(JSON.parse(components.content!).tailwind.css).toBe("app/globals.css");
-    expect(files.some((f) => f.path === "apps/web/app/globals.css")).toBe(true);
+    expect(JSON.parse(components.content!).tailwind.css).toBe("../../packages/ui/src/styles/globals.css");
+    expect(JSON.parse(components.content!).aliases.ui).toBe("@workspace/ui/components");
+    expect(files.some((f) => f.path === "packages/ui/src/styles/globals.css")).toBe(true);
   });
   it("renders Vite shadcn (rsc false, src/index.css)", () => {
     const files = renderShadcnUi({ appName: "web", framework: "vite" });
     const components = JSON.parse(files.find((f) => f.path === "apps/web/components.json")!.content!);
     expect(components.rsc).toBe(false);
-    expect(components.tailwind.css).toBe("src/index.css");
-    const css = files.find((f) => f.path === "apps/web/src/index.css")!;
+    expect(components.tailwind.css).toBe("../../packages/ui/src/styles/globals.css");
+    const css = files.find((f) => f.path === "packages/ui/src/styles/globals.css")!;
     expect(css.owner).toBe("ui/shadcn");
     expect(css.content).toContain('@import "tailwindcss";');
   });
   it("renders TanStack Start shadcn (rsc false, src/styles/app.css)", () => {
     const files = renderShadcnUi({ appName: "web", framework: "tanstack-start" });
     const components = JSON.parse(files.find((f) => f.path === "apps/web/components.json")!.content!);
-    expect(components.tailwind.css).toBe("src/styles/app.css");
-    expect(files.some((f) => f.path === "apps/web/src/styles/app.css")).toBe(true);
+    expect(components.tailwind.css).toBe("../../packages/ui/src/styles/globals.css");
+    expect(files.some((f) => f.path === "packages/ui/src/styles/globals.css")).toBe(true);
   });
 });

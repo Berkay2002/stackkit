@@ -148,6 +148,13 @@ export const stackkitModuleSchema = z.object({
   validate: z.array(moduleValidationSchema).optional()
 });
 
+export const manifestExpectedFileSchema = z.object({
+  path: z.string().min(1),
+  owner: moduleIdSchema,
+  content: z.string(),
+  hash: z.string().min(1)
+});
+
 export const stackkitPresetSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
@@ -225,7 +232,8 @@ export const stackkitManifestSchema = z.object({
     z.object({
       id: moduleIdSchema,
       version: semverSchema,
-      options: z.record(z.string(), z.unknown()).default({})
+      options: z.record(z.string(), z.unknown()).default({}),
+      snapshot: stackkitModuleSchema.optional()
     })
   ),
   files: z.array(
@@ -235,6 +243,7 @@ export const stackkitManifestSchema = z.object({
       hash: z.string().min(1)
     })
   ),
+  expectedFiles: z.array(manifestExpectedFileSchema).default([]),
   aiSkills: z.object({
     mode: aiSkillModeSchema.default("install"),
     linkMode: aiSkillLinkModeSchema.default("copy"),
@@ -295,6 +304,7 @@ export type ModuleMigration = z.infer<typeof moduleMigrationSchema>;
 export type StackkitModuleInput = z.input<typeof stackkitModuleSchema>;
 export type StackkitPresetInput = z.input<typeof stackkitPresetSchema>;
 export type StackkitModule = z.infer<typeof stackkitModuleSchema>;
+export type ManifestExpectedFile = z.infer<typeof manifestExpectedFileSchema>;
 export type StackkitPreset = z.infer<typeof stackkitPresetSchema>;
 export type StackkitRegistry = z.infer<typeof stackkitRegistrySchema>;
 export type StackkitConfig = z.infer<typeof stackkitConfigSchema>;
