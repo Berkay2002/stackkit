@@ -1,0 +1,128 @@
+---
+title: Getting Started
+description: Install Stackkit, generate your first monorepo, and validate it is working correctly.
+---
+
+<Callout title="Prerequisite: Node.js 22+">
+Stackkit requires **Node.js 22 or later**. Run `node --version` to confirm before proceeding. [Download Node.js](https://nodejs.org/)
+</Callout>
+
+## Choose Your Path
+
+<Cards>
+  <Card
+    title="Quick Start"
+    href="/docs/getting-started#generate-your-first-project"
+    description="Generate a full-stack monorepo with a single command."
+  />
+  <Card
+    title="Preview Without Writing Files"
+    href="/docs/getting-started#preview-without-writing-files"
+    description="Use dry-run mode to inspect planned output before anything touches disk."
+  />
+  <Card
+    title="Presets and Recipes"
+    href="/docs/cli-reference#presets-and-recipes"
+    description="Use named presets or portable offline recipe codes for reproducible stacks."
+  />
+</Cards>
+
+## Installation
+
+Install Stackkit globally, or skip the install step entirely and run it directly with `npx`.
+
+<Tabs items={['npm', 'pnpm', 'yarn', 'bun']}>
+  <Tab value="npm">
+    ```bash
+    npm install -g @berkayorhan/stackkit
+    ```
+  </Tab>
+  <Tab value="pnpm">
+    ```bash
+    pnpm add -g @berkayorhan/stackkit
+    ```
+  </Tab>
+  <Tab value="yarn">
+    ```bash
+    yarn global add @berkayorhan/stackkit
+    ```
+  </Tab>
+  <Tab value="bun">
+    ```bash
+    bun add -g @berkayorhan/stackkit
+    ```
+  </Tab>
+</Tabs>
+
+Or run it once without installing:
+
+```bash
+npx @berkayorhan/stackkit@latest create my-app --web next --api fastapi --db postgres --auth auth0
+```
+
+## Generate Your First Project
+
+The `create` command accepts stack-axis flags to compose your monorepo. The following example creates a full-stack project with a Next.js web app, a FastAPI backend, Postgres, Auth0, ShadCN UI, Docker support, and Vercel deployment configuration:
+
+```bash
+stackkit create my-app \
+  --web next \
+  --api fastapi \
+  --db postgres \
+  --auth auth0 \
+  --with shadcn,docker \
+  --deploy vercel
+```
+
+Stackkit records every module choice in `.stackkit/project.json` so future commands can inspect, diff, and evolve the project without guessing what was originally generated.
+
+<Callout title="Tip: skip AI skill installation for quick tests" type="info">
+Pass `--skills skip --yes` to bypass the AI skill installation step and accept all prompts automatically — useful when you just want to see the generated output locally:
+
+```bash
+stackkit create my-app --web next --skills skip --yes
+```
+</Callout>
+
+## Preview Without Writing Files
+
+Stackkit supports dry-run previews so you can inspect the planned output before anything is written to disk.
+
+**Preview a named preset**
+
+```bash
+stackkit create my-app --preset next-fastapi-postgres-auth0 --dry-run
+```
+
+**Preview an explicit stack as JSON**
+
+```bash
+stackkit create my-app --web next --api fastapi --db postgres --auth auth0 --dry-run --json
+```
+
+**Inspect a single planned file**
+
+```bash
+stackkit create my-app --web next --dry-run --view apps/web/package.json
+```
+
+## Validate the Generated Project
+
+After generation, run the following sequence inside the project directory to confirm everything is wired up correctly:
+
+```bash
+cd my-app
+pnpm install --lockfile-only
+pnpm install --ignore-scripts
+pnpm test
+pnpm typecheck
+pnpm build
+pnpm lint
+stackkit doctor
+```
+
+`stackkit doctor` checks every managed file in the project against its canonical template and reports any drift or missing entries.
+
+---
+
+See the [CLI Reference](/docs/cli-reference) for the full list of commands, flags, and lifecycle operations.

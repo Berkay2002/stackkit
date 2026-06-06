@@ -1,0 +1,10 @@
+# Next.js
+/.next/
+/out/
+
+# Fumadocs MDX generated sources & types
+/.source/
+
+# Build info
+*.tsbuildinfo
+next-env.d.ts

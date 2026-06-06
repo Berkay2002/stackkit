@@ -1,0 +1,73 @@
+---
+title: Introduction
+description: Stackkit is a TypeScript CLI for generating and maintaining multi-language monorepos across their full lifecycle.
+---
+
+Stackkit is a TypeScript CLI that generates and maintains multi-language monorepos. It creates managed [Turborepo](https://turbo.build/) projects from modules, presets, stack-axis flags, or offline recipe codes — covering everything from Next.js frontends and FastAPI backends to Postgres databases, Auth0 authentication, Docker, Kubernetes, and Vercel deployments.
+
+<Callout title="New here?">
+Start with the [Getting Started](/docs/getting-started) guide to install Stackkit and generate your first project in under five minutes. Note that Stackkit is **early alpha** — the core generate-and-validate loop is solid, but some modules are still maturing.
+</Callout>
+
+<Cards>
+  <Card
+    title="Getting Started"
+    href="/docs/getting-started"
+    description="Install Stackkit and generate your first managed monorepo."
+  />
+  <Card
+    title="CLI Reference"
+    href="/docs/cli-reference"
+    description="Full reference for every command, flag, preset, recipe, and lifecycle operation."
+  />
+  <Card
+    title="Generator Platform"
+    description="Explore how modules, presets, and recipes compose into customizable boilerplates."
+  />
+</Cards>
+
+## The Generator-Platform Philosophy
+
+Most boilerplate generators stop after the first write. Stackkit is built around a longer lifecycle:
+
+- **Generate** from friendly stack choices using flags, presets, or shareable recipe codes
+- **Preserve** canonical module IDs in config and manifests so nothing is guessed later
+- **Write** deterministic docs, `.env` examples, scripts, and starter files on every run
+- **Validate** at any time with `stackkit doctor` and `stackkit diff`
+- **Evolve** the project by adding, removing, updating, and migrating modules as requirements change
+- **Sync AI skills** for Codex (`.agents`) and Claude Code (`.claude`) as the stack changes
+
+The goal is a generator platform for customizable monorepo boilerplates — not a single fixed starter.
+
+## Project Ownership via `.stackkit/project.json`
+
+Every project Stackkit generates records what it owns in `.stackkit/project.json`. This manifest means later commands — `info`, `doctor`, `diff`, `migrate`, `skills sync` — can inspect the current state, compare it to canonical templates, and evolve the project without guessing what was originally generated.
+
+A **module** is the core unit of declared behavior. Each module can specify:
+
+| Field | Purpose |
+|---|---|
+| `requires` / `provides` / `conflicts` | Capability contracts between modules |
+| `files` | Generated file operations |
+| `packageChanges` | `package.json` script and dependency additions |
+| `envVars` | `.env.example` entries |
+| `postCreate` / `postAdd` | Lifecycle hooks run after generation |
+| `migrations` | Versioned changes for managed updates |
+| `aiSkills` | Official, curated, local, or unresolved AI guidance targets |
+
+## Status: Early Alpha
+
+Stackkit can generate and validate real starter monorepos today. The following are verified working:
+
+- pnpm / npm / yarn / bun project metadata
+- Next.js, ShadCN, FastAPI, Postgres, and Auth0 metadata
+- Vercel, Docker, and Kubernetes file generation
+- Deterministic `README.md` and `.env.example`
+- Root `dev`, `build`, `test`, `typecheck`, `lint`, and `format` scripts
+- `stackkit doctor`, `stackkit diff --file`, and `stackkit info`
+- Module discovery, presets, recipes, and local registry listing
+- Project-local AI skill targets for Codex `.agents` and Claude Code `.claude`
+
+<Callout title="Known gaps" type="warn">
+Auth and database modules mostly emit metadata, docs, env vars, and AI skills rather than full integration code. Rust services are declared but not deeply templated yet. Remote registries are intentionally unsupported. The visual customizer is local-only.
+</Callout>

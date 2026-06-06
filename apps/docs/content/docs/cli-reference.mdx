@@ -1,0 +1,229 @@
+---
+title: CLI Reference
+description: Complete reference for all Stackkit CLI commands, flags, and lifecycle operations.
+---
+
+<Cards>
+  <Card
+    title="Create"
+    href="/docs/cli-reference#create"
+    description="Generate a new managed monorepo from flags, presets, or recipe codes."
+  />
+  <Card
+    title="Inspect and Maintain"
+    href="/docs/cli-reference#inspect-and-maintain"
+    description="Explore project state, check for drift, and search modules."
+  />
+  <Card
+    title="Presets and Recipes"
+    href="/docs/cli-reference#presets-and-recipes"
+    description="List, inspect, encode, and apply named presets and offline recipe codes."
+  />
+  <Card
+    title="Lifecycle"
+    href="/docs/cli-reference#lifecycle-commands-alpha"
+    description="Add, remove, update, migrate, and sync AI skills in a managed project."
+  />
+</Cards>
+
+## Command Summary
+
+| Command | Description |
+|---|---|
+| `stackkit create` | Generate a new managed monorepo |
+| `stackkit info` | Show the current project state from `.stackkit/project.json` |
+| `stackkit doctor` | Check managed files for drift against canonical templates |
+| `stackkit diff --file <path>` | Diff a specific managed file against its template |
+| `stackkit preset list` | List all available presets |
+| `stackkit preset inspect <id>` | Show the modules and flags a preset resolves to |
+| `stackkit recipe encode` | Encode a preset or stack as a portable offline recipe code |
+| `stackkit recipe inspect <code>` | Decode and inspect a recipe code |
+| `stackkit module list` | List all available modules |
+| `stackkit module search <query>` | Search modules by name or keyword |
+| `stackkit module inspect <id>` | Show a module's full declaration |
+| `stackkit registry list` | List locally registered module sources |
+| `stackkit add` | Add a module to an existing managed project *(alpha)* |
+| `stackkit remove` | Remove a module from a managed project *(alpha)* |
+| `stackkit update` | Update generated files for existing modules *(alpha)* |
+| `stackkit migrate` | Run versioned migrations for managed modules *(alpha)* |
+| `stackkit skills sync` | Sync AI skill targets for the current stack *(alpha)* |
+| `stackkit skills update` | Update AI skill content in the project *(alpha)* |
+
+---
+
+## Create
+
+Generate a new managed monorepo using stack-axis flags.
+
+```bash
+stackkit create <project-name> [flags]
+```
+
+**Stack-axis flags**
+
+| Flag | Description |
+|---|---|
+| `--web <framework>` | Web app framework (e.g. `next`) |
+| `--api <framework>` | API framework (e.g. `fastapi`) |
+| `--db <database>` | Database module (e.g. `postgres`) |
+| `--auth <provider>` | Auth provider (e.g. `auth0`) |
+| `--with <modules>` | Comma-separated additional modules (e.g. `shadcn,docker`) |
+| `--deploy <target>` | Deployment target (e.g. `vercel`) |
+| `--preset <id>` | Use a named preset instead of individual flags |
+| `--recipe <code>` | Use an offline recipe code |
+| `--skills skip` | Skip AI skill installation |
+| `--yes` | Accept all prompts automatically |
+
+**Example**
+
+```bash
+stackkit create my-app \
+  --web next \
+  --api fastapi \
+  --db postgres \
+  --auth auth0 \
+  --with shadcn,docker \
+  --deploy vercel
+```
+
+---
+
+## Create Without Writing Files (Dry-Run)
+
+Preview the planned output without writing anything to disk.
+
+**Preview a preset**
+
+```bash
+stackkit create my-app --preset next-postgres-clerk --dry-run
+```
+
+**Preview an explicit stack as JSON**
+
+```bash
+stackkit create my-app --web next --api fastapi --db postgres --auth auth0 --dry-run --json
+```
+
+**Inspect a single planned file**
+
+```bash
+stackkit create my-app --web next --dry-run --view apps/web/package.json
+```
+
+---
+
+## Presets and Recipes
+
+Presets are named collections of modules and flags. Recipes are compact, offline-shareable codes that encode a full stack configuration — they require no account and no network access.
+
+**List available presets**
+
+```bash
+stackkit preset list
+```
+
+**Inspect a preset**
+
+```bash
+stackkit preset inspect next-fastapi-postgres-auth0
+```
+
+**Encode a preset as a recipe code**
+
+```bash
+stackkit recipe encode --preset next-fastapi-postgres-auth0
+```
+
+**Inspect a recipe code**
+
+```bash
+stackkit recipe inspect sk_...
+```
+
+**Create a project from a recipe**
+
+```bash
+stackkit create my-app --recipe sk_...
+```
+
+---
+
+## Inspect and Maintain
+
+These commands work inside an existing Stackkit-managed project.
+
+**Show project state**
+
+```bash
+stackkit info
+```
+
+**Check managed files for drift**
+
+```bash
+stackkit doctor
+```
+
+**Diff a specific managed file**
+
+```bash
+stackkit diff --file apps/web/package.json
+```
+
+**Module discovery**
+
+```bash
+stackkit module list
+stackkit module search fastapi
+stackkit module inspect fastapi --json
+```
+
+**Local registry**
+
+```bash
+stackkit registry list
+```
+
+---
+
+## Lifecycle Commands (Alpha)
+
+<Callout title="Early alpha — review output carefully" type="warn">
+These commands evolve a managed project over time. They are in early alpha. Always review the planned changes before accepting them, and commit your work before running any lifecycle operation.
+</Callout>
+
+**Add a module to an existing project**
+
+```bash
+stackkit add <module-id>
+```
+
+**Remove a module**
+
+```bash
+stackkit remove <module-id>
+```
+
+**Update generated files for existing modules**
+
+```bash
+stackkit update
+```
+
+**Run versioned migrations**
+
+```bash
+stackkit migrate
+```
+
+**Sync AI skill targets for the current stack**
+
+```bash
+stackkit skills sync
+```
+
+**Update AI skill content**
+
+```bash
+stackkit skills update
+```
