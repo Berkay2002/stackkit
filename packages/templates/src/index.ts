@@ -37,9 +37,11 @@ type DockerFilesOptions = {
   installCommand?: readonly string[];
   runBuildCommand?: readonly string[];
   runStartCommand?: readonly string[];
+  serviceTargets?: readonly DockerServiceTarget[];
 };
 
 const workspaceOwner = "workspace/pnpm-turbo";
+type DockerServiceTarget = "web" | "api";
 
 function writeFile(path: string, owner: FileOperation["owner"], content: string): FileOperation {
   return {
@@ -579,30 +581,131 @@ export function renderDockerFiles({
   packageManagerName = "pnpm",
   installCommand = ["corepack", "enable", "&&", "pnpm", "install", "--frozen-lockfile"],
   runBuildCommand = ["pnpm", "build"],
-  runStartCommand = ["pnpm", "start"]
+  runStartCommand = ["pnpm", "start"],
+  serviceTargets = ["web"]
 }: DockerFilesOptions = {}): FileOperation[] {
   const baseImage = packageManagerName === "bun" ? "oven/bun:1-alpine" : "node:22-alpine";
-
-  return [
-    writeFile(
-      "docker-compose.yml",
-      "deploy/docker",
-      'services:\n  web:\n    build: ./apps/web\n    ports:\n      - "3000:3000"\n'
-    ),
-    writeFile(
-      "apps/web/Dockerfile",
-      "deploy/docker",
-      [
-        `FROM ${baseImage}`,
-        "WORKDIR /app",
-        "COPY . .",
-        `RUN ${shellCommand(installCommand)}`,
-        `RUN ${shellCommand(runBuildCommand)}`,
-        `CMD ${jsonCommand(runStartCommand)}`,
-        ""
-      ].join("\n")
-    )
+  const targets = uniqueServiceTargets(serviceTargets);
+  const files: FileOperation[] = [
+    writeFile("docker-compose.yml", "deploy/docker", renderDockerCompose(targets))
   ];
+
+  if (targets.includes("web")) {
+    files.push(
+      writeFile(
+        "apps/web/Dockerfile",
+        "deploy/docker",
+        renderWebDockerfile({ baseImage, installCommand, runBuildCommand, runStartCommand })
+      )
+    );
+  }
+
+  if (targets.includes("api")) {
+    files.push(
+      writeFile(
+        "apps/api/Dockerfile",
+        "deploy/docker",
+        [
+          "FROM python:3.13-slim",
+          "WORKDIR /app",
+          "COPY . .",
+          "WORKDIR /app/apps/api",
+          "RUN pip install --no-cache-dir uv && uv sync",
+          'CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]',
+          ""
+        ].join("\n")
+      )
+    );
+  }
+
+  return files;
+}
+
+function uniqueServiceTargets(serviceTargets: readonly DockerServiceTarget[]): DockerServiceTarget[] {
+  return [...new Set(serviceTargets)];
+}
+
+function renderDockerCompose(serviceTargets: readonly DockerServiceTarget[]): string {
+  const services: string[] = [];
+
+  // Build from the repository root so workspace packages (referenced via workspace:* deps) are
+  // part of the build context; the per-service Dockerfile path is given explicitly.
+  if (serviceTargets.includes("web")) {
+    services.push(renderComposeService({ name: "web", dockerfile: "apps/web/Dockerfile", port: 3000 }));
+  }
+
+  if (serviceTargets.includes("api")) {
+    services.push(renderComposeService({ name: "api", dockerfile: "apps/api/Dockerfile", port: 8000 }));
+  }
+
+  return `services:\n${services.join("\n")}\n`;
+}
+
+function renderComposeService({ name, dockerfile, port }: { name: string; dockerfile: string; port: number }): string {
+  return [
+    `  ${name}:`,
+    "    build:",
+    "      context: .",
+    `      dockerfile: ${dockerfile}`,
+    "    ports:",
+    `      - "${port}:${port}"`
+  ].join("\n");
+}
+
+function renderKubernetesDeployment({
+  name,
+  port
+}: {
+  name: string;
+  port: number;
+}): string {
+  return [
+    "apiVersion: apps/v1",
+    "kind: Deployment",
+    "metadata:",
+    `  name: ${name}`,
+    "spec:",
+    "  replicas: 2",
+    "  selector:",
+    "    matchLabels:",
+    `      app: ${name}`,
+    "  template:",
+    "    metadata:",
+    "      labels:",
+    `        app: ${name}`,
+    "    spec:",
+    "      containers:",
+    `        - name: ${name}`,
+    `          image: ${name}:latest`,
+    "          ports:",
+    `            - containerPort: ${port}`,
+    ""
+  ].join("\n");
+}
+
+function renderWebDockerfile({
+  baseImage,
+  installCommand,
+  runBuildCommand,
+  runStartCommand
+}: {
+  baseImage: string;
+  installCommand: readonly string[];
+  runBuildCommand: readonly string[];
+  runStartCommand: readonly string[];
+}): string {
+  // Root build context: copy the whole workspace, install and build from the root so workspace
+  // packages resolve, then start the web app from its own directory.
+  return [
+    `FROM ${baseImage}`,
+    "WORKDIR /app",
+    "COPY . .",
+    `RUN ${shellCommand(installCommand)}`,
+    `RUN ${shellCommand(runBuildCommand)}`,
+    "WORKDIR /app/apps/web",
+    `CMD ${jsonCommand(runStartCommand)}`,
+    ""
+  ].join("\n");
 }
 
 function shellCommand(command: readonly string[]): string {
@@ -613,12 +716,33 @@ function jsonCommand(command: readonly string[]): string {
   return `[${command.map((part) => JSON.stringify(part)).join(", ")}]`;
 }
 
-export function renderKubernetesFiles(): FileOperation[] {
-  return [
-    writeFile(
-      "deploy/kubernetes/web-deployment.yaml",
-      "deploy/kubernetes",
-      "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: web\n  template:\n    metadata:\n      labels:\n        app: web\n    spec:\n      containers:\n        - name: web\n          image: web:latest\n          ports:\n            - containerPort: 3000\n"
-    )
-  ];
+export function renderKubernetesFiles({
+  serviceTargets = ["web"]
+}: {
+  serviceTargets?: readonly DockerServiceTarget[];
+} = {}): FileOperation[] {
+  const targets = uniqueServiceTargets(serviceTargets);
+  const files: FileOperation[] = [];
+
+  if (targets.includes("web")) {
+    files.push(
+      writeFile(
+        "deploy/kubernetes/web-deployment.yaml",
+        "deploy/kubernetes",
+        renderKubernetesDeployment({ name: "web", port: 3000 })
+      )
+    );
+  }
+
+  if (targets.includes("api")) {
+    files.push(
+      writeFile(
+        "deploy/kubernetes/api-deployment.yaml",
+        "deploy/kubernetes",
+        renderKubernetesDeployment({ name: "api", port: 8000 })
+      )
+    );
+  }
+
+  return files;
 }

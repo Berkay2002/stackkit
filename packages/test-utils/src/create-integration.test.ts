@@ -55,6 +55,11 @@ describe("create integration", () => {
     );
     await expect(readFile(join(result.projectDirectory, ".stackkit", "project.json"), "utf8")).resolves.toContain("web/nextjs");
     await expect(readFile(join(result.projectDirectory, "skills-lock.json"), "utf8")).resolves.toContain("vercel-react-best-practices");
+    // The native initializer creates packages/ui/src/lib/utils.ts even though it is not in the
+    // initializer's declared expectedFiles. Stackkit must still take ownership of it.
+    const utilsFile = result.manifest.files.find((file) => file.path === "packages/ui/src/lib/utils.ts");
+    expect(utilsFile).toBeDefined();
+    expect(utilsFile?.owner).toBe("ui/shadcn");
     expect(result.doctor.ok).toBe(true);
   });
 

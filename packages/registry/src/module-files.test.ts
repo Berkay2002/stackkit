@@ -66,14 +66,22 @@ describe("builtin module file declarations", () => {
     );
   });
 
-  it("requires a Next.js app before Docker deployment files are generated", () => {
+  it("requires a containerizable app before Docker deployment files are generated", () => {
     const docker = builtinModules.find((module) => module.id === "deploy/docker");
+    const workspace = builtinModules.find((module) => module.id === "workspace/pnpm-turbo");
+    const next = builtinModules.find((module) => module.id === "web/nextjs");
+    const fastapi = builtinModules.find((module) => module.id === "api/fastapi");
     const django = builtinModules.find((module) => module.id === "web/django");
 
     expect(docker).toBeDefined();
+    expect(workspace).toBeDefined();
+    expect(next).toBeDefined();
+    expect(fastapi).toBeDefined();
     expect(django).toBeDefined();
-    expect(() => resolveModuleGraph([docker!])).toThrow("Module deploy/docker requires capability nextjs-app");
-    expect(() => resolveModuleGraph([django!, docker!])).toThrow("Module deploy/docker requires capability nextjs-app");
+    expect(() => resolveModuleGraph([workspace!, next!, docker!])).not.toThrow();
+    expect(() => resolveModuleGraph([fastapi!, docker!])).not.toThrow();
+    expect(() => resolveModuleGraph([docker!])).toThrow("Module deploy/docker requires capability container-app");
+    expect(() => resolveModuleGraph([django!, docker!])).toThrow("Module deploy/docker requires capability container-app");
   });
 
   it("declares unique friendly aliases for public modules", () => {

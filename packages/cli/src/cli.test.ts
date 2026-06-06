@@ -196,6 +196,27 @@ describe("createStackkitProgram", () => {
     ]);
   });
 
+  it("allows Docker and Kubernetes deployment for an API-only create plan", async () => {
+    const { output } = await runProgram([
+      "create",
+      "acme-api",
+      "--api",
+      "fastapi",
+      "--with",
+      "docker",
+      "--deploy",
+      "k8s",
+      "--dry-run"
+    ]);
+    const plan = readCreatePlan(output);
+    const moduleIds = plan.modules.map((module) => module.id);
+    const filePaths = plan.filePlan.files.map((file) => file.path);
+
+    expect(moduleIds).toEqual(expect.arrayContaining(["api/fastapi", "deploy/docker", "deploy/kubernetes"]));
+    expect(filePaths).toEqual(expect.arrayContaining(["apps/api/Dockerfile", "deploy/kubernetes/api-deployment.yaml"]));
+    expect(filePaths).not.toContain("apps/web/Dockerfile");
+  });
+
   it("rejects --auth auth0 without a framework axis", async () => {
     await expect(runProgram(["create", "acme", "--auth", "auth0", "--dry-run"])).rejects.toThrow(
       "Auth0 requires a supported framework context"

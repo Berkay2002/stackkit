@@ -149,8 +149,8 @@ const authChoices: Choice<AuthChoice>[] = [
 
 const deployChoices: Choice<DeployChoice>[] = [
   { value: "vercel", label: "Vercel", description: "Web deployment", icon: siVercel },
-  { value: "docker", label: "Docker", description: "Next.js container files", icon: siDocker },
-  { value: "kubernetes", label: "Kubernetes", description: "Adds Docker and manifests", icon: siKubernetes }
+  { value: "docker", label: "Docker", description: "Next.js or FastAPI containers", icon: siDocker },
+  { value: "kubernetes", label: "Kubernetes", description: "Container manifests", icon: siKubernetes }
 ];
 
 const tsQualityChoices: Choice<TsQualityChoice>[] = [
@@ -440,7 +440,7 @@ function unsupportedDeployReason(deploy: DeployChoice) {
     return "Select a web app first";
   }
 
-  return "Requires Next.js support today";
+  return "Select Next.js or FastAPI first";
 }
 
 function unsupportedAuthReason(auth: AuthChoice) {

@@ -42,6 +42,20 @@ describe("deploy templates", () => {
     );
   });
 
+  it("builds web from the repository root so workspace packages resolve", () => {
+    const files = renderDockerFiles();
+    const compose = files.find((file) => file.path === "docker-compose.yml")?.content ?? "";
+    const dockerfile = files.find((file) => file.path === "apps/web/Dockerfile")?.content ?? "";
+
+    // The build context must be the repo root, not ./apps/web, otherwise packages/* (referenced
+    // through workspace:* dependencies) are absent and a frozen install fails.
+    expect(compose).toContain("context: .");
+    expect(compose).toContain("dockerfile: apps/web/Dockerfile");
+    expect(compose).not.toContain("build: ./apps/web");
+    // Install and build happen at the workspace root; the app is started from its own directory.
+    expect(dockerfile).toContain("WORKDIR /app/apps/web");
+  });
+
   it("renders Docker commands for the selected package manager", () => {
     const files = renderDockerFiles({
       packageManagerName: "bun",
@@ -70,5 +84,31 @@ describe("deploy templates", () => {
     expect(dockerfile).toContain("RUN corepack enable && yarn install");
     expect(dockerfile).toContain("RUN yarn build");
     expect(dockerfile).toContain('CMD ["yarn", "start"]');
+  });
+
+  it("renders FastAPI Docker and Kubernetes files when an API service is selected", () => {
+    const dockerFiles = renderDockerFiles({ serviceTargets: ["api"] });
+    const compose = dockerFiles.find((file) => file.path === "docker-compose.yml")?.content ?? "";
+    const dockerfile = dockerFiles.find((file) => file.path === "apps/api/Dockerfile")?.content ?? "";
+
+    expect(compose).toContain("api:");
+    expect(compose).toContain("context: .");
+    expect(compose).toContain("dockerfile: apps/api/Dockerfile");
+    expect(compose).not.toContain("build: ./apps/api");
+    expect(compose).toContain('"8000:8000"');
+    expect(dockerfile).toContain("FROM python:3.13-slim");
+    expect(dockerfile).toContain("WORKDIR /app/apps/api");
+    expect(dockerfile).toContain('"uvicorn", "app.main:app"');
+
+    expect(renderKubernetesFiles({ serviceTargets: ["api"] })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "write",
+          path: "deploy/kubernetes/api-deployment.yaml",
+          owner: "deploy/kubernetes",
+          overwrite: "if-owned"
+        })
+      ])
+    );
   });
 });

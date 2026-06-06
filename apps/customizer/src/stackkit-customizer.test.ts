@@ -94,7 +94,7 @@ describe("Stackkit customizer state", () => {
     expect(result.recipe.modules).toContain("auth/auth0-fastapi");
   });
 
-  it("omits Docker when the selected app shape cannot support it", () => {
+  it("includes Docker for an API-only FastAPI project", () => {
     const result = buildCustomizerState({
       ...createInitialCustomizerState(),
       web: "none",
@@ -107,7 +107,9 @@ describe("Stackkit customizer state", () => {
       return;
     }
 
-    expect(result.recipe.modules).not.toContain("deploy/docker");
+    expect(result.recipe.modules).toContain("api/fastapi");
+    expect(result.recipe.modules).toContain("deploy/docker");
+    expect(result.recipe.modules).not.toContain("web/nextjs");
   });
 
   it("clears deployment choices that do not match the selected app shape", () => {
@@ -116,9 +118,9 @@ describe("Stackkit customizer state", () => {
         ...createInitialCustomizerState(),
         web: "none",
         api: "fastapi",
-        deploy: ["vercel"]
+        deploy: ["vercel", "docker", "kubernetes"]
       }).deploy
-    ).toEqual([]);
+    ).toEqual(["docker", "kubernetes"]);
     expect(
       normalizeCustomizerState({
         ...createInitialCustomizerState(),

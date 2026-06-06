@@ -315,11 +315,24 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
   }
 
   if (selectedModuleIds.has("deploy/docker")) {
-    appendSelectedFileOperations(operations, seenPaths, renderDockerFiles(toDockerTemplateOptions(packageManager)), selectedModuleIds);
+    appendSelectedFileOperations(
+      operations,
+      seenPaths,
+      renderDockerFiles({
+        ...toDockerTemplateOptions(packageManager),
+        serviceTargets: selectedDockerServiceTargets(selectedModuleIds)
+      }),
+      selectedModuleIds
+    );
   }
 
   if (selectedModuleIds.has("deploy/kubernetes")) {
-    appendSelectedFileOperations(operations, seenPaths, renderKubernetesFiles(), selectedModuleIds);
+    appendSelectedFileOperations(
+      operations,
+      seenPaths,
+      renderKubernetesFiles({ serviceTargets: selectedDockerServiceTargets(selectedModuleIds) }),
+      selectedModuleIds
+    );
   }
 
   // Quality Module config files: append every tool's config; appendSelectedFileOperations filters to
@@ -381,6 +394,21 @@ function toDockerTemplateOptions(adapter: PackageManagerAdapter): {
   };
 }
 
+type DockerServiceTarget = "web" | "api";
+
+function selectedDockerServiceTargets(selectedModuleIds: ReadonlySet<string>): DockerServiceTarget[] {
+  const targets: DockerServiceTarget[] = [];
+
+  if (selectedModuleIds.has("web/nextjs")) {
+    targets.push("web");
+  }
+  if (selectedModuleIds.has("api/fastapi")) {
+    targets.push("api");
+  }
+
+  return targets;
+}
+
 export async function applyCreatePlan(
   plan: CreatePlan,
   options: ApplyCreatePlanOptions
@@ -416,9 +444,12 @@ export async function applyCreatePlan(
       plan.selectedModules.flatMap((module) => module.postCreate ?? []),
       { projectDirectory, runCommand: options.runCommand }
     );
-    await runNativeInitializers(plan.nativeInitializers, { projectDirectory, runCommand: options.runCommand });
+    const initializerFiles = await runNativeInitializers(plan.nativeInitializers, {
+      projectDirectory,
+      runCommand: options.runCommand
+    });
     files = await refreshManagedFileHashes(projectDirectory, files);
-    files = mergeManifestFiles(files, await readNativeInitializerManagedFiles(projectDirectory, plan.nativeInitializers));
+    files = mergeManifestFiles(files, initializerFiles);
   }
 
   const skillInstallResult = await resolveSkillInstallResult(plan, projectDirectory, options);
@@ -671,42 +702,91 @@ function selectedWebFramework(selectedModuleIds: ReadonlySet<string>): "nextjs" 
   return undefined;
 }
 
+const NATIVE_INITIALIZER_IGNORED_DIRECTORIES = new Set([".git", ".stackkit", "node_modules"]);
+
+/**
+ * Snapshot every source file under the project (hash by relative path), skipping VCS,
+ * dependency, and Stackkit-metadata directories. Used to diff the working tree around a
+ * native initializer run so Stackkit can take ownership of whatever the tool actually wrote
+ * rather than trusting a hand-maintained list of expected files.
+ */
+async function captureProjectFileSnapshot(projectDirectory: string): Promise<Map<string, string>> {
+  const snapshot = new Map<string, string>();
+
+  async function walk(relativeDirectory: string): Promise<void> {
+    let entries;
+
+    try {
+      entries = await readdir(join(projectDirectory, relativeDirectory), { withFileTypes: true });
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        return;
+      }
+
+      throw error;
+    }
+
+    for (const entry of entries) {
+      const childRelative = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+
+      if (entry.isDirectory()) {
+        if (NATIVE_INITIALIZER_IGNORED_DIRECTORIES.has(entry.name)) {
+          continue;
+        }
+
+        await walk(childRelative);
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      const content = await readExistingFile(join(projectDirectory, childRelative));
+
+      if (content !== undefined) {
+        snapshot.set(normalizeProjectPath(childRelative), hashContent(content));
+      }
+    }
+  }
+
+  await walk("");
+  return snapshot;
+}
+
+/**
+ * Run each native initializer and record the files it actually creates. We diff the working
+ * tree before and after each run and take ownership of every newly created file (minus any the
+ * initializer explicitly redacts). Modifications to already-managed files are handled separately
+ * by refreshing their hashes, so this only claims genuinely new paths.
+ */
 async function runNativeInitializers(
   initializers: readonly PlannedNativeInitializer[],
   options: {
     projectDirectory: string;
     runCommand: RunCommand;
   }
-): Promise<void> {
+): Promise<ManifestFileRecord[]> {
+  const records: ManifestFileRecord[] = [];
+
   for (const initializer of initializers) {
+    const before = await captureProjectFileSnapshot(options.projectDirectory);
     const cwd = join(options.projectDirectory, initializer.cwd);
     const result = await options.runCommand(initializer.command, initializer.args, { cwd });
 
     if (result.exitCode !== 0) {
       throw new Error(`Native initializer failed: ${initializer.name}`);
     }
-  }
-}
 
-async function readNativeInitializerManagedFiles(
-  projectDirectory: string,
-  initializers: readonly PlannedNativeInitializer[]
-): Promise<ManifestFileRecord[]> {
-  const records: ManifestFileRecord[] = [];
+    const after = await captureProjectFileSnapshot(options.projectDirectory);
+    const redacted = new Set(initializer.redactExpectedFiles.map((filePath) => normalizeProjectPath(filePath)));
 
-  for (const initializer of initializers) {
-    for (const filePath of initializer.expectedFiles) {
-      const content = await readExistingFile(join(projectDirectory, filePath));
-
-      if (content === undefined) {
+    for (const [path, hash] of after) {
+      if (before.has(path) || redacted.has(path)) {
         continue;
       }
 
-      records.push({
-        path: filePath,
-        owner: initializer.moduleId,
-        hash: hashContent(content)
-      });
+      records.push({ path, owner: initializer.moduleId, hash });
     }
   }
 

@@ -472,7 +472,8 @@ describe("createCreatePlan", () => {
       plan.filePlan.files.find((file) => file.path === "apps/web/package.json")?.content ?? "{}"
     );
 
-    expect(dockerCompose).toContain("build: ./apps/web");
+    expect(dockerCompose).toContain("dockerfile: apps/web/Dockerfile");
+    expect(dockerCompose).not.toContain("build: ./apps/web");
     expect(appPackageJson.packageManager).toBe("yarn@4.9.4");
     expect(dockerfile).toContain("RUN corepack enable && yarn install");
     expect(dockerfile).toContain("RUN yarn build");
@@ -576,6 +577,53 @@ describe("createCreatePlan", () => {
     expect(plan.filePlan.files.some((file) => file.owner === "quality/pytest")).toBe(false);
     expect(plan.filePlan.files.find((file) => file.path === "ruff.toml")?.owner).toBe("quality/ruff");
     expect(plan.filePlan.files.find((file) => file.path === "mypy.ini")?.owner).toBe("quality/mypy");
+  });
+
+  it("renders Docker and Kubernetes files for an API-only FastAPI project", () => {
+    const plan = createCreatePlan({
+      config: {
+        projectName: "api-deploy",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["api/fastapi", "deploy/docker", "deploy/kubernetes"],
+        ai: {
+          skillTargets: ["codex"]
+        }
+      },
+      availableModules: [
+        defineModule({
+          id: "api/fastapi",
+          version: "1.0.0",
+          title: "FastAPI",
+          description: "FastAPI API service",
+          provides: ["api", "python", "container-app"]
+        }),
+        defineModule({
+          id: "deploy/docker",
+          version: "1.0.0",
+          title: "Docker",
+          description: "Docker deployment",
+          requires: ["container-app"],
+          provides: ["container"]
+        }),
+        defineModule({
+          id: "deploy/kubernetes",
+          version: "1.0.0",
+          title: "Kubernetes",
+          description: "Kubernetes deployment",
+          requires: ["container"]
+        })
+      ]
+    });
+
+    const files = plan.filePlan.files.map((file) => file.path);
+    const compose = plan.filePlan.files.find((file) => file.path === "docker-compose.yml")?.content ?? "";
+
+    expect(files).toEqual(expect.arrayContaining(["apps/api/Dockerfile", "deploy/kubernetes/api-deployment.yaml"]));
+    expect(files).not.toContain("apps/web/Dockerfile");
+    expect(compose).toContain("api:");
+    expect(compose).toContain("dockerfile: apps/api/Dockerfile");
+    expect(compose).not.toContain("build: ./apps/api");
   });
 
   it("fails for unknown module IDs", () => {

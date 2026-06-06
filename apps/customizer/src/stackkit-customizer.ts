@@ -125,12 +125,12 @@ export function normalizeCustomizerState(state: CustomizerState): CustomizerStat
   return normalized;
 }
 
-export function isDeployChoiceSupported(state: Pick<CustomizerState, "web">, deploy: DeployChoice): boolean {
+export function isDeployChoiceSupported(state: Pick<CustomizerState, "api" | "web">, deploy: DeployChoice): boolean {
   if (deploy === "vercel") {
     return state.web !== "none";
   }
 
-  return state.web === "nextjs";
+  return state.web === "nextjs" || state.api === "fastapi";
 }
 
 export function hasPythonApplicationShape(state: Pick<CustomizerState, "api" | "web">): boolean {

@@ -234,7 +234,7 @@ node packages/cli/dist/index.js doctor --dir "$target/my-app"
 
 ## Publishing
 
-The repo is configured for a public npm release of the runtime packages at `0.1.1`. The root workspace package is private and can keep its own internal version.
+The repo is configured for a public npm release of the runtime packages. Each package's version is its own `package.json` `version` field — that is the source of truth. The root workspace package is private and keeps its own internal version.
 
 Before publishing:
 

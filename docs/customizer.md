@@ -16,6 +16,7 @@ The current customizer is client-side only:
 - choose preset
 - choose package manager
 - choose web, API, database, auth, deploy, and AI options
+- allow Docker and Kubernetes for the containerized generated targets Stackkit can render today: Next.js and FastAPI
 - preview resolved modules
 - copy `stackkit create <name> --recipe <code>`
 - view decoded config

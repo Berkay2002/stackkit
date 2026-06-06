@@ -119,6 +119,18 @@ stackkit create my-app --web next --auth clerk
 stackkit create my-app --web next --api fastapi --auth auth0
 ```
 
+**Deployment examples**
+
+```bash
+# FastAPI API with Docker and Kubernetes files.
+stackkit create my-api --api fastapi --with docker --deploy k8s
+
+# Vite web app with Vercel deployment files.
+stackkit create my-spa --web vite --deploy vercel
+```
+
+`deploy/docker` and `deploy/kubernetes` currently render container files for Next.js and FastAPI. Vercel requires a web app. Vite, TanStack Start, and Rust API container templates are not implemented yet.
+
 **Tooling slots**
 
 Stackkit models developer tooling as per-language Tooling Slots — `lint`, `format`, and `typecheck` — filled by Quality Modules. Every language present in the stack gap-fills its default tools, so you only need a flag to choose an alternative.

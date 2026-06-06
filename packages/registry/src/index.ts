@@ -280,7 +280,7 @@ export const builtinModules = [
     category: "web",
     icon: "nextjs",
     requires: ["workspace/node"],
-    provides: ["web-app", "nextjs-app", "react"],
+    provides: ["web-app", "nextjs-app", "react", "container-app"],
     conflicts: ["web/vite", "web/tanstack-start"],
     nativeInitializers: [nativeInitializers.createNextApp],
     readme: {
@@ -406,7 +406,7 @@ export const builtinModules = [
     aliases: ["fastapi"],
     category: "api",
     icon: "fastapi",
-    provides: ["api", "python"],
+    provides: ["api", "python", "container-app"],
     readme: {
       stack: ["FastAPI", "uv", "pytest", "Ruff"],
       layout: [
@@ -962,13 +962,12 @@ export const builtinModules = [
     aliases: ["docker"],
     category: "deploy",
     icon: "docker",
-    requires: ["nextjs-app"],
+    requires: ["container-app"],
     provides: ["container"],
     readme: {
       stack: ["Docker"],
       layout: [
-        { path: "docker-compose.yml", description: "Local container orchestration" },
-        { path: "apps/web/Dockerfile", description: "Next.js container image" }
+        { path: "docker-compose.yml", description: "Local container orchestration" }
       ]
     }
   }),

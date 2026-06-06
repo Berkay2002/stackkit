@@ -90,6 +90,12 @@ React frameworks include ShadCN UI by default. Add `--ui none` to skip ShadCN, o
 
 Stackkit delegates ShadCN setup to the ShadCN CLI when that module is enabled. Clerk-backed Next.js stacks use the Clerk CLI as well, so official initializer behavior stays in the upstream tools instead of being copied into Stackkit templates.
 
+Need an API-only container path? FastAPI can be paired with Docker and Kubernetes without selecting a web app:
+
+```bash
+stackkit create my-api --api fastapi --with docker --deploy k8s
+```
+
 <Callout title="Tip: skip AI skill installation for quick tests" type="info">
 Pass `--skills skip --yes` to bypass the AI skill installation step and accept all prompts automatically — useful when you just want to see the generated output locally:
 

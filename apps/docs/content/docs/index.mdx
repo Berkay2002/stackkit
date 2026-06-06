@@ -66,7 +66,7 @@ Stackkit can generate and validate real starter monorepos today. The following a
 - Next.js, Vite, and TanStack Start web frameworks, plus ShadCN, FastAPI, Postgres, and Auth0 metadata
 - Native initializer delegation for ShadCN and Clerk in generated Next.js stacks
 - Postgres hosts: Neon, Supabase (cloud), Supabase (local CLI), and local Docker, with a generated Drizzle/Prisma client
-- Vercel, Docker, and Kubernetes file generation
+- Vercel file generation for web apps, plus Docker and Kubernetes files for Next.js and FastAPI
 - Deterministic `README.md` and `.env.example`
 - Root `dev`, `build`, `test`, `typecheck`, `lint`, and `format` scripts
 - `stackkit doctor`, `stackkit diff --file`, and `stackkit info`
@@ -74,5 +74,5 @@ Stackkit can generate and validate real starter monorepos today. The following a
 - Project-local AI skill targets for Codex `.agents` and Claude Code `.claude`
 
 <Callout title="Known gaps" type="warn">
-Auth modules mostly emit metadata, docs, env vars, and AI skills rather than full integration code. Postgres host selection generates connection scaffolding and a starter Drizzle/Prisma client (a documented starter — install its listed deps), but not full data-layer integration. Rust services are declared but not deeply templated yet. Remote registries are intentionally unsupported. The visual customizer is local-only.
+Auth modules mostly emit metadata, docs, env vars, and AI skills rather than full integration code. Postgres host selection generates connection scaffolding and a starter Drizzle/Prisma client (a documented starter — install its listed deps), but not full data-layer integration. Docker and Kubernetes templates cover Next.js and FastAPI today; Vite, TanStack Start, and Rust API containers are not implemented yet. Rust services are declared but not deeply templated yet. Remote registries are intentionally unsupported. The visual customizer is local-only.
 </Callout>

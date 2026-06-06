@@ -4,12 +4,14 @@ import { GITHUB_REPO } from '@/lib/layout.shared';
 /** Languages and tooling Stackkit scaffolds, shown as real brand marks. */
 const STACKS: { slug: string; hex: string; label: string }[] = [
   { slug: 'typescript', hex: '3178C6', label: 'TypeScript' },
-  { slug: 'go', hex: '00ADD8', label: 'Go' },
+  { slug: 'rust', hex: '000000', label: 'Rust' },
   { slug: 'python', hex: '3776AB', label: 'Python' },
   { slug: 'nodedotjs', hex: '5FA04E', label: 'Node.js' },
   { slug: 'react', hex: '149ECA', label: 'React' },
   { slug: 'fastapi', hex: '009688', label: 'FastAPI' },
   { slug: 'postgresql', hex: '4169E1', label: 'PostgreSQL' },
+  { slug: 'docker', hex: '2496ED', label: 'Docker' },
+  { slug: 'kubernetes', hex: '326CE5', label: 'Kubernetes' },
   { slug: 'turborepo', hex: 'EF4444', label: 'Turborepo' },
   { slug: 'pnpm', hex: 'F69220', label: 'pnpm' },
 ];
@@ -75,8 +77,8 @@ export default function HomePage() {
                     next-fastapi-postgres-auth0
                   </span>
                   {'\n'}
-                  <span className="text-brand">✓</span> Resolved 6 modules from
-                  the offline registry
+                  <span className="text-brand">✓</span> Resolved web, API, and
+                  deployment modules
                   {'\n'}
                   <span className="text-brand">✓</span> Wrote 42 files{'  '}
                   <span className="text-fd-muted-foreground">· 0 conflicts</span>
@@ -129,7 +131,7 @@ export default function HomePage() {
           <article className="flex flex-col gap-3 rounded-xl border border-fd-border bg-fd-card p-6 lg:col-span-2">
             <h3 className="text-base font-semibold">Offline recipes</h3>
             <p className="text-sm leading-relaxed text-fd-muted-foreground">
-              Templates for TypeScript, Go, Python and more ship in the binary.
+              Templates for TypeScript, Python, Rust and more ship in the binary.
               No network, no surprise registry fetches.
             </p>
           </article>

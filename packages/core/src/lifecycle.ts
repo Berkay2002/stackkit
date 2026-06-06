@@ -334,14 +334,59 @@ export function planModuleUpdates(input: {
   };
 }
 
+function compareSemver(a: string, b: string): number {
+  const partsA = a.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const partsB = b.split(".").map((part) => Number.parseInt(part, 10) || 0);
+
+  for (let index = 0; index < 3; index += 1) {
+    const valueA = partsA[index] ?? 0;
+    const valueB = partsB[index] ?? 0;
+
+    if (valueA !== valueB) {
+      return valueA < valueB ? -1 : 1;
+    }
+  }
+
+  return 0;
+}
+
+function isMigrationApplicableToVersion(installedVersion: string, migration: ModuleMigration): boolean {
+  return compareSemver(installedVersion, migration.from) >= 0 && compareSemver(installedVersion, migration.to) < 0;
+}
+
+/**
+ * Collect migrations that are genuinely pending for a project: only for modules
+ * actually recorded in the manifest, only when the installed version falls in the
+ * migration's [from, to) range, and only when the migration has not been applied yet.
+ */
+function collectPendingMigrations(
+  manifest: StackkitManifest,
+  modules: readonly StackkitModule[]
+): { module: StackkitModule; migration: ModuleMigration }[] {
+  const applied = new Set(manifest.migrations.applied.map((entry) => JSON.stringify(entry)));
+  const installedVersionById = new Map(manifest.modules.map((module) => [module.id, module.version]));
+
+  return modules.flatMap((module) => {
+    const installedVersion = installedVersionById.get(module.id);
+
+    if (installedVersion === undefined) {
+      return [];
+    }
+
+    return (module.migrations ?? [])
+      .filter(
+        (migration) =>
+          isMigrationApplicableToVersion(installedVersion, migration) && !applied.has(JSON.stringify(migration))
+      )
+      .map((migration) => ({ module, migration }));
+  });
+}
+
 export function planModuleMigrations(input: {
   manifest: StackkitManifest;
   modules: readonly StackkitModule[];
 }): ModuleMigrationPlan {
-  const applied = new Set(input.manifest.migrations.applied.map((entry) => JSON.stringify(entry)));
-  const pending = input.modules
-    .flatMap((module) => module.migrations ?? [])
-    .filter((migration) => !applied.has(JSON.stringify(migration)));
+  const pending = collectPendingMigrations(input.manifest, input.modules).map(({ migration }) => migration);
 
   return {
     automatic: pending.filter((migration) => migration.safety === "automatic"),
@@ -356,11 +401,8 @@ export async function applyAutomaticMigrations(input: {
   modules: readonly StackkitModule[];
 }): Promise<{ manifest: StackkitManifest }> {
   const manifest = createManifest(input.manifest);
-  const applied = new Set(manifest.migrations.applied.map((entry) => JSON.stringify(entry)));
-  const automatic = input.modules.flatMap((module) =>
-    (module.migrations ?? [])
-      .filter((migration) => migration.safety === "automatic" && !applied.has(JSON.stringify(migration)))
-      .map((migration) => ({ module, migration }))
+  const automatic = collectPendingMigrations(manifest, input.modules).filter(
+    ({ migration }) => migration.safety === "automatic"
   );
   const operations: MigrationFileOperation[] = automatic.flatMap(({ module, migration }) =>
     migration.operations.map((operation) =>
@@ -499,12 +541,30 @@ export async function applyModuleUpdates(input: {
       snapshot: available ? snapshotStackkitModule(available) : manifestModule.snapshot
     };
   });
-  const nextManifest = createManifest({
+
+  // Re-render the managed file set from the updated module snapshots and apply it to the
+  // working tree under the same conflict discipline as add/remove: refuse unowned existing
+  // files and locally-modified owned files. The manifest must never describe a disk state
+  // that does not exist, so file writes and manifest writes happen together or not at all.
+  const regeneratedPlan = buildReconstructedManagedFilePlan({ ...manifest, modules: nextModules });
+  const conflicts = await detectFileConflicts(input.projectDirectory, regeneratedPlan, manifest.files);
+
+  if (conflicts.length > 0) {
+    throw new Error(
+      `Update target has conflicts: ${conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ")}`
+    );
+  }
+
+  const writtenFiles = await applyFilePlan(input.projectDirectory, regeneratedPlan, {
+    ownedFiles: manifest.files,
+    conflictLabel: "Update target"
+  });
+  const nextManifest = await writeManifest(input.projectDirectory, {
     ...manifest,
     modules: nextModules,
-    expectedFiles: filePlanToExpectedFiles(buildReconstructedManagedFilePlan({ ...manifest, modules: nextModules }))
+    files: mergeManifestFiles(manifest.files, writtenFiles),
+    expectedFiles: mergeExpectedFiles(manifest.expectedFiles, filePlanToExpectedFiles(regeneratedPlan))
   });
-  await writeManifest(input.projectDirectory, nextManifest);
 
   return { manifest: nextManifest, updates: updatePlan.updates };
 }
