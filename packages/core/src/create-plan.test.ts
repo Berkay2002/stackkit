@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import type { StackkitManifest } from "@berkayorhan/stackkit-schemas";
+
 import { createCreatePlan, defineModule, renderCreateFiles, validateProjectSlug } from "./index.js";
+import { buildExpectedManagedFilePlan } from "./create.js";
 
 const availableModules = [
   defineModule({
@@ -444,7 +447,14 @@ describe("createCreatePlan", () => {
       ]
     });
 
-    expect(plan.filePlan.files.map((file) => file.path)).toEqual(["stackkit.config.json", "README.md", "tsconfig.base.json"]);
+    // TypeScript is present, so default lint/format tooling (eslint + prettier) is gap-filled.
+    expect(plan.filePlan.files.map((file) => file.path)).toEqual([
+      "stackkit.config.json",
+      "README.md",
+      "tsconfig.base.json",
+      "eslint.config.mjs",
+      "prettier.config.mjs"
+    ]);
     expect(plan.filePlan.files).toEqual([
       expect.objectContaining({
         path: "stackkit.config.json",
@@ -457,6 +467,14 @@ describe("createCreatePlan", () => {
       expect.objectContaining({
         path: "tsconfig.base.json",
         owner: "workspace/typescript"
+      }),
+      expect.objectContaining({
+        path: "eslint.config.mjs",
+        owner: "quality/eslint"
+      }),
+      expect.objectContaining({
+        path: "prettier.config.mjs",
+        owner: "quality/prettier"
       })
     ]);
   });
@@ -483,15 +501,21 @@ describe("createCreatePlan", () => {
       ]
     });
 
+    // FastAPI provides `python`, so the default Python tooling (ruff lint/format + mypy typecheck) is
+    // gap-filled and its config files are dispatched.
     expect(plan.filePlan.files.map((file) => file.path)).toEqual([
       "stackkit.config.json",
       "README.md",
       "apps/api/package.json",
       "apps/api/pyproject.toml",
       "apps/api/app/main.py",
-      "apps/api/tests/test_health.py"
+      "apps/api/tests/test_health.py",
+      "ruff.toml",
+      "mypy.ini"
     ]);
     expect(plan.filePlan.files.some((file) => file.owner === "quality/pytest")).toBe(false);
+    expect(plan.filePlan.files.find((file) => file.path === "ruff.toml")?.owner).toBe("quality/ruff");
+    expect(plan.filePlan.files.find((file) => file.path === "mypy.ini")?.owner).toBe("quality/mypy");
   });
 
   it("fails for unknown module IDs", () => {
@@ -560,5 +584,212 @@ describe("renderCreateFiles database client codegen", () => {
 
     expect(find(files, "apps/web/db/client.ts")).toBeUndefined();
     expect(find(files, "apps/web/prisma/schema.prisma")).toBeUndefined();
+  });
+});
+
+describe("renderCreateFiles tooling dispatch", () => {
+  const mod = (id: string, extra: Record<string, unknown> = {}) =>
+    defineModule({ id, version: "1.0.0", title: id, description: id, ...extra });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cfg = (modules: { id: string }[]): any => ({
+    projectName: "acme",
+    packageManager: "pnpm",
+    workspace: "pnpm-turbo",
+    modules: modules.map((m) => m.id),
+    registries: {},
+    ai: { skillTargets: ["codex"], skillMode: "install", linkMode: "copy" }
+  });
+
+  const find = (files: ReturnType<typeof renderCreateFiles>, path: string) => files.find((file) => file.path === path);
+
+  it("dispatches eslint + prettier configs and eslint/prettier devDeps for a default TS stack", () => {
+    const modules = [
+      mod("workspace/pnpm-turbo", { provides: ["workspace/node"] }),
+      mod("workspace/typescript", { provides: ["typescript"] }),
+      mod("quality/eslint", { category: "quality", provides: ["ts-lint"], requires: ["typescript"] }),
+      mod("quality/prettier", { category: "quality", provides: ["ts-format"], requires: ["typescript"] }),
+      mod("quality/tsc", { category: "quality", provides: ["ts-typecheck"], requires: ["typescript"] })
+    ];
+    const files = renderCreateFiles(cfg(modules), modules);
+
+    expect(find(files, "eslint.config.mjs")?.owner).toBe("quality/eslint");
+    expect(find(files, "prettier.config.mjs")?.owner).toBe("quality/prettier");
+    expect(find(files, "biome.json")).toBeUndefined();
+
+    const pkg = JSON.parse(find(files, "package.json")?.content ?? "{}");
+    expect(pkg.devDependencies).toEqual(
+      expect.objectContaining({ eslint: expect.any(String), prettier: expect.any(String) })
+    );
+    expect(pkg.devDependencies["@biomejs/biome"]).toBeUndefined();
+  });
+
+  it("dispatches biome.json (and no eslint/prettier) when quality/biome is selected", () => {
+    const modules = [
+      mod("workspace/pnpm-turbo", { provides: ["workspace/node"] }),
+      mod("workspace/typescript", { provides: ["typescript"] }),
+      mod("quality/biome", { category: "quality", provides: ["ts-lint", "ts-format"], requires: ["typescript"] }),
+      mod("quality/tsc", { category: "quality", provides: ["ts-typecheck"], requires: ["typescript"] })
+    ];
+    const files = renderCreateFiles(cfg(modules), modules);
+
+    expect(find(files, "biome.json")?.owner).toBe("quality/biome");
+    expect(find(files, "eslint.config.mjs")).toBeUndefined();
+    expect(find(files, "prettier.config.mjs")).toBeUndefined();
+
+    const pkg = JSON.parse(find(files, "package.json")?.content ?? "{}");
+    expect(pkg.devDependencies["@biomejs/biome"]).toEqual(expect.any(String));
+    expect(pkg.devDependencies.eslint).toBeUndefined();
+  });
+
+  it("dispatches pyrightconfig.json (and no mypy.ini) when quality/pyright is selected", () => {
+    const modules = [
+      mod("api/fastapi", { provides: ["api", "python"] }),
+      mod("quality/ruff", { category: "quality", provides: ["py-lint", "py-format"], requires: ["python"] }),
+      mod("quality/pyright", { category: "quality", provides: ["py-typecheck"], requires: ["python"] })
+    ];
+    const files = renderCreateFiles(cfg(modules), modules);
+
+    expect(find(files, "pyrightconfig.json")?.owner).toBe("quality/pyright");
+    expect(find(files, "mypy.ini")).toBeUndefined();
+    expect(find(files, "ruff.toml")?.owner).toBe("quality/ruff");
+
+    const apiPkg = JSON.parse(find(files, "apps/api/package.json")?.content ?? "{}");
+    expect(apiPkg.scripts.typecheck).toBe("uv run pyright .");
+  });
+});
+
+describe("renderCreateFiles web framework wiring", () => {
+  const foundationModules = [
+    defineModule({
+      id: "workspace/pnpm-turbo",
+      version: "1.0.0",
+      title: "pnpm and Turborepo",
+      description: "Workspace foundation",
+      provides: ["workspace/node"]
+    }),
+    defineModule({
+      id: "workspace/typescript",
+      version: "1.0.0",
+      title: "TypeScript",
+      description: "TypeScript config",
+      requires: ["workspace/node"],
+      provides: ["typescript"]
+    }),
+    defineModule({
+      id: "quality/eslint",
+      version: "1.0.0",
+      title: "ESLint",
+      description: "ESLint config",
+      provides: ["lint"]
+    })
+  ];
+
+  const viteModule = defineModule({
+    id: "web/vite",
+    version: "1.0.0",
+    title: "Vite",
+    description: "Vite React app",
+    requires: ["typescript"],
+    provides: ["web-app", "react"]
+  });
+
+  const tanstackModule = defineModule({
+    id: "web/tanstack-start",
+    version: "1.0.0",
+    title: "TanStack Start",
+    description: "TanStack Start app",
+    requires: ["typescript"],
+    provides: ["web-app", "react", "ssr"]
+  });
+
+  const shadcnModule = defineModule({
+    id: "ui/shadcn",
+    version: "1.0.0",
+    title: "shadcn/ui",
+    description: "shadcn/ui components",
+    requires: ["react"]
+  });
+
+  const baseConfig = (moduleIds: string[]) => ({
+    projectName: "acme",
+    packageManager: "pnpm" as const,
+    workspace: "pnpm-turbo" as const,
+    modules: moduleIds,
+    registries: {},
+    ai: { skillTargets: ["codex"] as const, skillMode: "install" as const, linkMode: "copy" as const }
+  });
+
+  const viteShadcnInput = () => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    config: baseConfig(["workspace/pnpm-turbo", "workspace/typescript", "web/vite", "ui/shadcn", "quality/eslint"]) as any,
+    availableModules: [...foundationModules, viteModule, shadcnModule]
+  });
+
+  const viteNoUiInput = () => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    config: baseConfig(["workspace/pnpm-turbo", "workspace/typescript", "web/vite", "quality/eslint"]) as any,
+    availableModules: [...foundationModules, viteModule]
+  });
+
+  const tanstackInput = () => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    config: baseConfig(["workspace/pnpm-turbo", "workspace/typescript", "web/tanstack-start", "ui/shadcn", "quality/eslint"]) as any,
+    availableModules: [...foundationModules, tanstackModule, shadcnModule]
+  });
+
+  const manifestFromPlan = (plan: ReturnType<typeof createCreatePlan>): StackkitManifest => ({
+    schemaVersion: 1,
+    stackkitVersion: "0.0.0",
+    projectName: plan.projectName,
+    packageManager: plan.packageManager,
+    source: { kind: "scripted" },
+    paths: { root: "." },
+    createdAt: "2026-06-06T00:00:00.000Z",
+    modules: plan.modules.map((module) => ({ ...module, options: {} })),
+    files: [],
+    aiSkills: {
+      mode: plan.aiSkills.mode,
+      linkMode: plan.aiSkills.linkMode,
+      targets: [],
+      installed: [],
+      planned: [],
+      local: [],
+      unresolved: []
+    },
+    migrations: { applied: [] }
+  });
+
+  it("renders a Vite app with shadcn owning the single index.css", () => {
+    const plan = createCreatePlan(viteShadcnInput());
+    const paths = plan.filePlan.files.map((f) => f.path);
+    expect(paths).toContain("apps/web/vite.config.ts");
+    expect(paths).toContain("apps/web/components.json");
+    const indexCss = plan.filePlan.files.filter((f) => f.path === "apps/web/src/index.css");
+    expect(indexCss).toHaveLength(1);
+    expect(indexCss[0].owner).toBe("ui/shadcn");
+  });
+
+  it("renders a Vite app that owns its own index.css when shadcn absent", () => {
+    const plan = createCreatePlan(viteNoUiInput());
+    const indexCss = plan.filePlan.files.filter((f) => f.path === "apps/web/src/index.css");
+    expect(indexCss).toHaveLength(1);
+    expect(indexCss[0].owner).toBe("web/vite");
+    expect(plan.filePlan.files.some((f) => f.path === "apps/web/components.json")).toBe(false);
+  });
+
+  it("renders TanStack Start routes", () => {
+    const plan = createCreatePlan(tanstackInput());
+    const paths = plan.filePlan.files.map((f) => f.path);
+    expect(paths).toContain("apps/web/src/routes/__root.tsx");
+    expect(paths).toContain("apps/web/src/router.tsx");
+  });
+
+  it("DOCTOR: manifest reconstruction reproduces the Vite+ShadCN file plan", () => {
+    const plan = createCreatePlan(viteShadcnInput());
+    const manifest = manifestFromPlan(plan);
+    const expected = buildExpectedManagedFilePlan(manifest);
+    expect(expected.files.map((f) => `${f.path}:${f.owner}`).sort())
+      .toEqual(plan.filePlan.files.map((f) => `${f.path}:${f.owner}`).sort());
   });
 });

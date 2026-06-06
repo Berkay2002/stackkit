@@ -61,6 +61,19 @@ describe("web templates", () => {
     );
   });
 
+  it("renders biome lint/format scripts when the biome tooling choice is selected", () => {
+    const files = renderNextjsApp({ appName: "web", tsTooling: "biome" });
+    const packageJson = JSON.parse(files.find((file) => file.path === "apps/web/package.json")?.content ?? "{}");
+
+    expect(packageJson.scripts).toEqual(
+      expect.objectContaining({
+        lint: "biome lint .",
+        format: "biome format --write .",
+        typecheck: "tsc --noEmit"
+      })
+    );
+  });
+
   it("renders a Next.js tsconfig that does not need build-time rewrites", () => {
     const files = renderNextjsApp({ appName: "web" });
     const tsconfig = JSON.parse(files.find((file) => file.path === "apps/web/tsconfig.json")?.content ?? "{}");
@@ -107,5 +120,30 @@ describe("web templates", () => {
         })
       ])
     );
+  });
+});
+
+describe("renderShadcnUi framework awareness", () => {
+  it("defaults to Next.js (rsc true, app/globals.css)", () => {
+    const files = renderShadcnUi({ appName: "web" });
+    const components = files.find((f) => f.path === "apps/web/components.json")!;
+    expect(JSON.parse(components.content!).rsc).toBe(true);
+    expect(JSON.parse(components.content!).tailwind.css).toBe("app/globals.css");
+    expect(files.some((f) => f.path === "apps/web/app/globals.css")).toBe(true);
+  });
+  it("renders Vite shadcn (rsc false, src/index.css)", () => {
+    const files = renderShadcnUi({ appName: "web", framework: "vite" });
+    const components = JSON.parse(files.find((f) => f.path === "apps/web/components.json")!.content!);
+    expect(components.rsc).toBe(false);
+    expect(components.tailwind.css).toBe("src/index.css");
+    const css = files.find((f) => f.path === "apps/web/src/index.css")!;
+    expect(css.owner).toBe("ui/shadcn");
+    expect(css.content).toContain('@import "tailwindcss";');
+  });
+  it("renders TanStack Start shadcn (rsc false, src/styles/app.css)", () => {
+    const files = renderShadcnUi({ appName: "web", framework: "tanstack-start" });
+    const components = JSON.parse(files.find((f) => f.path === "apps/web/components.json")!.content!);
+    expect(components.tailwind.css).toBe("src/styles/app.css");
+    expect(files.some((f) => f.path === "apps/web/src/styles/app.css")).toBe(true);
   });
 });

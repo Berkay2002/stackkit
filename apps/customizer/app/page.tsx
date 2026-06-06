@@ -19,8 +19,12 @@ import {
   siNextdotjs,
   siPostgresql,
   siRust,
+  siShadcnui,
   siSupabase,
+  siTailwindcss,
+  siTanstack,
   siVercel,
+  siVite,
   type SimpleIcon
 } from "simple-icons";
 
@@ -36,6 +40,9 @@ import {
   type DatabaseChoice,
   type DatabaseProviderChoice,
   type DeployChoice,
+  type PyTypecheckChoice,
+  type TsQualityChoice,
+  type UiChoice,
   type WebChoice
 } from "../src/stackkit-customizer";
 
@@ -49,8 +56,16 @@ type Choice<T extends string> = {
 
 const webChoices: Choice<WebChoice>[] = [
   { value: "nextjs", label: "Next.js", description: "React app with shadcn/ui", icon: siNextdotjs },
+  { value: "vite", label: "Vite", description: "React SPA with Vite", icon: siVite },
+  { value: "tanstack", label: "TanStack Start", description: "Full-stack React", icon: siTanstack },
   { value: "django", label: "Django", description: "Python web app baseline", icon: siDjango },
   { value: "none", label: "No web app", description: "API or service only", iconLabel: "None" }
+];
+
+const uiChoices: Choice<UiChoice>[] = [
+  { value: "shadcn", label: "ShadCN", description: "shadcn/ui components", icon: siShadcnui },
+  { value: "tailwind", label: "Tailwind", description: "Tailwind CSS only", icon: siTailwindcss },
+  { value: "none", label: "No UI kit", description: "Plain framework", iconLabel: "None" }
 ];
 
 const apiChoices: Choice<ApiChoice>[] = [
@@ -83,6 +98,16 @@ const deployChoices: Choice<DeployChoice>[] = [
   { value: "vercel", label: "Vercel", description: "Web deployment", icon: siVercel },
   { value: "docker", label: "Docker", description: "Next.js container files", icon: siDocker },
   { value: "kubernetes", label: "Kubernetes", description: "Adds Docker and manifests", icon: siKubernetes }
+];
+
+const tsQualityChoices: Choice<TsQualityChoice>[] = [
+  { value: "eslint-prettier", label: "ESLint + Prettier", description: "Default lint and format", iconLabel: "ES+P" },
+  { value: "biome", label: "Biome", description: "Combined linter and formatter", iconLabel: "Biome" }
+];
+
+const pyTypecheckChoices: Choice<PyTypecheckChoice>[] = [
+  { value: "mypy", label: "mypy", description: "Default Python type checker", iconLabel: "mypy" },
+  { value: "pyright", label: "pyright", description: "Alternative Python type checker", iconLabel: "pyr" }
 ];
 
 const aiModeChoices: Choice<AiSkillModeChoice>[] = [
@@ -172,6 +197,7 @@ export default function Page() {
             <>
               <Step title="Application shape">
                 <ChoiceGrid choices={webChoices} value={state.web} onChange={(web) => patch({ web })} />
+                <ChoiceGrid choices={uiChoices} value={state.ui} onChange={(ui) => patch({ ui })} />
                 <ChoiceGrid choices={apiChoices} value={state.api} onChange={(api) => patch({ api })} />
               </Step>
 
@@ -232,6 +258,19 @@ export default function Page() {
                     );
                   })}
                 </div>
+              </Step>
+
+              <Step title="Code quality">
+                <ChoiceGrid
+                  choices={tsQualityChoices}
+                  value={state.tsQuality}
+                  onChange={(tsQuality) => patch({ tsQuality })}
+                />
+                <ChoiceGrid
+                  choices={pyTypecheckChoices}
+                  value={state.pyTypecheck}
+                  onChange={(pyTypecheck) => patch({ pyTypecheck })}
+                />
               </Step>
             </>
           ) : null}

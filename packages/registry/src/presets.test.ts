@@ -8,6 +8,8 @@ describe("builtinPresets", () => {
   it("contains exactly the official built-in preset ids", () => {
     expect(builtinPresets.map((preset) => preset.id)).toEqual([
       "next",
+      "vite",
+      "tanstack-start",
       "next-postgres-clerk",
       "next-postgres-better-auth",
       "next-fastapi-postgres-auth0",

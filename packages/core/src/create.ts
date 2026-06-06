@@ -2,14 +2,22 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
+  renderBiomeConfig,
   renderDatabaseClient,
   renderDockerFiles,
+  renderEslintConfig,
   renderFastApiService,
   renderKubernetesFiles,
+  renderMypyConfig,
   renderNextjsApp,
   renderPnpmTurboFoundation,
+  renderPrettierConfig,
+  renderPyrightConfig,
+  renderRuffConfig,
   renderShadcnUi,
-  renderVercelFiles
+  renderTanStackStartApp,
+  renderVercelFiles,
+  renderViteApp
 } from "@berkayorhan/stackkit-templates";
 import {
   type AiSkillDependency,
@@ -193,6 +201,11 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
   const selectedModuleIds = new Set(modules.map((module) => module.id));
   const packageManager = getPackageManagerAdapter(config.packageManager);
 
+  // Tool choice is recorded as module identity; derive the active tool from the selected module ids so
+  // the diff engine (which replays renderCreateFiles from manifest module ids) stays consistent.
+  const tsTooling = selectedModuleIds.has("quality/biome") ? "biome" : "eslint-prettier";
+  const pyTypecheck = selectedModuleIds.has("quality/pyright") ? "pyright" : "mypy";
+
   appendUniqueFileOperations(operations, seenPaths, [renderStackkitConfig(config)]);
   appendUniqueFileOperations(operations, seenPaths, [
     {
@@ -211,20 +224,46 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
       renderPnpmTurboFoundation({
         projectName: config.projectName,
         packageManagerField: packageManager.packageManagerField,
-        workspaceFile: packageManager.workspaceFile
+        workspaceFile: packageManager.workspaceFile,
+        tsTooling
       }).filter((operation) => selectedModuleIds.has(operation.owner))
     );
   }
 
-  if (selectedModuleIds.has("ui/shadcn")) {
-    appendSelectedFileOperations(operations, seenPaths, renderShadcnUi({ appName: "web" }), selectedModuleIds);
+  const hasShadcn = selectedModuleIds.has("ui/shadcn");
+  const webFramework: "nextjs" | "vite" | "tanstack-start" | undefined =
+    selectedModuleIds.has("web/nextjs") ? "nextjs"
+    : selectedModuleIds.has("web/vite") ? "vite"
+    : selectedModuleIds.has("web/tanstack-start") ? "tanstack-start"
+    : undefined;
+
+  if (hasShadcn) {
+    appendSelectedFileOperations(operations, seenPaths, renderShadcnUi({ appName: "web", framework: webFramework ?? "nextjs" }), selectedModuleIds);
   }
 
   if (selectedModuleIds.has("web/nextjs")) {
     appendSelectedFileOperations(
       operations,
       seenPaths,
-      renderNextjsApp({ appName: "web", packageManagerField: packageManager.packageManagerField }),
+      renderNextjsApp({ appName: "web", packageManagerField: packageManager.packageManagerField, tsTooling }),
+      selectedModuleIds
+    );
+  }
+
+  if (selectedModuleIds.has("web/vite")) {
+    appendSelectedFileOperations(
+      operations,
+      seenPaths,
+      renderViteApp({ appName: "web", packageManagerField: packageManager.packageManagerField, withShadcn: hasShadcn }),
+      selectedModuleIds
+    );
+  }
+
+  if (selectedModuleIds.has("web/tanstack-start")) {
+    appendSelectedFileOperations(
+      operations,
+      seenPaths,
+      renderTanStackStartApp({ appName: "web", packageManagerField: packageManager.packageManagerField, withShadcn: hasShadcn }),
       selectedModuleIds
     );
   }
@@ -233,7 +272,7 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
     appendSelectedFileOperations(
       operations,
       seenPaths,
-      renderFastApiService({ serviceName: "api", projectName: config.projectName }),
+      renderFastApiService({ serviceName: "api", projectName: config.projectName, pyTypecheck }),
       selectedModuleIds
     );
   }
@@ -249,6 +288,16 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
   if (selectedModuleIds.has("deploy/kubernetes")) {
     appendSelectedFileOperations(operations, seenPaths, renderKubernetesFiles(), selectedModuleIds);
   }
+
+  // Quality Module config files: append every tool's config; appendSelectedFileOperations filters to
+  // operations whose owner is a selected module, so unselected tools (e.g. biome when eslint/prettier
+  // is chosen) drop out automatically.
+  appendSelectedFileOperations(operations, seenPaths, renderEslintConfig(), selectedModuleIds);
+  appendSelectedFileOperations(operations, seenPaths, renderPrettierConfig(), selectedModuleIds);
+  appendSelectedFileOperations(operations, seenPaths, renderBiomeConfig(), selectedModuleIds);
+  appendSelectedFileOperations(operations, seenPaths, renderRuffConfig(), selectedModuleIds);
+  appendSelectedFileOperations(operations, seenPaths, renderMypyConfig(), selectedModuleIds);
+  appendSelectedFileOperations(operations, seenPaths, renderPyrightConfig(), selectedModuleIds);
 
   const dbProvider = [...selectedModuleIds].find((id) => id.startsWith("postgres/"));
 

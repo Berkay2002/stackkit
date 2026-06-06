@@ -9,7 +9,8 @@ import {
 import { builtinModules, builtinPresets } from "@berkayorhan/stackkit-registry";
 import type { PackageManager, StackkitModule, StackkitRecipe } from "@berkayorhan/stackkit-schemas";
 
-export type WebChoice = "nextjs" | "django" | "none";
+export type WebChoice = "nextjs" | "vite" | "tanstack" | "django" | "none";
+export type UiChoice = "shadcn" | "tailwind" | "none";
 export type ApiChoice = "none" | "fastapi" | "axum";
 export type DatabaseChoice = "none" | "postgres";
 export type DatabaseProviderChoice = "byo" | "neon" | "supabase" | "supabase-local" | "postgres-local";
@@ -17,18 +18,23 @@ export type DatabaseRuntimeChoice = "node" | "edge";
 export type AuthChoice = "none" | "auth0" | "clerk" | "better-auth";
 export type DeployChoice = "vercel" | "docker" | "kubernetes";
 export type AiSkillModeChoice = "install" | "plan" | "skip";
+export type TsQualityChoice = "eslint-prettier" | "biome";
+export type PyTypecheckChoice = "mypy" | "pyright";
 
 export type CustomizerState = {
   projectName: string;
   packageManager: PackageManager;
   preset: string;
   web: WebChoice;
+  ui: UiChoice;
   api: ApiChoice;
   database: DatabaseChoice;
   dbProvider: DatabaseProviderChoice;
   dbRuntime: DatabaseRuntimeChoice;
   auth: AuthChoice;
   deploy: DeployChoice[];
+  tsQuality: TsQualityChoice;
+  pyTypecheck: PyTypecheckChoice;
   aiSkillMode: AiSkillModeChoice;
   claudeCode: boolean;
   linkMode: "copy" | "symlink";
@@ -59,12 +65,15 @@ export function createInitialCustomizerState(): CustomizerState {
     packageManager: "pnpm",
     preset: "custom",
     web: "nextjs",
+    ui: "shadcn",
     api: "none",
     database: "none",
     dbProvider: "byo",
     dbRuntime: "node",
     auth: "none",
     deploy: ["vercel"],
+    tsQuality: "eslint-prettier",
+    pyTypecheck: "mypy",
     aiSkillMode: "install",
     claudeCode: false,
     linkMode: "copy"
@@ -152,11 +161,14 @@ function resolveStateModuleIds(state: CustomizerState): string[] {
   return resolveStackAxes(
     {
       web: webModule(state.web),
+      ui: uiModule(state.ui),
       api: apiModule(state.api),
       db: state.database === "postgres" ? "postgres" : undefined,
       dbProvider: state.database === "postgres" ? providerModule(state.dbProvider) : undefined,
       auth: authModule(state.auth),
-      deploy: state.deploy
+      deploy: state.deploy,
+      tsQuality: state.tsQuality,
+      pyTypecheck: state.pyTypecheck
     },
     builtinModules
   );
@@ -169,9 +181,15 @@ function providerModule(provider: DatabaseProviderChoice): string | undefined {
 function webModule(web: WebChoice): string | undefined {
   return {
     nextjs: "next",
+    vite: "vite",
+    tanstack: "tanstack",
     django: "django",
     none: undefined
   }[web];
+}
+
+function uiModule(ui: UiChoice): string {
+  return ui;
 }
 
 function apiModule(api: ApiChoice): string | undefined {

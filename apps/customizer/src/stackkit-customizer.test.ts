@@ -17,6 +17,25 @@ describe("Stackkit customizer state", () => {
     expect(result.decoded).toEqual(result.recipe);
   });
 
+  it("includes web/vite when web is vite", () => {
+    const state = { ...createInitialCustomizerState(), web: "vite" as const, preset: "custom" };
+    const result = buildCustomizerState(state);
+    expect(result.ok && result.recipe.modules).toContain("web/vite");
+  });
+
+  it("drops ui/shadcn when ui is none", () => {
+    const state = { ...createInitialCustomizerState(), web: "vite" as const, ui: "none" as const, preset: "custom" };
+    const result = buildCustomizerState(state);
+    expect(result.ok && result.recipe.modules).not.toContain("ui/shadcn");
+  });
+
+  it("swaps to ui/tailwind when ui is tailwind", () => {
+    const state = { ...createInitialCustomizerState(), web: "tanstack" as const, ui: "tailwind" as const, preset: "custom" };
+    const result = buildCustomizerState(state);
+    expect(result.ok && result.recipe.modules).toContain("ui/tailwind");
+    expect(result.ok && result.recipe.modules).not.toContain("ui/shadcn");
+  });
+
   it("expands Auth0 for every selected supported framework", () => {
     const result = buildCustomizerState({
       ...createInitialCustomizerState(),
@@ -113,6 +132,56 @@ describe("Stackkit customizer state", () => {
     }
 
     expect(result.recipe.modules.filter((id) => id.startsWith("postgres/"))).toEqual([]);
+  });
+
+  it("defaults to ESLint, Prettier, and mypy tooling", () => {
+    const result = buildCustomizerState({
+      ...createInitialCustomizerState(),
+      api: "fastapi"
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.recipe.modules).toContain("quality/eslint");
+    expect(result.recipe.modules).toContain("quality/prettier");
+    expect(result.recipe.modules).toContain("quality/mypy");
+    expect(result.recipe.modules).not.toContain("quality/biome");
+    expect(result.recipe.modules).not.toContain("quality/pyright");
+  });
+
+  it("swaps to Biome when tsQuality is biome", () => {
+    const result = buildCustomizerState({
+      ...createInitialCustomizerState(),
+      tsQuality: "biome"
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.recipe.modules).toContain("quality/biome");
+    expect(result.recipe.modules).not.toContain("quality/eslint");
+    expect(result.recipe.modules).not.toContain("quality/prettier");
+  });
+
+  it("swaps to Pyright when pyTypecheck is pyright with a Python API", () => {
+    const result = buildCustomizerState({
+      ...createInitialCustomizerState(),
+      api: "fastapi",
+      pyTypecheck: "pyright"
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.recipe.modules).toContain("quality/pyright");
+    expect(result.recipe.modules).not.toContain("quality/mypy");
   });
 
   it("generates a shell-safe command with custom project and package manager", () => {

@@ -180,12 +180,18 @@ describe("createStackkitProgram", () => {
       "workspace/typescript",
       "web/nextjs",
       "ui/shadcn",
-      "quality/eslint",
       "api/fastapi",
       "db/postgres",
       "db/sqlalchemy",
       "auth/auth0-nextjs",
-      "auth/auth0-fastapi"
+      "auth/auth0-fastapi",
+      // Default tooling is gap-filled after stack-axis resolution: TS (eslint/prettier/tsc)
+      // and Python (ruff/mypy) defaults for the present languages.
+      "quality/eslint",
+      "quality/prettier",
+      "quality/tsc",
+      "quality/ruff",
+      "quality/mypy"
     ]);
   });
 
@@ -405,7 +411,8 @@ describe("createStackkitProgram", () => {
       "web/nextjs",
       "ui/shadcn",
       "quality/eslint",
-      "quality/prettier"
+      "quality/prettier",
+      "quality/tsc"
     ]);
   });
 

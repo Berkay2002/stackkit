@@ -63,7 +63,8 @@ stackkit create <project-name> [flags]
 
 | Flag | Description |
 |---|---|
-| `--web <framework>` | Web app framework (e.g. `next`) |
+| `--web <framework>` | Web app framework (e.g. `next`, `vite`, `tanstack`) |
+| `--ui <shadcn\|tailwind\|none>` | UI layer; defaults to ShadCN for React frameworks; `none` to opt out, `tailwind` to swap |
 | `--api <framework>` | API framework (e.g. `fastapi`) |
 | `--db <database>` | Database module (e.g. `postgres`) |
 | `--db-provider <host>` | Postgres host/provider: `neon`, `supabase`, `supabase-local`, `postgres-local` (omit for bring-your-own `DATABASE_URL`) |
@@ -71,6 +72,8 @@ stackkit create <project-name> [flags]
 | `--auth <provider>` | Auth provider (e.g. `auth0`) |
 | `--with <modules>` | Comma-separated additional modules (e.g. `shadcn,docker`) |
 | `--deploy <target>` | Deployment target (e.g. `vercel`) |
+| `--ts-quality <eslint-prettier\|biome>` | TypeScript lint + format toolchain (default `eslint-prettier`; `biome` replaces ESLint + Prettier) |
+| `--py-typecheck <mypy\|pyright>` | Python type checker (default `mypy`) |
 | `--preset <id>` | Use a named preset instead of individual flags |
 | `--recipe <code>` | Use an offline recipe code |
 | `--skills skip` | Skip AI skill installation |
@@ -87,6 +90,44 @@ stackkit create my-app \
   --with shadcn,docker \
   --deploy vercel
 ```
+
+**Web framework examples**
+
+```bash
+# React SPA with Vite.
+stackkit create my-spa --web vite
+
+# Full-stack React with TanStack Start.
+stackkit create my-app --web tanstack
+
+# Swap ShadCN for plain Tailwind, or opt out of a UI layer entirely.
+stackkit create my-app --web vite --ui tailwind
+stackkit create my-app --web vite --ui none
+```
+
+The `--ui` flag tunes the UI layer for the stack-axis flags above. It does not apply to `--recipe` or `--config`, which carry their own complete module list.
+
+**Tooling slots**
+
+Stackkit models developer tooling as per-language Tooling Slots — `lint`, `format`, and `typecheck` — filled by Quality Modules. Every language present in the stack gap-fills its default tools, so you only need a flag to choose an alternative.
+
+| Language | Lint | Format | Typecheck |
+|---|---|---|---|
+| TypeScript | ESLint | Prettier | tsc |
+| Python | Ruff | Ruff | mypy |
+| Rust | Clippy | rustfmt | cargo check |
+
+`--ts-quality biome` swaps Biome in as a combined linter and formatter, replacing ESLint and Prettier (the `typecheck` slot stays on tsc). `--py-typecheck pyright` swaps Pyright in for mypy in the Python `typecheck` slot. Choosing an alternative suppresses the default it covers rather than conflicting with it.
+
+```bash
+# Use Biome instead of ESLint + Prettier.
+stackkit create my-app --web next --ts-quality biome
+
+# Use Pyright instead of mypy for a FastAPI service.
+stackkit create my-app --api fastapi --py-typecheck pyright
+```
+
+Rust tooling (Clippy, rustfmt, cargo check) is modeled in the registry, but its config files are not yet generated.
 
 **Postgres host examples**
 

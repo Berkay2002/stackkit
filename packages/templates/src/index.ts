@@ -1,19 +1,34 @@
 import type { FileOperation } from "@berkayorhan/stackkit-schemas";
 
+import type { PyTypecheckChoice, TsToolingChoice } from "./tooling-configs.js";
+
+export type { PyTypecheckChoice, TsToolingChoice } from "./tooling-configs.js";
+export {
+  renderBiomeConfig,
+  renderEslintConfig,
+  renderMypyConfig,
+  renderPrettierConfig,
+  renderPyrightConfig,
+  renderRuffConfig
+} from "./tooling-configs.js";
+
 type PnpmTurboFoundationOptions = {
   projectName: string;
   packageManagerField?: string;
   workspaceFile?: string;
+  tsTooling?: TsToolingChoice;
 };
 
 type NextjsAppOptions = {
   appName: string;
   packageManagerField?: string;
+  tsTooling?: TsToolingChoice;
 };
 
 type FastApiServiceOptions = {
   serviceName: string;
   projectName?: string;
+  pyTypecheck?: PyTypecheckChoice;
 };
 
 type DockerFilesOptions = {
@@ -38,9 +53,19 @@ function writeFile(path: string, owner: FileOperation["owner"], content: string)
 export function renderPnpmTurboFoundation({
   projectName,
   packageManagerField = "pnpm@10.5.1",
-  workspaceFile
+  workspaceFile,
+  tsTooling = "eslint-prettier"
 }: PnpmTurboFoundationOptions): FileOperation[] {
   const workspaceManifest = workspaceFile ?? (packageManagerField.startsWith("pnpm@") ? "pnpm-workspace.yaml" : undefined);
+  const lintFormatDevDependencies =
+    tsTooling === "biome"
+      ? { "@biomejs/biome": "^2.0.0" }
+      : {
+          "@eslint/js": "^9.39.1",
+          eslint: "^9.39.1",
+          prettier: "^3.7.4",
+          "typescript-eslint": "^8.49.0"
+        };
   const packageJson: Record<string, unknown> = {
     name: projectName,
     version: "0.0.0",
@@ -56,13 +81,10 @@ export function renderPnpmTurboFoundation({
       format: "turbo run format"
     },
     devDependencies: {
-      "@eslint/js": "^9.39.1",
       "@types/node": "^24.0.0",
-      eslint: "^9.39.1",
-      prettier: "^3.7.4",
+      ...lintFormatDevDependencies,
       turbo: "^2.9.16",
       typescript: "^5.9.3",
-      "typescript-eslint": "^8.49.0",
       vitest: "^4.1.8"
     }
   };
@@ -127,13 +149,7 @@ export function renderPnpmTurboFoundation({
         2
       )}\n`
     ),
-    writeFile(".gitignore", workspaceOwner, "node_modules\n.turbo\ndist\n"),
-    writeFile(
-      "eslint.config.mjs",
-      "quality/eslint",
-      'import js from "@eslint/js";\nimport tseslint from "typescript-eslint";\n\nexport default tseslint.config(js.configs.recommended, ...tseslint.configs.recommended);\n'
-    ),
-    writeFile("prettier.config.mjs", "quality/prettier", "export default {};\n")
+    writeFile(".gitignore", workspaceOwner, "node_modules\n.turbo\ndist\n")
   ];
 
   if (workspaceManifest) {
@@ -143,8 +159,12 @@ export function renderPnpmTurboFoundation({
   return files;
 }
 
-export function renderNextjsApp({ appName, packageManagerField }: NextjsAppOptions): FileOperation[] {
+export function renderNextjsApp({ appName, packageManagerField, tsTooling = "eslint-prettier" }: NextjsAppOptions): FileOperation[] {
   const root = `apps/${appName}`;
+  const lintFormatScripts =
+    tsTooling === "biome"
+      ? { lint: "biome lint .", format: "biome format --write ." }
+      : { lint: "eslint --config ../../eslint.config.mjs app next.config.ts", format: "prettier --write ." };
   const packageJson: Record<string, unknown> = {
     name: `@acme/${appName}`,
     private: true,
@@ -155,8 +175,7 @@ export function renderNextjsApp({ appName, packageManagerField }: NextjsAppOptio
       test: "vitest run --passWithNoTests",
       start: "next start",
       typecheck: "tsc --noEmit",
-      lint: "eslint --config ../../eslint.config.mjs app next.config.ts",
-      format: "prettier --write ."
+      ...lintFormatScripts
     },
     dependencies: {
       next: "^15.0.0",
@@ -273,8 +292,19 @@ export function renderDatabaseClient({ client, runtime = "node", provider }: Dat
   return [writeFile("apps/web/db/client.ts", "db/drizzle", content)];
 }
 
-export function renderShadcnUi({ appName }: NextjsAppOptions): FileOperation[] {
+type ShadcnFramework = "nextjs" | "vite" | "tanstack-start";
+type ShadcnUiOptions = { appName: string; framework?: ShadcnFramework };
+
+const SHADCN_CSS_BY_FRAMEWORK: Record<ShadcnFramework, string> = {
+  nextjs: "app/globals.css",
+  vite: "src/index.css",
+  "tanstack-start": "src/styles/app.css"
+};
+
+export function renderShadcnUi({ appName, framework = "nextjs" }: ShadcnUiOptions): FileOperation[] {
   const root = `apps/${appName}`;
+  const cssPath = SHADCN_CSS_BY_FRAMEWORK[framework];
+  const rsc = framework === "nextjs";
 
   return [
     writeFile(
@@ -283,33 +313,106 @@ export function renderShadcnUi({ appName }: NextjsAppOptions): FileOperation[] {
       `${JSON.stringify(
         {
           style: "new-york",
-          rsc: true,
+          rsc,
           tsx: true,
-          tailwind: {
-            css: "app/globals.css",
-            baseColor: "neutral",
-            cssVariables: true
-          },
-          aliases: {
-            components: "@/components",
-            utils: "@/lib/utils"
-          }
+          tailwind: { css: cssPath, baseColor: "neutral", cssVariables: true },
+          aliases: { components: "@/components", utils: "@/lib/utils" }
         },
         null,
         2
       )}\n`
     ),
-    writeFile(
-      `${root}/app/globals.css`,
-      "ui/shadcn",
-      '@import "tailwindcss";\n\n:root {\n  color-scheme: light;\n}\n'
-    )
+    writeFile(`${root}/${cssPath}`, "ui/shadcn", '@import "tailwindcss";\n\n:root {\n  color-scheme: light;\n}\n')
   ];
 }
 
-export function renderFastApiService({ serviceName, projectName }: FastApiServiceOptions): FileOperation[] {
+type ViteAppOptions = { appName: string; packageManagerField?: string; withShadcn?: boolean };
+
+export function renderViteApp({ appName, packageManagerField, withShadcn = false }: ViteAppOptions): FileOperation[] {
+  const root = `apps/${appName}`;
+  const packageJson: Record<string, unknown> = {
+    name: `@acme/${appName}`,
+    private: true,
+    type: "module",
+    scripts: {
+      dev: "vite", build: "vite build", preview: "vite preview",
+      test: "vitest run --passWithNoTests", typecheck: "tsc --noEmit",
+      lint: "eslint src", format: "prettier --write ."
+    },
+    dependencies: { react: "^19.0.0", "react-dom": "^19.0.0" },
+    devDependencies: {
+      "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0",
+      "@vitejs/plugin-react": "^4.3.4", typescript: "^5.9.3", vite: "^6.0.0"
+    }
+  };
+  if (packageManagerField) packageJson.packageManager = packageManagerField;
+
+  const files = [
+    writeFile(`${root}/package.json`, "web/vite", `${JSON.stringify(packageJson, null, 2)}\n`),
+    writeFile(`${root}/index.html`, "web/vite", '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>Stackkit app</title>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.tsx"></script>\n  </body>\n</html>\n'),
+    writeFile(`${root}/vite.config.ts`, "web/vite", 'import { fileURLToPath, URL } from "node:url";\nimport react from "@vitejs/plugin-react";\nimport { defineConfig } from "vite";\n\nexport default defineConfig({\n  plugins: [react()],\n  resolve: {\n    alias: {\n      "@": fileURLToPath(new URL("./src", import.meta.url))\n    }\n  }\n});\n'),
+    writeFile(`${root}/tsconfig.json`, "web/vite", `${JSON.stringify({ extends: "../../tsconfig.base.json", compilerOptions: { lib: ["ES2022", "DOM", "DOM.Iterable"], jsx: "react-jsx", noEmit: true, paths: { "@/*": ["./src/*"] } }, include: ["src"], references: [{ path: "./tsconfig.node.json" }] }, null, 2)}\n`),
+    writeFile(`${root}/tsconfig.node.json`, "web/vite", `${JSON.stringify({ compilerOptions: { composite: true, module: "ESNext", moduleResolution: "Bundler", noEmit: true }, include: ["vite.config.ts"] }, null, 2)}\n`),
+    writeFile(`${root}/src/main.tsx`, "web/vite", 'import { StrictMode } from "react";\nimport { createRoot } from "react-dom/client";\nimport App from "./App";\nimport "./index.css";\n\ncreateRoot(document.getElementById("root")!).render(\n  <StrictMode>\n    <App />\n  </StrictMode>\n);\n'),
+    writeFile(`${root}/src/App.tsx`, "web/vite", 'export default function App() {\n  return <main>Stackkit app</main>;\n}\n'),
+    writeFile(`${root}/src/vite-env.d.ts`, "web/vite", '/// <reference types="vite/client" />\n')
+  ];
+  if (!withShadcn) {
+    files.push(writeFile(`${root}/src/index.css`, "web/vite", ":root {\n  color-scheme: light;\n}\n"));
+  }
+  return files;
+}
+
+type TanStackStartAppOptions = { appName: string; packageManagerField?: string; withShadcn?: boolean };
+
+export function renderTanStackStartApp({ appName, packageManagerField, withShadcn = false }: TanStackStartAppOptions): FileOperation[] {
+  const root = `apps/${appName}`;
+  const packageJson: Record<string, unknown> = {
+    name: `@acme/${appName}`,
+    private: true,
+    type: "module",
+    scripts: {
+      dev: "vite dev", build: "vite build", start: "node .output/server/index.mjs",
+      test: "vitest run --passWithNoTests", typecheck: "tsc --noEmit",
+      lint: "eslint src", format: "prettier --write ."
+    },
+    dependencies: {
+      "@tanstack/react-router": "^1.95.0", "@tanstack/react-start": "^1.95.0",
+      react: "^19.0.0", "react-dom": "^19.0.0"
+    },
+    devDependencies: {
+      "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0",
+      "@vitejs/plugin-react": "^4.3.4", nitro: "^2.10.0", typescript: "^5.9.3", vite: "^6.0.0"
+    }
+  };
+  if (packageManagerField) packageJson.packageManager = packageManagerField;
+
+  const files = [
+    writeFile(`${root}/package.json`, "web/tanstack-start", `${JSON.stringify(packageJson, null, 2)}\n`),
+    writeFile(`${root}/vite.config.ts`, "web/tanstack-start", 'import { tanstackStart } from "@tanstack/react-start/plugin/vite";\nimport viteReact from "@vitejs/plugin-react";\nimport { defineConfig } from "vite";\n\nexport default defineConfig({\n  server: { port: 3000 },\n  plugins: [tanstackStart(), viteReact()]\n});\n'),
+    writeFile(`${root}/tsconfig.json`, "web/tanstack-start", `${JSON.stringify({ extends: "../../tsconfig.base.json", compilerOptions: { lib: ["ES2022", "DOM", "DOM.Iterable"], jsx: "react-jsx", moduleResolution: "Bundler", noEmit: true, paths: { "@/*": ["./src/*"] } }, include: ["src"] }, null, 2)}\n`),
+    writeFile(`${root}/src/router.tsx`, "web/tanstack-start", 'import { createRouter as createTanStackRouter } from "@tanstack/react-router";\nimport { routeTree } from "./routeTree.gen";\n\nexport function createRouter() {\n  return createTanStackRouter({ routeTree, scrollRestoration: true });\n}\n\ndeclare module "@tanstack/react-router" {\n  interface Register {\n    router: ReturnType<typeof createRouter>;\n  }\n}\n'),
+    writeFile(`${root}/src/routes/__root.tsx`, "web/tanstack-start", 'import { Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";\nimport type { ReactNode } from "react";\n\nexport const Route = createRootRoute({\n  head: () => ({\n    meta: [\n      { charSet: "utf-8" },\n      { name: "viewport", content: "width=device-width, initial-scale=1" },\n      { title: "Stackkit app" }\n    ]\n  }),\n  component: RootComponent\n});\n\nfunction RootComponent() {\n  return (\n    <RootDocument>\n      <Outlet />\n    </RootDocument>\n  );\n}\n\nfunction RootDocument({ children }: Readonly<{ children: ReactNode }>) {\n  return (\n    <html>\n      <head>\n        <HeadContent />\n      </head>\n      <body>\n        {children}\n        <Scripts />\n      </body>\n    </html>\n  );\n}\n'),
+    writeFile(`${root}/src/routes/index.tsx`, "web/tanstack-start", 'import { createFileRoute } from "@tanstack/react-router";\n\nexport const Route = createFileRoute("/")({\n  component: Home\n});\n\nfunction Home() {\n  return <main>Stackkit app</main>;\n}\n'),
+    writeFile(`${root}/.gitignore`, "web/tanstack-start", ".output\n.nitro\n.tanstack\nsrc/routeTree.gen.ts\n")
+  ];
+  if (!withShadcn) {
+    files.push(writeFile(`${root}/src/styles/app.css`, "web/tanstack-start", ":root {\n  color-scheme: light;\n}\n"));
+  }
+  return files;
+}
+
+export function renderFastApiService({
+  serviceName,
+  projectName,
+  pyTypecheck = "mypy"
+}: FastApiServiceOptions): FileOperation[] {
   const root = `apps/${serviceName}`;
   const packageName = projectName ? `@${projectName}/${serviceName}` : `@acme/${serviceName}`;
+  // Ruff is always present for lint/format; the type checker is the only Python tooling choice here.
+  const devGroup = ["httpx", "mypy", "pyright", "pytest", "ruff"]
+    .filter((tool) => tool === "ruff" || tool === "httpx" || tool === "pytest" || tool === pyTypecheck)
+    .sort();
 
   return [
     writeFile(
@@ -322,7 +425,7 @@ export function renderFastApiService({ serviceName, projectName }: FastApiServic
           scripts: {
             dev: "uv run uvicorn app.main:app --reload",
             test: "uv run pytest",
-            typecheck: "uv run python -m compileall app",
+            typecheck: `uv run ${pyTypecheck} .`,
             lint: "uv run ruff check .",
             format: "uv run ruff format ."
           }
@@ -346,9 +449,7 @@ export function renderFastApiService({ serviceName, projectName }: FastApiServic
         "",
         "[dependency-groups]",
         "dev = [",
-        '  "httpx",',
-        '  "pytest",',
-        '  "ruff"',
+        ...devGroup.map((tool, index) => `  "${tool}"${index === devGroup.length - 1 ? "" : ","}`),
         "]",
         "",
         "[tool.pytest.ini_options]",

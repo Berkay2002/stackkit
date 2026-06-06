@@ -38,21 +38,14 @@ describe("renderPnpmTurboFoundation", () => {
           path: ".gitignore",
           owner: "workspace/pnpm-turbo",
           overwrite: "if-owned"
-        }),
-        expect.objectContaining({
-          kind: "write",
-          path: "eslint.config.mjs",
-          owner: "quality/eslint",
-          overwrite: "if-owned"
-        }),
-        expect.objectContaining({
-          kind: "write",
-          path: "prettier.config.mjs",
-          owner: "quality/prettier",
-          overwrite: "if-owned"
         })
       ])
     );
+
+    // Quality-tool config files (eslint.config.mjs, prettier.config.mjs) are no longer emitted by the
+    // foundation renderer — they are dispatched from the dedicated tooling-config renderers.
+    expect(files.some((file) => file.path === "eslint.config.mjs")).toBe(false);
+    expect(files.some((file) => file.path === "prettier.config.mjs")).toBe(false);
 
     const byPath = new Map(files.map((file) => [file.path, file]));
 
@@ -76,8 +69,39 @@ describe("renderPnpmTurboFoundation", () => {
     expect(byPath.get("turbo.json")?.content).toContain('"format"');
     expect(byPath.get("tsconfig.base.json")?.content).toContain('"moduleResolution": "Bundler"');
     expect(byPath.get(".gitignore")?.content).toContain("node_modules");
-    expect(byPath.get("eslint.config.mjs")?.content).toContain("@eslint/js");
-    expect(byPath.get("prettier.config.mjs")?.content).toContain("export default");
+  });
+
+  it("includes eslint/prettier/typescript-eslint root devDeps by default", () => {
+    const files = renderPnpmTurboFoundation({ projectName: "acme-app" });
+    const pkg = JSON.parse(files.find((file) => file.path === "package.json")?.content ?? "{}");
+
+    expect(pkg.devDependencies).toEqual(
+      expect.objectContaining({
+        eslint: expect.any(String),
+        prettier: expect.any(String),
+        "typescript-eslint": expect.any(String)
+      })
+    );
+    expect(pkg.devDependencies["@biomejs/biome"]).toBeUndefined();
+  });
+
+  it("swaps eslint/prettier/typescript-eslint for @biomejs/biome when the biome choice is selected", () => {
+    const files = renderPnpmTurboFoundation({ projectName: "acme-app", tsTooling: "biome" });
+    const pkg = JSON.parse(files.find((file) => file.path === "package.json")?.content ?? "{}");
+
+    expect(pkg.devDependencies["@biomejs/biome"]).toEqual(expect.any(String));
+    expect(pkg.devDependencies.eslint).toBeUndefined();
+    expect(pkg.devDependencies.prettier).toBeUndefined();
+    expect(pkg.devDependencies["typescript-eslint"]).toBeUndefined();
+    // Core tooling stays regardless of lint/format choice.
+    expect(pkg.devDependencies).toEqual(
+      expect.objectContaining({
+        typescript: expect.any(String),
+        turbo: expect.any(String),
+        vitest: expect.any(String),
+        "@types/node": expect.any(String)
+      })
+    );
   });
 
   it("renders npm workspaces without pnpm-workspace.yaml", () => {

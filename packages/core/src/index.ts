@@ -42,6 +42,18 @@ export { encodeRecipe, decodeRecipe } from "./recipe.js";
 
 export { defineModule, definePreset, loadProjectRegistries } from "./registry.js";
 
+export type {
+  ToolingLanguage,
+  ToolingSlot,
+  ToolingToolSpec
+} from "./tooling.js";
+export {
+  buildQualityModules,
+  toolingCatalog,
+  slotCapability,
+  languageCapability
+} from "./tooling.js";
+
 export type { ComposeReadmeInput } from "./readme.js";
 export { composeReadme } from "./readme.js";
 

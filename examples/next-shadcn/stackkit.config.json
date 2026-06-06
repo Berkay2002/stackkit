@@ -2,7 +2,16 @@
   "projectName": "next-shadcn",
   "packageManager": "pnpm",
   "workspace": "pnpm-turbo",
-  "modules": ["workspace/pnpm-turbo", "workspace/typescript", "web/nextjs", "ui/shadcn", "deploy/vercel"],
+  "modules": [
+    "workspace/pnpm-turbo",
+    "workspace/typescript",
+    "web/nextjs",
+    "ui/shadcn",
+    "quality/eslint",
+    "quality/prettier",
+    "quality/tsc",
+    "deploy/vercel"
+  ],
   "ai": {
     "skillTargets": ["codex"]
   }

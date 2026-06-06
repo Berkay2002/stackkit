@@ -39,3 +39,16 @@ describe("create --db-provider / --db-runtime", () => {
     expect(client?.content).toContain("drizzle-orm/node-postgres");
   });
 });
+
+describe("create --ui", () => {
+  it("threads --ui none through create axes", async () => {
+    const plan = await createDryRunPlanFromConfig({ name: "demo", axes: { web: "vite", ui: "none" } });
+    expect(plan.modules.map((m) => m.id)).not.toContain("ui/shadcn");
+    expect(plan.modules.map((m) => m.id)).toContain("web/vite");
+  });
+
+  it("defaults to shadcn for --web vite when --ui omitted", async () => {
+    const plan = await createDryRunPlanFromConfig({ name: "demo", axes: { web: "vite" } });
+    expect(plan.modules.map((m) => m.id)).toContain("ui/shadcn");
+  });
+});

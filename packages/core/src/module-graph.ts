@@ -5,6 +5,8 @@ import {
   type StackkitPreset
 } from "@berkayorhan/stackkit-schemas";
 
+import { applyDefaultTooling } from "./tooling.js";
+
 export type ResolveModuleGraphOptions = {
   presets?: readonly StackkitPreset[];
   availablePresets?: readonly StackkitPreset[];
@@ -18,9 +20,14 @@ export type StackAxes = {
   db?: string;
   dbClient?: string;
   dbProvider?: string;
+  ui?: string;
   auth?: string | readonly string[];
   with?: readonly string[];
   deploy?: readonly string[];
+  /** TypeScript lint+format toolchain. Default `eslint-prettier` is gap-filled; `biome` suppresses it. */
+  tsQuality?: "eslint-prettier" | "biome";
+  /** Python type checker. Default `mypy` is gap-filled; `pyright` suppresses it. */
+  pyTypecheck?: "mypy" | "pyright";
 };
 
 export type ValidateConfigResult = {
@@ -60,22 +67,21 @@ export function resolveStackAxes(axes: StackAxes, modules: readonly StackkitModu
   const resolved: string[] = [];
   const api = axes.api ? resolveModuleAlias(axes.api, modules) : undefined;
   const web = axes.web ? resolveModuleAlias(axes.web, modules) : undefined;
+  const webModuleDef = web ? modules.find((m) => m.id === web) : undefined;
+  const webProvidesReact = webModuleDef?.provides?.includes("react") ?? false;
   const db = axes.db ? resolveModuleAlias(axes.db, modules) : undefined;
   const auth = normalizeSingleAuth(axes.auth);
   const hasNext = web === "web/nextjs";
   const hasFastApi = api === "api/fastapi";
   const hasAxum = api === "rust/axum";
 
-  if (hasNext) {
-    appendExistingModules(resolved, modules, [
-      "workspace/pnpm-turbo",
-      "workspace/typescript",
-      "web/nextjs",
-      "ui/shadcn",
-      "quality/eslint"
-    ]);
-  } else if (web) {
-    appendModule(resolved, web);
+  if (web) {
+    if (webProvidesReact) {
+      appendExistingModules(resolved, modules, ["workspace/pnpm-turbo", "workspace/typescript", web]);
+      appendUiModule(resolved, modules, axes.ui);
+    } else {
+      appendModule(resolved, web);
+    }
   }
 
   if (hasFastApi) {
@@ -106,6 +112,16 @@ export function resolveStackAxes(axes: StackAxes, modules: readonly StackkitModu
 
   for (const moduleId of resolveDeploymentModules(axes.deploy ?? [], modules, { includeKubernetesBase: true })) {
     appendModule(resolved, moduleId);
+  }
+
+  // Non-default tooling choices append their alternative Quality Module; gap-filling
+  // (applyDefaultTooling in resolveModuleGraph) then supplies the remaining defaults and the
+  // alternative's slot capabilities suppress the defaults it replaces. Default values add nothing.
+  if (axes.tsQuality === "biome") {
+    appendExistingModules(resolved, modules, ["quality/biome"]);
+  }
+  if (axes.pyTypecheck === "pyright") {
+    appendExistingModules(resolved, modules, ["quality/pyright"]);
   }
 
   return resolved;
@@ -222,6 +238,19 @@ function resolveDeploymentModules(
   return resolved;
 }
 
+function appendUiModule(resolved: string[], modules: readonly StackkitModule[], ui: string | undefined): void {
+  if (ui === "none") {
+    return;
+  }
+
+  if (ui) {
+    appendModule(resolved, resolveModuleAlias(ui, modules));
+    return;
+  }
+
+  appendExistingModules(resolved, modules, ["ui/shadcn"]);
+}
+
 function appendExistingModules(target: string[], modules: readonly StackkitModule[], moduleIds: readonly string[]): void {
   for (const moduleId of moduleIds) {
     if (hasModule(modules, moduleId)) {
@@ -246,7 +275,8 @@ export function resolveModuleGraph(
 ): StackkitModule[] {
   const expanded = [...expandPresetModules(options), ...modules];
   const unique = dedupeModules(expanded);
-  const ordered = orderModulesByRequirements(unique);
+  const withTooling = applyDefaultTooling(unique);
+  const ordered = orderModulesByRequirements(withTooling);
 
   validateModuleRequirements(ordered);
   validateModuleConflicts(ordered);

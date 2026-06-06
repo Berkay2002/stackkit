@@ -76,6 +76,18 @@ stackkit create my-app \
 
 Stackkit records every module choice in `.stackkit/project.json` so future commands can inspect, diff, and evolve the project without guessing what was originally generated.
 
+Prefer a lighter React setup? Generate a Vite single-page app or a full-stack TanStack Start app instead of Next.js:
+
+```bash
+# React SPA with Vite.
+stackkit create my-spa --web vite
+
+# Full-stack React with TanStack Start.
+stackkit create my-app --web tanstack
+```
+
+React frameworks include ShadCN UI by default. Add `--ui none` to skip ShadCN, or `--ui tailwind` to swap it for plain Tailwind CSS.
+
 <Callout title="Tip: skip AI skill installation for quick tests" type="info">
 Pass `--skills skip --yes` to bypass the AI skill installation step and accept all prompts automatically — useful when you just want to see the generated output locally:
 

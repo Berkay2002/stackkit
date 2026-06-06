@@ -8,6 +8,11 @@
     "web/nextjs",
     "api/fastapi",
     "db/postgres",
+    "quality/eslint",
+    "quality/prettier",
+    "quality/tsc",
+    "quality/ruff",
+    "quality/mypy",
     "deploy/docker",
     "deploy/kubernetes",
     "docs/local-dev"

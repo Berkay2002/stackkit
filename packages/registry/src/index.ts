@@ -1,3 +1,4 @@
+import { buildQualityModules } from "@berkayorhan/stackkit-core";
 import { defineModule, definePreset } from "@berkayorhan/stackkit-core/customizer";
 import { stackkitRegistrySchema } from "@berkayorhan/stackkit-schemas";
 
@@ -66,6 +67,7 @@ export const builtinModules = [
     icon: "nextjs",
     requires: ["workspace/node"],
     provides: ["web-app", "nextjs-app", "react"],
+    conflicts: ["web/vite", "web/tanstack-start"],
     readme: {
       stack: ["Next.js", "React"],
       layout: [{ path: "apps/web", description: "Next.js App Router web application" }]
@@ -90,6 +92,40 @@ export const builtinModules = [
         safety: "automatic"
       }
     ]
+  }),
+  defineModule({
+    id: "web/vite",
+    version: "1.0.0",
+    title: "Vite",
+    description: "Vite React web application",
+    aliases: ["vite"],
+    category: "web",
+    icon: "vite",
+    requires: ["workspace/node"],
+    provides: ["web-app", "react"],
+    conflicts: ["web/nextjs", "web/tanstack-start"],
+    readme: {
+      stack: ["Vite", "React"],
+      layout: [{ path: "apps/web", description: "Vite React single-page application" }]
+    },
+    aiSkills: localGuidance("web/vite", "stackkit-vite-guidance", "Vite React app structure and build configuration guidance")
+  }),
+  defineModule({
+    id: "web/tanstack-start",
+    version: "1.0.0",
+    title: "TanStack Start",
+    description: "TanStack Start full-stack React application",
+    aliases: ["tanstack", "tanstack-start"],
+    category: "web",
+    icon: "tanstack",
+    requires: ["workspace/node"],
+    provides: ["web-app", "react", "ssr"],
+    conflicts: ["web/nextjs", "web/vite"],
+    readme: {
+      stack: ["TanStack Start", "React"],
+      layout: [{ path: "apps/web", description: "TanStack Start full-stack React application" }]
+    },
+    aiSkills: localGuidance("web/tanstack-start", "stackkit-tanstack-start-guidance", "TanStack Start routing, SSR, and server-function guidance")
   }),
   defineModule({
     id: "ui/shadcn",
@@ -134,23 +170,6 @@ export const builtinModules = [
         reason: "Tailwind configuration and utility composition guidance"
       }
     ]
-  }),
-  defineModule({
-    id: "quality/eslint",
-    version: "1.0.0",
-    title: "ESLint",
-    description: "JavaScript and TypeScript linting",
-    requires: ["typescript"],
-    provides: ["lint"],
-    aiSkills: localGuidance("quality/eslint", "stackkit-eslint-guidance", "ESLint configuration and rule maintenance guidance")
-  }),
-  defineModule({
-    id: "quality/prettier",
-    version: "1.0.0",
-    title: "Prettier",
-    description: "Shared code formatting",
-    provides: ["format"],
-    aiSkills: localGuidance("quality/prettier", "stackkit-prettier-guidance", "Prettier configuration and formatting policy guidance")
   }),
   defineModule({
     id: "api/fastapi",
@@ -211,15 +230,7 @@ export const builtinModules = [
       }
     ]
   }),
-  defineModule({
-    id: "quality/ruff",
-    version: "1.0.0",
-    title: "Ruff",
-    description: "Python linting and formatting",
-    requires: ["python"],
-    provides: ["python-quality"],
-    aiSkills: localGuidance("quality/ruff", "stackkit-ruff-guidance", "Ruff linting and formatting guidance")
-  }),
+  ...buildQualityModules(),
   defineModule({
     id: "quality/pytest",
     version: "1.0.0",
@@ -753,15 +764,6 @@ export const builtinModules = [
     aiSkills: localGuidance("rust/diesel", "stackkit-rust-diesel-guidance", "Rust Diesel schema and migration guidance")
   }),
   defineModule({
-    id: "quality/cargo",
-    version: "1.0.0",
-    title: "Cargo checks",
-    description: "Rust formatting, linting, and tests",
-    requires: ["rust"],
-    provides: ["rust-quality"],
-    aiSkills: localGuidance("quality/cargo", "stackkit-cargo-guidance", "Cargo formatting, linting, and test guidance")
-  }),
-  defineModule({
     id: "desktop/tauri",
     version: "1.0.0",
     title: "Tauri",
@@ -895,7 +897,19 @@ export const builtinPresets = [
     id: "next",
     title: "Next.js",
     description: "A pnpm and Turborepo workspace with a Next.js app and ShadCN UI",
-    modules: ["workspace/pnpm-turbo", "workspace/typescript", "web/nextjs", "ui/shadcn", "quality/eslint", "quality/prettier"]
+    modules: ["workspace/pnpm-turbo", "workspace/typescript", "web/nextjs", "ui/shadcn", "quality/eslint", "quality/prettier", "quality/tsc"]
+  }),
+  definePreset({
+    id: "vite",
+    title: "Vite",
+    description: "A pnpm and Turborepo workspace with a Vite React app and ShadCN UI",
+    modules: ["workspace/pnpm-turbo", "workspace/typescript", "web/vite", "ui/shadcn", "quality/eslint", "quality/prettier"]
+  }),
+  definePreset({
+    id: "tanstack-start",
+    title: "TanStack Start",
+    description: "A pnpm and Turborepo workspace with a TanStack Start app and ShadCN UI",
+    modules: ["workspace/pnpm-turbo", "workspace/typescript", "web/tanstack-start", "ui/shadcn", "quality/eslint", "quality/prettier"]
   }),
   definePreset({
     id: "next-postgres-clerk",
@@ -911,7 +925,8 @@ export const builtinPresets = [
       "auth/clerk",
       "deploy/vercel",
       "quality/eslint",
-      "quality/prettier"
+      "quality/prettier",
+      "quality/tsc"
     ]
   }),
   definePreset({
@@ -928,7 +943,8 @@ export const builtinPresets = [
       "auth/better-auth",
       "deploy/vercel",
       "quality/eslint",
-      "quality/prettier"
+      "quality/prettier",
+      "quality/tsc"
     ]
   }),
   definePreset({
@@ -949,7 +965,9 @@ export const builtinPresets = [
       "deploy/docker",
       "quality/eslint",
       "quality/prettier",
+      "quality/tsc",
       "quality/ruff",
+      "quality/mypy",
       "quality/pytest"
     ]
   }),
@@ -971,7 +989,10 @@ export const builtinPresets = [
       "deploy/docker",
       "quality/eslint",
       "quality/prettier",
-      "quality/cargo"
+      "quality/tsc",
+      "quality/clippy",
+      "quality/rustfmt",
+      "quality/cargo-check"
     ]
   }),
   definePreset({
@@ -988,7 +1009,9 @@ export const builtinPresets = [
       "db/postgres",
       "db/sqlalchemy",
       "deploy/docker",
-      "docs/local-dev"
+      "docs/local-dev",
+      "quality/tsc",
+      "quality/mypy"
     ]
   }),
   definePreset({
@@ -1005,7 +1028,8 @@ export const builtinPresets = [
       "postgres/neon",
       "deploy/vercel",
       "quality/eslint",
-      "quality/prettier"
+      "quality/prettier",
+      "quality/tsc"
     ]
   }),
   definePreset({
@@ -1022,7 +1046,8 @@ export const builtinPresets = [
       "postgres/supabase",
       "deploy/vercel",
       "quality/eslint",
-      "quality/prettier"
+      "quality/prettier",
+      "quality/tsc"
     ]
   })
 ] as const;

@@ -46,7 +46,7 @@ describe("api templates", () => {
     expect(packageJson.scripts).toEqual({
       dev: "uv run uvicorn app.main:app --reload",
       test: "uv run pytest",
-      typecheck: "uv run python -m compileall app",
+      typecheck: "uv run mypy .",
       lint: "uv run ruff check .",
       format: "uv run ruff format ."
     });
@@ -56,7 +56,21 @@ describe("api templates", () => {
     expect(pyproject).toContain('"httpx"');
     expect(pyproject).toContain('"pytest"');
     expect(pyproject).toContain('"ruff"');
+    expect(pyproject).toContain('"mypy"');
+    // Ruff config now lives in ruff.toml, not embedded in pyproject.
+    expect(pyproject).not.toContain("[tool.ruff]");
     expect(files.find((file) => file.path === "apps/api/app/main.py")?.content).toContain('@app.get("/health")');
     expect(files.find((file) => file.path === "apps/api/tests/test_health.py")?.content).toContain("test_health");
+  });
+
+  it("uses pyright for typecheck when the pyright choice is selected", () => {
+    const files = renderFastApiService({ serviceName: "api", projectName: "acme", pyTypecheck: "pyright" });
+    const packageJson = JSON.parse(files.find((file) => file.path === "apps/api/package.json")?.content ?? "{}");
+    const pyproject = files.find((file) => file.path === "apps/api/pyproject.toml")?.content ?? "";
+
+    expect(packageJson.scripts.typecheck).toBe("uv run pyright .");
+    expect(pyproject).toContain('"pyright"');
+    expect(pyproject).not.toContain('"mypy"');
+    expect(pyproject).toContain('"ruff"');
   });
 });

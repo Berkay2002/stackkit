@@ -100,12 +100,15 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--skills <mode>", "AI skill mode. (install, plan, skip)")
     .option("--skill-link <mode>", "AI skill link mode. (copy, symlink)")
     .option("--web <alias>", "Web framework alias")
+    .option("--ui <alias>", "UI layer alias. (shadcn, tailwind, none)")
     .option("--api <alias>", "API framework alias")
     .option("--db <alias>", "Database alias")
     .option("--db-client <alias>", "Database client alias")
     .option("--db-provider <alias>", "Postgres host/provider. (neon, supabase, supabase-local, postgres-local)")
     .option("--db-runtime <mode>", "Database client runtime for scripted-axis creates. (node, edge) — edge applies to Neon + Drizzle", "node")
     .option("--auth <alias>", "Auth provider alias")
+    .option("--ts-quality <choice>", "TypeScript lint+format toolchain. (eslint-prettier, biome)")
+    .option("--py-typecheck <choice>", "Python type checker. (mypy, pyright)")
     .option("--with <aliases>", "Additional module aliases. Comma-separated")
     .option("--deploy <aliases>", "Deployment target aliases. Comma-separated")
     .option("--recipe <code>", "Offline Stackkit recipe code")
@@ -125,11 +128,14 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
         skillLinkMode: options.skillLink,
         axes: {
           web: options.web,
+          ui: options.ui,
           api: options.api,
           db: options.db,
           dbClient: options.dbClient,
           dbProvider: options.dbProvider,
           auth: parseCommaList(options.auth),
+          tsQuality: options.tsQuality,
+          pyTypecheck: options.pyTypecheck,
           with: parseCommaList(options.with),
           deploy: parseCommaList(options.deploy)
         },
@@ -563,12 +569,15 @@ type CreateCommandOptions = {
   skills?: string;
   skillLink?: string;
   web?: string;
+  ui?: string;
   api?: string;
   db?: string;
   dbClient?: string;
   dbProvider?: string;
   dbRuntime?: string;
   auth?: string;
+  tsQuality?: string;
+  pyTypecheck?: string;
   with?: string;
   deploy?: string;
   recipe?: string;
@@ -610,14 +619,39 @@ function registrySummary(registry: StackkitRegistry, source: "builtin" | "local"
 
 type CreateAxisOptions = {
   web?: string;
+  ui?: string;
   api?: string;
   db?: string;
   dbClient?: string;
   dbProvider?: string;
   auth?: string[];
+  tsQuality?: string;
+  pyTypecheck?: string;
   with?: string[];
   deploy?: string[];
 };
+
+const TS_QUALITY_CHOICES = ["eslint-prettier", "biome"] as const;
+const PY_TYPECHECK_CHOICES = ["mypy", "pyright"] as const;
+
+type TsQualityChoice = (typeof TS_QUALITY_CHOICES)[number];
+type PyTypecheckChoice = (typeof PY_TYPECHECK_CHOICES)[number];
+
+function parseEnumFlag<T extends string>(
+  value: string | undefined,
+  choices: readonly T[],
+  flag: string
+): T | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!choices.includes(value as T)) {
+    throw new Error(`Invalid ${flag} value: "${value}". Expected one of: ${choices.join(", ")}.`);
+  }
+
+  return value as T;
+}
 
 export async function createDryRunPlanFromConfig(options: string | CreatePlanOptions | undefined = {}): Promise<CreatePlan> {
   const planOptions = typeof options === "string" ? { configPath: options } : options ?? {};
@@ -722,14 +756,20 @@ function resolveCreateAxisModules(axes: CreateAxisOptions | undefined): string[]
     return [];
   }
 
+  const tsQuality: TsQualityChoice | undefined = parseEnumFlag(axes.tsQuality, TS_QUALITY_CHOICES, "--ts-quality");
+  const pyTypecheck: PyTypecheckChoice | undefined = parseEnumFlag(axes.pyTypecheck, PY_TYPECHECK_CHOICES, "--py-typecheck");
+
   const resolved = resolveStackAxes(
     {
       web: axes.web,
+      ui: axes.ui,
       api: axes.api,
       db: axes.db,
       dbClient: axes.dbClient,
       dbProvider: axes.dbProvider,
       auth: axes.auth,
+      tsQuality,
+      pyTypecheck,
       with: axes.with,
       deploy: axes.deploy
     },
@@ -757,10 +797,13 @@ function dbRuntimeOptions(
 function hasCreateAxes(axes: CreateAxisOptions): boolean {
   return Boolean(
     axes.web ||
+      axes.ui ||
       axes.api ||
       axes.db ||
       axes.dbClient ||
       axes.dbProvider ||
+      axes.tsQuality ||
+      axes.pyTypecheck ||
       (axes.auth && axes.auth.length > 0) ||
       (axes.with && axes.with.length > 0) ||
       (axes.deploy && axes.deploy.length > 0)

@@ -177,7 +177,6 @@ describe("module aliases", () => {
       "workspace/typescript",
       "web/nextjs",
       "ui/shadcn",
-      "quality/eslint",
       "api/fastapi",
       "db/postgres",
       "db/sqlalchemy",
@@ -192,7 +191,6 @@ describe("module aliases", () => {
       "workspace/typescript",
       "web/nextjs",
       "ui/shadcn",
-      "quality/eslint",
       "rust/tokio",
       "rust/axum",
       "db/postgres",
@@ -219,7 +217,6 @@ describe("module aliases", () => {
       "workspace/typescript",
       "web/nextjs",
       "ui/shadcn",
-      "quality/eslint",
       "deploy/docker",
       "deploy/vercel",
       "deploy/kubernetes"

@@ -12,6 +12,12 @@
     "rust/sqlx",
     "db/postgres",
     "auth/auth0-nextjs",
+    "quality/eslint",
+    "quality/prettier",
+    "quality/tsc",
+    "quality/clippy",
+    "quality/rustfmt",
+    "quality/cargo-check",
     "deploy/docker"
   ],
   "ai": {

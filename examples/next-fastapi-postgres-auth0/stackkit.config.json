@@ -13,6 +13,11 @@
     "db/sqlalchemy",
     "auth/auth0-nextjs",
     "auth/auth0-fastapi",
+    "quality/eslint",
+    "quality/prettier",
+    "quality/tsc",
+    "quality/ruff",
+    "quality/mypy",
     "deploy/vercel",
     "deploy/docker"
   ],

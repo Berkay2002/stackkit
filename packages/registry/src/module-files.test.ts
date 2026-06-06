@@ -52,9 +52,15 @@ describe("builtin module file declarations", () => {
         "ai/skills",
         "quality/eslint",
         "quality/prettier",
+        "quality/biome",
+        "quality/tsc",
         "quality/ruff",
+        "quality/mypy",
+        "quality/pyright",
+        "quality/clippy",
+        "quality/rustfmt",
+        "quality/cargo-check",
         "quality/pytest",
-        "quality/cargo",
         "quality/vitest"
       ])
     );
