@@ -42,10 +42,6 @@ export function slotCapability(language: ToolingLanguage, slot: ToolingSlot): st
   return `${language}-${slot}`;
 }
 
-function localGuidance(moduleId: string, skill: string, reason: string): AiSkillDependency[] {
-  return [{ skills: [skill], trust: "local", causedBy: moduleId, reason }];
-}
-
 function curatedGuidance(moduleId: string, source: string, skills: string[], reason: string): AiSkillDependency[] {
   return [{ source, skills, trust: "curated", causedBy: moduleId, reason }];
 }
@@ -65,8 +61,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "ts",
     slots: ["lint"],
     isDefault: true,
-    aliases: ["eslint"],
-    aiSkills: localGuidance("quality/eslint", "stackkit-eslint-guidance", "ESLint configuration and rule maintenance guidance")
+    aliases: ["eslint"]
   },
   {
     moduleId: "quality/prettier",
@@ -76,8 +71,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "ts",
     slots: ["format"],
     isDefault: true,
-    aliases: ["prettier"],
-    aiSkills: localGuidance("quality/prettier", "stackkit-prettier-guidance", "Prettier configuration and formatting policy guidance")
+    aliases: ["prettier"]
   },
   {
     moduleId: "quality/biome",
@@ -103,8 +97,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "ts",
     slots: ["typecheck"],
     isDefault: true,
-    aliases: ["tsc"],
-    aiSkills: localGuidance("quality/tsc", "stackkit-tsc-guidance", "TypeScript compiler and type-checking configuration guidance")
+    aliases: ["tsc"]
   },
   {
     moduleId: "quality/ruff",
@@ -114,8 +107,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "py",
     slots: ["lint", "format"],
     isDefault: true,
-    aliases: ["ruff"],
-    aiSkills: localGuidance("quality/ruff", "stackkit-ruff-guidance", "Ruff linting and formatting guidance")
+    aliases: ["ruff"]
   },
   {
     moduleId: "quality/mypy",
@@ -141,8 +133,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "py",
     slots: ["typecheck"],
     isDefault: false,
-    aliases: ["pyright"],
-    aiSkills: localGuidance("quality/pyright", "stackkit-pyright-guidance", "Pyright configuration and type-checking guidance")
+    aliases: ["pyright"]
   },
   {
     moduleId: "quality/clippy",
@@ -152,8 +143,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "rust",
     slots: ["lint"],
     isDefault: true,
-    aliases: ["clippy"],
-    aiSkills: localGuidance("quality/clippy", "stackkit-clippy-guidance", "Clippy lint configuration guidance")
+    aliases: ["clippy"]
   },
   {
     moduleId: "quality/rustfmt",
@@ -163,8 +153,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "rust",
     slots: ["format"],
     isDefault: true,
-    aliases: ["rustfmt"],
-    aiSkills: localGuidance("quality/rustfmt", "stackkit-rustfmt-guidance", "rustfmt formatting configuration guidance")
+    aliases: ["rustfmt"]
   },
   {
     moduleId: "quality/cargo-check",
@@ -174,8 +163,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "rust",
     slots: ["typecheck"],
     isDefault: true,
-    aliases: ["cargo-check"],
-    aiSkills: localGuidance("quality/cargo-check", "stackkit-cargo-check-guidance", "Cargo check and compile-verification guidance")
+    aliases: ["cargo-check"]
   }
 ];
 

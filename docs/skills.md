@@ -6,7 +6,7 @@ Trust levels:
 
 - `official`: vendor, framework, or platform-owned source.
 - `curated`: allowlisted community source.
-- `local`: Stackkit-generated project guidance.
+- `local`: explicit project-local guidance from a registry entry.
 - `unresolved`: wanted but not installed or not trusted.
 
 Codex-compatible skills install to `.agents/skills` by default. Claude Code skills install to `.claude/skills` only when selected.

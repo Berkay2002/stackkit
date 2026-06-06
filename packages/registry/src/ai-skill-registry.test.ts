@@ -104,4 +104,12 @@ describe("builtin AI skill registry", () => {
       ])
     );
   });
+
+  it("does not expose generated Stackkit placeholder guidance skills from built-in modules", () => {
+    const skills = resolveAiSkills(builtinModules, { curatedAllowlist: curatedSkillSourceAllowlist });
+    const skillNames = skills.flatMap((skill) => skill.skills);
+
+    expect(skills.filter((skill) => skill.trust === "local")).toEqual([]);
+    expect(skillNames.filter((skillName) => /^stackkit-.*-guidance$/.test(skillName))).toEqual([]);
+  });
 });

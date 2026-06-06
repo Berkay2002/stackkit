@@ -15,17 +15,6 @@ export const curatedSkillSourceAllowlist = [
   "https://github.com/nodnarbnitram/claude-code-extensions"
 ] as const;
 
-function localGuidance(moduleId: string, skill: string, reason: string) {
-  return [
-    {
-      skills: [skill],
-      trust: "local" as const,
-      causedBy: moduleId,
-      reason
-    }
-  ];
-}
-
 export const builtinModules = [
   defineModule({
     id: "workspace/pnpm-turbo",
@@ -180,15 +169,7 @@ export const builtinModules = [
     aliases: ["tailwind"],
     category: "ui",
     requires: ["workspace/node"],
-    provides: ["css", "tailwind"],
-    aiSkills: [
-      {
-        skills: ["stackkit-tailwind-guidance"],
-        trust: "local",
-        causedBy: "ui/tailwind",
-        reason: "Tailwind configuration and utility composition guidance"
-      }
-    ]
+    provides: ["css", "tailwind"]
   }),
   defineModule({
     id: "api/fastapi",
@@ -224,30 +205,14 @@ export const builtinModules = [
     description: "Flask API service",
     aliases: ["flask"],
     category: "api",
-    provides: ["api", "python"],
-    aiSkills: [
-      {
-        skills: ["stackkit-flask-guidance"],
-        trust: "local",
-        causedBy: "api/flask",
-        reason: "Flask service structure and testing guidance"
-      }
-    ]
+    provides: ["api", "python"]
   }),
   defineModule({
     id: "api/litestar",
     version: "1.0.0",
     title: "Litestar",
     description: "Litestar API service",
-    provides: ["api", "python"],
-    aiSkills: [
-      {
-        skills: ["stackkit-litestar-guidance"],
-        trust: "local",
-        causedBy: "api/litestar",
-        reason: "Litestar service structure and testing guidance"
-      }
-    ]
+    provides: ["api", "python"]
   }),
   ...buildQualityModules(),
   defineModule({
@@ -256,8 +221,7 @@ export const builtinModules = [
     title: "pytest",
     description: "Python test runner",
     requires: ["python"],
-    provides: ["python-test"],
-    aiSkills: localGuidance("quality/pytest", "stackkit-pytest-guidance", "pytest layout and test authoring guidance")
+    provides: ["python-test"]
   }),
   defineModule({
     id: "db/postgres",
@@ -302,8 +266,7 @@ export const builtinModules = [
     ],
     readme: {
       stack: ["Drizzle ORM"]
-    },
-    aiSkills: localGuidance("db/drizzle", "stackkit-drizzle-guidance", "Drizzle schema and migration guidance")
+    }
   }),
   defineModule({
     id: "db/prisma",
@@ -311,15 +274,7 @@ export const builtinModules = [
     title: "Prisma",
     description: "TypeScript ORM for Postgres",
     requires: ["postgres", "typescript"],
-    provides: ["typescript-db"],
-    aiSkills: [
-      {
-        skills: ["stackkit-prisma-guidance"],
-        trust: "local",
-        causedBy: "db/prisma",
-        reason: "Prisma schema and migration guidance"
-      }
-    ]
+    provides: ["typescript-db"]
   }),
   defineModule({
     id: "db/sqlalchemy",
@@ -342,8 +297,7 @@ export const builtinModules = [
     ],
     readme: {
       stack: ["SQLAlchemy"]
-    },
-    aiSkills: localGuidance("db/sqlalchemy", "stackkit-sqlalchemy-guidance", "SQLAlchemy model, session, and migration guidance")
+    }
   }),
   defineModule({
     id: "db/sqlx",
@@ -354,15 +308,7 @@ export const builtinModules = [
     category: "database-client",
     icon: "rust",
     requires: ["postgres"],
-    provides: ["sqlx-db"],
-    aiSkills: [
-      {
-        skills: ["stackkit-sqlx-guidance"],
-        trust: "local",
-        causedBy: "db/sqlx",
-        reason: "SQLx query and migration guidance"
-      }
-    ]
+    provides: ["sqlx-db"]
   }),
   defineModule({
     id: "db/diesel",
@@ -370,15 +316,7 @@ export const builtinModules = [
     title: "Diesel",
     description: "Diesel ORM for Postgres",
     requires: ["postgres"],
-    provides: ["diesel-db"],
-    aiSkills: [
-      {
-        skills: ["stackkit-diesel-guidance"],
-        trust: "local",
-        causedBy: "db/diesel",
-        reason: "Diesel schema and migration guidance"
-      }
-    ]
+    provides: ["diesel-db"]
   }),
   defineModule({
     id: "postgres/neon",
@@ -732,38 +670,21 @@ export const builtinModules = [
     category: "api",
     icon: "rust",
     requires: ["rust-async"],
-    provides: ["api", "rust"],
-    aiSkills: localGuidance("rust/axum", "stackkit-axum-guidance", "Axum service structure and async handler guidance")
+    provides: ["api", "rust"]
   }),
   defineModule({
     id: "rust/actix",
     version: "1.0.0",
     title: "Actix Web",
     description: "Actix Web API service",
-    provides: ["api", "rust"],
-    aiSkills: [
-      {
-        skills: ["stackkit-actix-guidance"],
-        trust: "local",
-        causedBy: "rust/actix",
-        reason: "Actix Web service structure and testing guidance"
-      }
-    ]
+    provides: ["api", "rust"]
   }),
   defineModule({
     id: "rust/rocket",
     version: "1.0.0",
     title: "Rocket",
     description: "Rocket web API service",
-    provides: ["api", "rust"],
-    aiSkills: [
-      {
-        skills: ["stackkit-rocket-guidance"],
-        trust: "local",
-        causedBy: "rust/rocket",
-        reason: "Rocket service structure and testing guidance"
-      }
-    ]
+    provides: ["api", "rust"]
   }),
   defineModule({
     id: "rust/sqlx",
@@ -774,8 +695,7 @@ export const builtinModules = [
     category: "database-client",
     icon: "rust",
     requires: ["postgres", "rust"],
-    provides: ["rust-db"],
-    aiSkills: localGuidance("rust/sqlx", "stackkit-rust-sqlx-guidance", "Rust SQLx query and migration guidance")
+    provides: ["rust-db"]
   }),
   defineModule({
     id: "rust/diesel",
@@ -783,8 +703,7 @@ export const builtinModules = [
     title: "Diesel for Rust",
     description: "Rust Diesel ORM integration for Postgres",
     requires: ["postgres", "rust"],
-    provides: ["rust-db"],
-    aiSkills: localGuidance("rust/diesel", "stackkit-rust-diesel-guidance", "Rust Diesel schema and migration guidance")
+    provides: ["rust-db"]
   }),
   defineModule({
     id: "desktop/tauri",
@@ -818,8 +737,7 @@ export const builtinModules = [
         { path: "docker-compose.yml", description: "Local container orchestration" },
         { path: "apps/web/Dockerfile", description: "Next.js container image" }
       ]
-    },
-    aiSkills: localGuidance("deploy/docker", "stackkit-docker-guidance", "Dockerfile and image build guidance")
+    }
   }),
   defineModule({
     id: "workspace/docker-compose",
@@ -827,16 +745,14 @@ export const builtinModules = [
     title: "Docker Compose",
     description: "Local multi-service Docker Compose setup",
     requires: ["container"],
-    provides: ["local-compose"],
-    aiSkills: localGuidance("workspace/docker-compose", "stackkit-docker-compose-guidance", "Local multi-service Compose guidance")
+    provides: ["local-compose"]
   }),
   defineModule({
     id: "workspace/github-actions",
     version: "1.0.0",
     title: "GitHub Actions",
     description: "Baseline CI workflow",
-    provides: ["ci"],
-    aiSkills: localGuidance("workspace/github-actions", "stackkit-github-actions-guidance", "GitHub Actions CI workflow guidance")
+    provides: ["ci"]
   }),
   defineModule({
     id: "deploy/kubernetes",
@@ -847,62 +763,42 @@ export const builtinModules = [
     category: "deploy",
     icon: "kubernetes",
     requires: ["container"],
-    provides: ["deploy"],
-    aiSkills: [
-      {
-        skills: ["stackkit-kubernetes-guidance"],
-        trust: "local",
-        causedBy: "deploy/kubernetes",
-        reason: "No accepted official or curated Kubernetes skill source is configured"
-      }
-    ]
+    provides: ["deploy"]
   }),
   defineModule({
     id: "docs/local-dev",
     version: "1.0.0",
     title: "Local development docs",
     description: "Local development documentation",
-    provides: ["docs"],
-    aiSkills: localGuidance("docs/local-dev", "stackkit-local-dev-docs-guidance", "Local development documentation guidance")
+    provides: ["docs"]
   }),
   defineModule({
     id: "docs/readme",
     version: "1.0.0",
     title: "README",
     description: "Project README documentation",
-    provides: ["docs"],
-    aiSkills: localGuidance("docs/readme", "stackkit-readme-guidance", "README structure and project overview guidance")
+    provides: ["docs"]
   }),
   defineModule({
     id: "docs/architecture",
     version: "1.0.0",
     title: "Architecture docs",
     description: "Architecture documentation",
-    provides: ["docs"],
-    aiSkills: localGuidance("docs/architecture", "stackkit-architecture-docs-guidance", "Architecture documentation guidance")
+    provides: ["docs"]
   }),
   defineModule({
     id: "docs/env",
     version: "1.0.0",
     title: "Environment docs",
     description: "Environment variable documentation",
-    provides: ["docs"],
-    aiSkills: localGuidance("docs/env", "stackkit-env-docs-guidance", "Environment variable documentation guidance")
+    provides: ["docs"]
   }),
   defineModule({
     id: "ai/skills",
     version: "1.0.0",
     title: "AI skills",
     description: "Local AI skill guidance setup",
-    provides: ["ai-guidance"],
-    aiSkills: [
-      {
-        skills: ["stackkit-local-skill-guidance"],
-        trust: "local",
-        causedBy: "ai/skills",
-        reason: "Local AI guidance should be written into the generated workspace"
-      }
-    ]
+    provides: ["ai-guidance"]
   }),
   defineModule({
     id: "quality/vitest",
@@ -910,8 +806,7 @@ export const builtinModules = [
     title: "Vitest",
     description: "JavaScript and TypeScript test runner",
     requires: ["typescript"],
-    provides: ["javascript-test"],
-    aiSkills: localGuidance("quality/vitest", "stackkit-vitest-guidance", "Vitest configuration and test authoring guidance")
+    provides: ["javascript-test"]
   })
 ] as const;
 
