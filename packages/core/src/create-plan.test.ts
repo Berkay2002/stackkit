@@ -53,6 +53,61 @@ describe("validateProjectSlug", () => {
 });
 
 describe("createCreatePlan", () => {
+  it("plans native initializers without serializing selected module details", () => {
+    const plan = createCreatePlan({
+      config: {
+        projectName: "native-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["web/nextjs", "ui/shadcn"],
+        ai: { skillTargets: ["codex"] }
+      },
+      availableModules: [
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js app",
+          provides: ["react"]
+        }),
+        defineModule({
+          id: "ui/shadcn",
+          version: "1.0.0",
+          title: "ShadCN",
+          description: "ShadCN UI",
+          requires: ["react"],
+          nativeInitializers: [
+            {
+              name: "shadcn init",
+              phase: "integration",
+              tool: { execution: "package-manager-dlx", package: "shadcn@latest" },
+              args: [
+                "init",
+                "-t",
+                { token: "web-framework", values: { nextjs: "next", vite: "vite", "tanstack-start": "start" } }
+              ],
+              cwd: ".",
+              mutationPolicy: "merge-owned",
+              expectedFiles: ["apps/web/components.json"]
+            }
+          ]
+        })
+      ]
+    });
+
+    expect(plan.nativeInitializers).toEqual([
+      expect.objectContaining({
+        moduleId: "ui/shadcn",
+        name: "shadcn init",
+        command: "pnpm",
+        args: ["dlx", "shadcn@latest", "init", "-t", "next"],
+        mutationPolicy: "merge-owned"
+      })
+    ]);
+    expect(JSON.parse(JSON.stringify(plan))).toHaveProperty("nativeInitializers");
+    expect(JSON.parse(JSON.stringify(plan))).not.toHaveProperty("selectedModules");
+  });
+
   it("builds a dry-run create plan from parsed config and available modules", () => {
     const plan = createCreatePlan({
       config: {

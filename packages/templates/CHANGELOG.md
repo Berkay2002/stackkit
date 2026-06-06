@@ -1,5 +1,16 @@
 # @berkayorhan/stackkit-templates
 
+## 0.2.0
+
+### Minor Changes
+
+- Add typed native initializer contracts for official CLI delegation.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @berkayorhan/stackkit-schemas@0.2.0
+
 ## 0.1.2
 
 ### Patch Changes

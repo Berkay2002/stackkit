@@ -15,7 +15,7 @@ const cliEntry = join(repoRoot, "packages", "cli", "dist", "index.js");
 
 afterEach(async () => {
   await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
-});
+}, 120_000);
 
 describe("create integration", () => {
   it("generates a Next.js and ShadCN project from config", async () => {
@@ -37,9 +37,7 @@ describe("create integration", () => {
     const result = await applyCreatePlan(plan, {
       parentDirectory: parent,
       runCommand: async (command, args, options) => {
-        if (command === "pnpm" && args[0] === "dlx" && args[1] === "shadcn@latest") {
-          await simulateShadcnInit(options.cwd ?? resultlessProjectDirectory(parent, "next-shadcn"));
-        }
+        await simulateNativeInitializer(command, args, options.cwd ?? resultlessProjectDirectory(parent, "next-shadcn"));
 
         return { exitCode: 0, stdout: "ok", stderr: "" };
       }
@@ -95,9 +93,7 @@ describe("create integration", () => {
     const result = await applyCreatePlan(plan, {
       parentDirectory: parent,
       runCommand: async (command, args, options) => {
-        if (command === "pnpm" && args[0] === "dlx" && args[1] === "shadcn@latest") {
-          await simulateShadcnInit(options.cwd ?? resultlessProjectDirectory(parent, "next-fastapi-postgres-auth0"));
-        }
+        await simulateNativeInitializer(command, args, options.cwd ?? resultlessProjectDirectory(parent, "next-fastapi-postgres-auth0"));
 
         return { exitCode: 0, stdout: "ok", stderr: "" };
       }
@@ -175,9 +171,7 @@ describe("create integration", () => {
     const result = await applyCreatePlan(plan, {
       parentDirectory: parent,
       runCommand: async (command, args, options) => {
-        if (command === "pnpm" && args[0] === "dlx" && args[1] === "shadcn@latest") {
-          await simulateShadcnInit(options.cwd ?? resultlessProjectDirectory(parent, "final-stackkit-app"));
-        }
+        await simulateNativeInitializer(command, args, options.cwd ?? resultlessProjectDirectory(parent, "final-stackkit-app"));
 
         return { exitCode: 0, stdout: "ok", stderr: "" };
       }
@@ -187,7 +181,7 @@ describe("create integration", () => {
     await expect(readFile(join(result.projectDirectory, "apps", "web", "package.json"), "utf8")).resolves.toContain(
       "../../eslint.config.mjs"
     );
-  });
+  }, 60_000);
 
   it("scaffolds correct env, client, and config files for each Postgres provider", async () => {
     type ProviderCase = {
@@ -240,9 +234,7 @@ describe("create integration", () => {
       const result = await applyCreatePlan(plan, {
         parentDirectory: parent,
         runCommand: async (command, args, options) => {
-          if (command === "pnpm" && args[0] === "dlx" && args[1] === "shadcn@latest") {
-            await simulateShadcnInit(options.cwd ?? resultlessProjectDirectory(parent, "provider-app"));
-          }
+          await simulateNativeInitializer(command, args, options.cwd ?? resultlessProjectDirectory(parent, "provider-app"));
 
           return { exitCode: 0, stdout: "ok", stderr: "" };
         }
@@ -288,9 +280,7 @@ describe("create integration", () => {
     const result = await applyCreatePlan(plan, {
       parentDirectory: parent,
       runCommand: async (command, args, options) => {
-        if (command === "pnpm" && args[0] === "dlx" && args[1] === "shadcn@latest") {
-          await simulateShadcnInit(options.cwd ?? resultlessProjectDirectory(parent, "api-supabase"));
-        }
+        await simulateNativeInitializer(command, args, options.cwd ?? resultlessProjectDirectory(parent, "api-supabase"));
 
         return { exitCode: 0, stdout: "ok", stderr: "" };
       }
@@ -351,6 +341,21 @@ function resultlessProjectDirectory(parent: string, projectName: string): string
   return join(parent, projectName);
 }
 
+async function simulateNativeInitializer(command: string, args: readonly string[], cwd: string): Promise<void> {
+  if (command !== "pnpm" || args[0] !== "dlx") {
+    return;
+  }
+
+  if (args[1] === "shadcn@latest") {
+    await simulateShadcnInit(cwd);
+    return;
+  }
+
+  if (args[1] === "clerk@latest") {
+    await simulateClerkInit(cwd);
+  }
+}
+
 async function simulateShadcnInit(projectDirectory: string): Promise<void> {
   const libDirectory = join(projectDirectory, "packages", "ui", "src", "lib");
   const packagePath = join(projectDirectory, "packages", "ui", "package.json");
@@ -375,6 +380,21 @@ async function simulateShadcnInit(projectDirectory: string): Promise<void> {
       null,
       2
     )}\n`,
+    "utf8"
+  );
+}
+
+async function simulateClerkInit(webDirectory: string): Promise<void> {
+  await mkdir(join(webDirectory, "app", "sign-in", "[[...sign-in]]"), { recursive: true });
+  await mkdir(join(webDirectory, "app", "sign-up", "[[...sign-up]]"), { recursive: true });
+  await writeFile(
+    join(webDirectory, "app", "sign-in", "[[...sign-in]]", "page.tsx"),
+    'export default function SignInPage() {\n  return <div>Sign in</div>;\n}\n',
+    "utf8"
+  );
+  await writeFile(
+    join(webDirectory, "app", "sign-up", "[[...sign-up]]", "page.tsx"),
+    'export default function SignUpPage() {\n  return <div>Sign up</div>;\n}\n',
     "utf8"
   );
 }

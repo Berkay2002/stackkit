@@ -1,6 +1,7 @@
 import {
   stackkitModuleSchema,
   type AiSkillDependency,
+  type NativeInitializerInput,
   type StackkitModule,
   type StackkitModuleInput
 } from "@berkayorhan/stackkit-schemas";
@@ -28,6 +29,7 @@ export type ToolingToolSpec = {
   isDefault: boolean;
   aliases?: string[];
   aiSkills?: AiSkillDependency[];
+  nativeInitializers?: NativeInitializerInput[];
 };
 
 /** Capability a Quality Module requires to gate it to a language. */
@@ -82,6 +84,20 @@ export const toolingCatalog: ToolingToolSpec[] = [
     slots: ["lint", "format"],
     isDefault: false,
     aliases: ["biome"],
+    nativeInitializers: [
+      {
+        name: "biome init",
+        enabled: false,
+        disabledReason:
+          "Researched and mapped, but not enabled until Stackkit replaces the matching deterministic template path.",
+        phase: "tool-config",
+        tool: { execution: "package-manager-dlx", package: "@biomejs/biome@latest" },
+        args: ["init"],
+        cwd: ".",
+        mutationPolicy: "known-files",
+        expectedFiles: ["biome.json"]
+      }
+    ],
     aiSkills: curatedGuidance(
       "quality/biome",
       "https://github.com/paulrberg/agent-skills",
@@ -198,6 +214,7 @@ export function buildQualityModules(catalog: readonly ToolingToolSpec[] = toolin
       requires: [languageCapability[spec.language]],
       provides: spec.slots.map((slot) => slotCapability(spec.language, slot)),
       conflicts: conflicts.length > 0 ? conflicts : undefined,
+      nativeInitializers: spec.nativeInitializers,
       aiSkills: spec.aiSkills
     });
   });

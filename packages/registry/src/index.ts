@@ -1,5 +1,5 @@
 import { buildQualityModules, defineModule, definePreset } from "@berkayorhan/stackkit-core/customizer";
-import { stackkitRegistrySchema } from "@berkayorhan/stackkit-schemas";
+import { stackkitRegistrySchema, type NativeInitializerInput } from "@berkayorhan/stackkit-schemas";
 
 export const curatedSkillSourceAllowlist = [
   "https://github.com/antfu/skills",
@@ -15,6 +15,228 @@ export const curatedSkillSourceAllowlist = [
   "https://github.com/nodnarbnitram/claude-code-extensions"
 ] as const;
 
+const researchedInitializerDisabledReason =
+  "Researched and mapped, but not enabled until Stackkit replaces the matching deterministic template path.";
+
+const packageManagerFlag = {
+  token: "package-manager",
+  values: {
+    pnpm: "--use-pnpm",
+    npm: "--use-npm",
+    yarn: "--use-yarn",
+    bun: "--use-bun"
+  }
+} as const;
+
+const nativeInitializers = {
+  createTurbo: {
+    name: "create-turbo",
+    enabled: false,
+    disabledReason: "Root scaffold initializer requires a dedicated root-scaffold phase before execution.",
+    phase: "root-scaffold",
+    tool: { execution: "package-manager-dlx", package: "create-turbo@latest" },
+    args: [
+      { token: "target-directory-name" },
+      "--package-manager",
+      { token: "package-manager" },
+      "--skip-install",
+      "--no-git"
+    ],
+    cwd: ".",
+    mutationPolicy: "generated-subtree",
+    expectedFiles: ["package.json", "pnpm-workspace.yaml", "turbo.json"]
+  },
+  createNextApp: {
+    name: "create-next-app",
+    enabled: false,
+    disabledReason: researchedInitializerDisabledReason,
+    phase: "app-scaffold",
+    tool: { execution: "package-manager-dlx", package: "create-next-app@latest" },
+    args: [
+      "apps/web",
+      "--ts",
+      "--tailwind",
+      "--eslint",
+      "--app",
+      "--import-alias",
+      "@/*",
+      packageManagerFlag,
+      "--skip-install",
+      "--disable-git",
+      "--yes"
+    ],
+    cwd: ".",
+    mutationPolicy: "generated-subtree",
+    expectedFiles: ["apps/web/package.json", "apps/web/app/page.tsx", "apps/web/next.config.ts"]
+  },
+  createVite: {
+    name: "create-vite",
+    enabled: false,
+    disabledReason: researchedInitializerDisabledReason,
+    phase: "app-scaffold",
+    tool: { execution: "package-manager-dlx", package: "create-vite@latest" },
+    args: ["apps/web", "--template", "react-ts", "--no-interactive"],
+    cwd: ".",
+    mutationPolicy: "generated-subtree",
+    expectedFiles: ["apps/web/package.json", "apps/web/src/main.tsx", "apps/web/vite.config.ts"]
+  },
+  tanstackCreate: {
+    name: "tanstack create",
+    enabled: false,
+    disabledReason: researchedInitializerDisabledReason,
+    phase: "app-scaffold",
+    tool: { execution: "package-manager-dlx", package: "@tanstack/cli@latest" },
+    args: [
+      "create",
+      { token: "project-name" },
+      "--target-dir",
+      "apps/web",
+      "--framework",
+      "React",
+      "--package-manager",
+      { token: "package-manager" },
+      "--no-install",
+      "--no-git",
+      "--non-interactive",
+      "--no-examples",
+      "--toolchain",
+      "eslint",
+      "--deployment",
+      "nitro",
+      "--no-intent"
+    ],
+    cwd: ".",
+    mutationPolicy: "generated-subtree",
+    expectedFiles: ["apps/web/package.json", "apps/web/src/router.tsx", "apps/web/vite.config.ts"]
+  },
+  shadcnInit: {
+    name: "shadcn init",
+    phase: "integration",
+    tool: { execution: "package-manager-dlx", package: "shadcn@latest" },
+    args: [
+      "init",
+      "-d",
+      "--base",
+      "radix",
+      "--monorepo",
+      "-t",
+      { token: "web-framework", values: { nextjs: "next", vite: "vite", "tanstack-start": "start" } },
+      "--cwd",
+      "."
+    ],
+    cwd: ".",
+    when: { anyModules: ["web/nextjs", "web/vite", "web/tanstack-start"] },
+    mutationPolicy: "merge-owned",
+    expectedFiles: [
+      "apps/web/components.json",
+      "packages/ui/components.json",
+      "packages/ui/package.json",
+      "packages/ui/src/styles/globals.css"
+    ]
+  },
+  prismaInit: {
+    name: "prisma init",
+    enabled: false,
+    disabledReason: researchedInitializerDisabledReason,
+    phase: "integration",
+    tool: { execution: "package-manager-dlx", package: "prisma@latest" },
+    args: [
+      "init",
+      "--datasource-provider",
+      "postgresql",
+      "--generator-provider",
+      "prisma-client-js",
+      "--output",
+      "./generated/prisma"
+    ],
+    cwd: "apps/web",
+    mutationPolicy: "known-files",
+    expectedFiles: ["apps/web/prisma/schema.prisma", "apps/web/prisma.config.ts"],
+    redactExpectedFiles: ["apps/web/.env"]
+  },
+  supabaseInit: {
+    name: "supabase init",
+    enabled: false,
+    disabledReason: researchedInitializerDisabledReason,
+    phase: "tool-config",
+    tool: { execution: "package-manager-dlx", package: "supabase@latest" },
+    args: ["init", "--yes", "--workdir", "."],
+    cwd: ".",
+    mutationPolicy: "known-files",
+    expectedFiles: ["supabase/config.toml"]
+  },
+  clerkInit: {
+    name: "clerk init",
+    phase: "integration",
+    tool: { execution: "package-manager-dlx", package: "clerk@latest" },
+    args: [
+      "init",
+      "--framework",
+      { token: "web-framework", values: { nextjs: "next", vite: "react", "tanstack-start": "tanstack-start" } },
+      "--pm",
+      { token: "package-manager" },
+      "--keyless",
+      "--yes",
+      "--no-skills"
+    ],
+    cwd: "apps/web",
+    when: { anyModules: ["web/nextjs"] },
+    mutationPolicy: "external-state",
+    expectedFiles: [
+      "apps/web/proxy.ts",
+      "apps/web/app/layout.tsx",
+      "apps/web/app/sign-in/[[...sign-in]]/page.tsx",
+      "apps/web/app/sign-up/[[...sign-up]]/page.tsx",
+      "apps/web/package.json"
+    ],
+    redactExpectedFiles: ["apps/web/.env.local", "apps/web/.clerk/keyless.json"]
+  },
+  djangoStartProject: {
+    name: "django-admin startproject",
+    enabled: false,
+    disabledReason: "Researched and mapped, but Django is not yet wired into Stackkit create output.",
+    phase: "app-scaffold",
+    tool: { execution: "system", command: "uvx" },
+    args: ["--from", "django", "django-admin", "startproject", "config", "apps/web"],
+    cwd: ".",
+    mutationPolicy: "generated-subtree",
+    expectedFiles: ["apps/web/manage.py", "apps/web/config/settings.py"]
+  },
+  cargoNew: {
+    name: "cargo new",
+    enabled: false,
+    disabledReason: "Researched and mapped, but Rust framework overlays still need a native crate migration slice.",
+    phase: "app-scaffold",
+    tool: { execution: "system", command: "cargo" },
+    args: ["new", "apps/api", "--bin", "--vcs", "none", "--edition", "2024", "--name", { token: "project-name" }],
+    cwd: ".",
+    mutationPolicy: "generated-subtree",
+    expectedFiles: ["apps/api/Cargo.toml", "apps/api/src/main.rs"]
+  },
+  createTauriApp: {
+    name: "create-tauri-app",
+    enabled: false,
+    disabledReason: "Researched and mapped, but Tauri is not yet wired into Stackkit create output.",
+    phase: "app-scaffold",
+    tool: { execution: "package-manager-dlx", package: "create-tauri-app@latest" },
+    args: [
+      "apps/desktop",
+      "--manager",
+      { token: "package-manager" },
+      "--template",
+      "react-ts",
+      "--identifier",
+      "com.stackkit.app",
+      "--yes",
+      "--tauri-version",
+      "2"
+    ],
+    cwd: ".",
+    mutationPolicy: "generated-subtree",
+    expectedFiles: ["apps/desktop/package.json", "apps/desktop/src-tauri/tauri.conf.json"]
+  }
+} satisfies Record<string, NativeInitializerInput>;
+
 export const builtinModules = [
   defineModule({
     id: "workspace/pnpm-turbo",
@@ -24,6 +246,7 @@ export const builtinModules = [
     aliases: ["workspace"],
     category: "workspace",
     provides: ["workspace/node"],
+    nativeInitializers: [nativeInitializers.createTurbo],
     readme: {
       stack: ["pnpm workspace", "Turborepo"],
       layout: [
@@ -59,6 +282,7 @@ export const builtinModules = [
     requires: ["workspace/node"],
     provides: ["web-app", "nextjs-app", "react"],
     conflicts: ["web/vite", "web/tanstack-start"],
+    nativeInitializers: [nativeInitializers.createNextApp],
     readme: {
       stack: ["Next.js", "React"],
       layout: [{ path: "apps/web", description: "Next.js App Router web application" }]
@@ -95,6 +319,7 @@ export const builtinModules = [
     requires: ["workspace/node"],
     provides: ["web-app", "react"],
     conflicts: ["web/nextjs", "web/tanstack-start"],
+    nativeInitializers: [nativeInitializers.createVite],
     readme: {
       stack: ["Vite", "React"],
       layout: [{ path: "apps/web", description: "Vite React single-page application" }]
@@ -120,6 +345,7 @@ export const builtinModules = [
     requires: ["workspace/node"],
     provides: ["web-app", "react", "ssr"],
     conflicts: ["web/nextjs", "web/vite"],
+    nativeInitializers: [nativeInitializers.tanstackCreate],
     readme: {
       stack: ["TanStack Start", "React"],
       layout: [{ path: "apps/web", description: "TanStack Start full-stack React application" }]
@@ -143,6 +369,7 @@ export const builtinModules = [
     category: "ui",
     icon: "shadcn",
     requires: ["react"],
+    nativeInitializers: [nativeInitializers.shadcnInit],
     readme: {
       stack: ["ShadCN UI", "Tailwind CSS"],
       layout: [
@@ -274,7 +501,8 @@ export const builtinModules = [
     title: "Prisma",
     description: "TypeScript ORM for Postgres",
     requires: ["postgres", "typescript"],
-    provides: ["typescript-db"]
+    provides: ["typescript-db"],
+    nativeInitializers: [nativeInitializers.prismaInit]
   }),
   defineModule({
     id: "db/sqlalchemy",
@@ -388,6 +616,7 @@ export const builtinModules = [
         target: "db"
       }
     ],
+    nativeInitializers: [nativeInitializers.supabaseInit],
     files: [
       {
         kind: "write",
@@ -443,6 +672,7 @@ export const builtinModules = [
     icon: "clerk",
     requires: ["react"],
     provides: ["auth"],
+    nativeInitializers: [nativeInitializers.clerkInit],
     aiSkills: [
       {
         source: "https://github.com/clerk/skills",
@@ -632,6 +862,7 @@ export const builtinModules = [
     category: "web",
     conflicts: ["web/nextjs"],
     provides: ["web-app", "python"],
+    nativeInitializers: [nativeInitializers.djangoStartProject],
     aiSkills: [
       {
         source: "https://github.com/affaan-m/everything-claude-code",
@@ -670,7 +901,8 @@ export const builtinModules = [
     category: "api",
     icon: "rust",
     requires: ["rust-async"],
-    provides: ["api", "rust"]
+    provides: ["api", "rust"],
+    nativeInitializers: [nativeInitializers.cargoNew]
   }),
   defineModule({
     id: "rust/actix",
@@ -711,6 +943,7 @@ export const builtinModules = [
     title: "Tauri",
     description: "Tauri desktop application",
     provides: ["desktop"],
+    nativeInitializers: [nativeInitializers.createTauriApp],
     aiSkills: [
       {
         source: "https://github.com/nodnarbnitram/claude-code-extensions",

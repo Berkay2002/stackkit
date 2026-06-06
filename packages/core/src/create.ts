@@ -27,6 +27,10 @@ import {
   type EnvVarDefinition,
   type FileOperation,
   type ManifestExpectedFile,
+  type NativeInitializer,
+  type NativeInitializerArg,
+  type NativeInitializerMutationPolicy,
+  type NativeInitializerPhase,
   type StackkitConfig,
   type StackkitManifest,
   type StackkitManifestSource,
@@ -102,6 +106,19 @@ export type CreatePlan = {
     unresolved: AiSkillDependency[];
   };
   skillInstallCommands: AiSkillInstallCommand[];
+  nativeInitializers: PlannedNativeInitializer[];
+};
+
+export type PlannedNativeInitializer = {
+  moduleId: string;
+  name: string;
+  phase: NativeInitializerPhase;
+  command: string;
+  args: string[];
+  cwd: string;
+  mutationPolicy: NativeInitializerMutationPolicy;
+  expectedFiles: string[];
+  redactExpectedFiles: string[];
 };
 
 export type CreatePlanInput = {
@@ -151,6 +168,12 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
   const installableSkills = effectiveResolvedSkills.filter(isInstallableSkill);
   const installCommands = mode === "skip" ? [] : planAiSkillInstallCommands(effectiveResolvedSkills, targets, linkMode);
   const filePlan = buildFilePlan(renderCreateFiles(input.config, modules));
+  const nativeInitializers = planNativeInitializers({
+    config: input.config,
+    modules,
+    projectName,
+    targetDirectoryName: normalizeTargetDirectoryName(projectName)
+  });
 
   const plan: Omit<CreatePlan, "selectedModules"> = {
     schemaVersion: 1,
@@ -175,7 +198,8 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
       local: effectiveResolvedSkills.filter((skill) => skill.trust === "local"),
       unresolved: effectiveResolvedSkills.filter((skill) => skill.trust === "unresolved")
     },
-    skillInstallCommands: installCommands
+    skillInstallCommands: installCommands,
+    nativeInitializers
   };
 
   return attachSelectedModules(plan, modules);
@@ -389,14 +413,16 @@ export async function applyCreatePlan(
   });
   if (options.runCommand) {
     await runLifecycleHooks(
-      [...plan.selectedModules.flatMap((module) => module.postCreate ?? []), ...planShadcnInitHooks(plan)],
+      plan.selectedModules.flatMap((module) => module.postCreate ?? []),
       { projectDirectory, runCommand: options.runCommand }
     );
+    await runNativeInitializers(plan.nativeInitializers, { projectDirectory, runCommand: options.runCommand });
     files = await refreshManagedFileHashes(projectDirectory, files);
+    files = mergeManifestFiles(files, await readNativeInitializerManagedFiles(projectDirectory, plan.nativeInitializers));
   }
 
   const skillInstallResult = await resolveSkillInstallResult(plan, projectDirectory, options);
-  const expectedFiles = await readManagedExpectedFiles(projectDirectory, files);
+  const expectedFiles = await readManagedExpectedFiles(projectDirectory, files, plan.nativeInitializers);
   const manifest = await writeManifest(projectDirectory, {
     schemaVersion: 1,
     stackkitVersion: options.stackkitVersion ?? "0.0.0",
@@ -450,11 +476,17 @@ export async function applyCreatePlan(
 
 async function readManagedExpectedFiles(
   projectDirectory: string,
-  files: readonly ManifestFileRecord[]
+  files: readonly ManifestFileRecord[],
+  nativeInitializers: readonly PlannedNativeInitializer[] = []
 ): Promise<ManifestExpectedFile[]> {
   const expectedFiles: ManifestExpectedFile[] = [];
+  const redactedPaths = new Set(nativeInitializers.flatMap((initializer) => initializer.redactExpectedFiles));
 
   for (const file of files) {
+    if (redactedPaths.has(file.path)) {
+      continue;
+    }
+
     const content = await readExistingFile(join(projectDirectory, file.path));
 
     if (content === undefined) {
@@ -470,45 +502,6 @@ async function readManagedExpectedFiles(
   }
 
   return expectedFiles;
-}
-
-function planShadcnInitHooks(plan: CreatePlan): import("@berkayorhan/stackkit-schemas").LifecycleHook[] {
-  const selectedModuleIds = new Set(plan.modules.map((module) => module.id));
-
-  if (!selectedModuleIds.has("ui/shadcn")) {
-    return [];
-  }
-
-  const template =
-    selectedModuleIds.has("web/nextjs") ? "next"
-    : selectedModuleIds.has("web/vite") ? "vite"
-    : selectedModuleIds.has("web/tanstack-start") ? "start"
-    : undefined;
-
-  if (!template) {
-    return [];
-  }
-
-  const adapter = getPackageManagerAdapter(plan.packageManager);
-  const [command, ...args] = adapter.dlxCommand("shadcn@latest", [
-    "init",
-    "-d",
-    "--base",
-    "radix",
-    "--monorepo",
-    "-t",
-    template,
-    "--cwd",
-    "."
-  ]);
-
-  return [
-    {
-      name: "shadcn init",
-      command,
-      args
-    }
-  ];
 }
 
 async function refreshManagedFileHashes(
@@ -531,6 +524,193 @@ async function refreshManagedFileHashes(
   }
 
   return refreshed;
+}
+
+type PlanNativeInitializersInput = {
+  config: StackkitConfig;
+  modules: readonly StackkitModule[];
+  projectName: string;
+  targetDirectoryName: string;
+};
+
+function planNativeInitializers(input: PlanNativeInitializersInput): PlannedNativeInitializer[] {
+  const selectedModuleIds = new Set(input.modules.map((module) => module.id));
+  const capabilities = new Set(input.modules.flatMap((module) => module.provides ?? []));
+  const adapter = getPackageManagerAdapter(input.config.packageManager);
+  const planned: PlannedNativeInitializer[] = [];
+
+  for (const module of input.modules) {
+    for (const initializer of module.nativeInitializers ?? []) {
+      if (!initializer.enabled) {
+        continue;
+      }
+
+      if (!nativeInitializerApplies(initializer, selectedModuleIds, capabilities)) {
+        continue;
+      }
+
+      const resolvedArgs = resolveNativeInitializerArgs(initializer.args, input, selectedModuleIds);
+
+      if (!resolvedArgs) {
+        continue;
+      }
+
+      const [command, ...args] =
+        initializer.tool.execution === "package-manager-dlx"
+          ? adapter.dlxCommand(initializer.tool.package, resolvedArgs)
+          : [initializer.tool.command, ...resolvedArgs];
+
+      planned.push({
+        moduleId: module.id,
+        name: initializer.name,
+        phase: initializer.phase,
+        command,
+        args,
+        cwd: normalizeNativeInitializerCwd(initializer.cwd),
+        mutationPolicy: initializer.mutationPolicy,
+        expectedFiles: initializer.expectedFiles.map(normalizeProjectPath),
+        redactExpectedFiles: initializer.redactExpectedFiles.map(normalizeProjectPath)
+      });
+    }
+  }
+
+  return planned;
+}
+
+function normalizeNativeInitializerCwd(cwd: string): string {
+  if (cwd === ".") {
+    return ".";
+  }
+
+  return normalizeProjectPath(cwd);
+}
+
+function nativeInitializerApplies(
+  initializer: NativeInitializer,
+  selectedModuleIds: ReadonlySet<string>,
+  capabilities: ReadonlySet<string>
+): boolean {
+  const when = initializer.when;
+
+  if (!when) {
+    return true;
+  }
+
+  if (when.allModules && !when.allModules.every((moduleId) => selectedModuleIds.has(moduleId))) {
+    return false;
+  }
+
+  if (when.anyModules && !when.anyModules.some((moduleId) => selectedModuleIds.has(moduleId))) {
+    return false;
+  }
+
+  if (when.capabilities && !when.capabilities.every((capability) => capabilities.has(capability))) {
+    return false;
+  }
+
+  return true;
+}
+
+function resolveNativeInitializerArgs(
+  args: readonly NativeInitializerArg[],
+  input: PlanNativeInitializersInput,
+  selectedModuleIds: ReadonlySet<string>
+): string[] | undefined {
+  const resolved: string[] = [];
+
+  for (const arg of args) {
+    if (typeof arg === "string") {
+      resolved.push(arg);
+      continue;
+    }
+
+    const value = resolveNativeInitializerToken(arg, input, selectedModuleIds);
+
+    if (value === undefined) {
+      return undefined;
+    }
+
+    resolved.push(value);
+  }
+
+  return resolved;
+}
+
+function resolveNativeInitializerToken(
+  arg: Exclude<NativeInitializerArg, string>,
+  input: PlanNativeInitializersInput,
+  selectedModuleIds: ReadonlySet<string>
+): string | undefined {
+  const raw =
+    arg.token === "project-name" ? input.projectName
+    : arg.token === "target-directory-name" ? input.targetDirectoryName
+    : arg.token === "package-manager" ? input.config.packageManager
+    : arg.token === "web-framework" ? selectedWebFramework(selectedModuleIds)
+    : undefined;
+
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  return arg.values?.[raw] ?? raw;
+}
+
+function selectedWebFramework(selectedModuleIds: ReadonlySet<string>): "nextjs" | "vite" | "tanstack-start" | undefined {
+  if (selectedModuleIds.has("web/nextjs")) {
+    return "nextjs";
+  }
+
+  if (selectedModuleIds.has("web/vite")) {
+    return "vite";
+  }
+
+  if (selectedModuleIds.has("web/tanstack-start")) {
+    return "tanstack-start";
+  }
+
+  return undefined;
+}
+
+async function runNativeInitializers(
+  initializers: readonly PlannedNativeInitializer[],
+  options: {
+    projectDirectory: string;
+    runCommand: RunCommand;
+  }
+): Promise<void> {
+  for (const initializer of initializers) {
+    const cwd = join(options.projectDirectory, initializer.cwd);
+    const result = await options.runCommand(initializer.command, initializer.args, { cwd });
+
+    if (result.exitCode !== 0) {
+      throw new Error(`Native initializer failed: ${initializer.name}`);
+    }
+  }
+}
+
+async function readNativeInitializerManagedFiles(
+  projectDirectory: string,
+  initializers: readonly PlannedNativeInitializer[]
+): Promise<ManifestFileRecord[]> {
+  const records: ManifestFileRecord[] = [];
+
+  for (const initializer of initializers) {
+    for (const filePath of initializer.expectedFiles) {
+      const content = await readExistingFile(join(projectDirectory, filePath));
+
+      if (content === undefined) {
+        continue;
+      }
+
+      records.push({
+        path: filePath,
+        owner: initializer.moduleId,
+        hash: hashContent(content)
+      });
+    }
+  }
+
+  return records;
 }
 
 async function assertCreateTargetIsSafe(projectDirectory: string): Promise<void> {

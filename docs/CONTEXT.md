@@ -53,3 +53,11 @@ the source of generated structure before applying Stackkit-specific composition 
 tracking. Prefer this over hand-written reimplementations when the upstream CLI is stable,
 non-interactive, and compatible with Stackkit ownership.
 _Avoid_: manual clone of upstream templates, hardcoded initializer
+
+**Native Initializer**:
+A typed Module declaration for a Native CLI Delegation command. It records the tool package or
+system command, argv, working directory, gating conditions, mutation policy, expected files, and
+redacted files. Core resolves these declarations through the selected package-manager adapter and
+records resulting managed files in the manifest. Disabled Native Initializers can document researched
+official CLIs before Stackkit is ready to execute that CLI safely.
+_Avoid_: ad hoc lifecycle hook, hardcoded create special case

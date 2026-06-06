@@ -92,6 +92,53 @@ export const taskDefinitionSchema = z.object({
 
 export const lifecycleHookSchema = taskDefinitionSchema;
 
+export const nativeInitializerPhaseSchema = z.enum(["root-scaffold", "app-scaffold", "integration", "tool-config"]);
+export const nativeInitializerMutationPolicySchema = z.enum([
+  "generated-subtree",
+  "known-files",
+  "merge-owned",
+  "external-state"
+]);
+export const nativeInitializerToolSchema = z.discriminatedUnion("execution", [
+  z.object({
+    execution: z.literal("package-manager-dlx"),
+    package: z.string().min(1)
+  }),
+  z.object({
+    execution: z.literal("direct"),
+    command: z.string().min(1)
+  }),
+  z.object({
+    execution: z.literal("system"),
+    command: z.string().min(1)
+  })
+]);
+export const nativeInitializerArgSchema = z.union([
+  z.string(),
+  z.object({
+    token: z.enum(["project-name", "target-directory-name", "package-manager", "web-framework"]),
+    values: z.record(z.string(), z.string()).optional()
+  })
+]);
+export const nativeInitializerWhenSchema = z.object({
+  allModules: z.array(moduleIdSchema).optional(),
+  anyModules: z.array(moduleIdSchema).optional(),
+  capabilities: z.array(z.string().min(1)).optional()
+});
+export const nativeInitializerSchema = z.object({
+  name: z.string().min(1),
+  enabled: z.boolean().default(true),
+  disabledReason: z.string().min(1).optional(),
+  phase: nativeInitializerPhaseSchema,
+  tool: nativeInitializerToolSchema,
+  args: z.array(nativeInitializerArgSchema).default([]),
+  cwd: z.string().min(1).default("."),
+  when: nativeInitializerWhenSchema.optional(),
+  mutationPolicy: nativeInitializerMutationPolicySchema,
+  expectedFiles: z.array(z.string().min(1)).default([]),
+  redactExpectedFiles: z.array(z.string().min(1)).default([])
+});
+
 export const moduleValidationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("file-exists"),
@@ -143,6 +190,7 @@ export const stackkitModuleSchema = z.object({
   tasks: z.array(taskDefinitionSchema).optional(),
   postCreate: z.array(lifecycleHookSchema).optional(),
   postAdd: z.array(lifecycleHookSchema).optional(),
+  nativeInitializers: z.array(nativeInitializerSchema).optional(),
   migrations: z.array(moduleMigrationSchema).optional(),
   aiSkills: z.array(aiSkillDependencySchema).optional(),
   validate: z.array(moduleValidationSchema).optional()
@@ -297,6 +345,11 @@ export type EnvVarDefinition = z.input<typeof envVarDefinitionSchema>;
 export type ReadmeMetadata = z.infer<typeof readmeMetadataSchema>;
 export type TaskDefinition = z.infer<typeof taskDefinitionSchema>;
 export type LifecycleHook = z.infer<typeof lifecycleHookSchema>;
+export type NativeInitializer = z.infer<typeof nativeInitializerSchema>;
+export type NativeInitializerInput = z.input<typeof nativeInitializerSchema>;
+export type NativeInitializerArg = z.infer<typeof nativeInitializerArgSchema>;
+export type NativeInitializerMutationPolicy = z.infer<typeof nativeInitializerMutationPolicySchema>;
+export type NativeInitializerPhase = z.infer<typeof nativeInitializerPhaseSchema>;
 export type ModuleValidation = z.infer<typeof moduleValidationSchema>;
 export type MigrationOperation = z.infer<typeof migrationOperationSchema>;
 export type AiSkillRegistryEntry = z.infer<typeof aiSkillRegistryEntrySchema>;

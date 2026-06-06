@@ -1,6 +1,6 @@
 {
   "name": "@berkayorhan/stackkit-registry",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Built-in Stackkit module and preset registry.",
   "license": "MIT",
   "type": "module",

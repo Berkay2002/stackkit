@@ -769,7 +769,29 @@ describe("applyCreatePlan", () => {
           version: "1.0.0",
           title: "shadcn/ui",
           description: "shadcn/ui",
-          requires: ["react"]
+          requires: ["react"],
+          nativeInitializers: [
+            {
+              name: "shadcn init",
+              phase: "integration",
+              tool: { execution: "package-manager-dlx", package: "shadcn@latest" },
+              args: [
+                "init",
+                "-d",
+                "--base",
+                "radix",
+                "--monorepo",
+                "-t",
+                { token: "web-framework", values: { nextjs: "next", vite: "vite", "tanstack-start": "start" } },
+                "--cwd",
+                "."
+              ],
+              cwd: ".",
+              when: { anyModules: ["web/nextjs", "web/vite", "web/tanstack-start"] },
+              mutationPolicy: "merge-owned",
+              expectedFiles: ["apps/web/components.json", "packages/ui/components.json"]
+            }
+          ]
         })
       ]
     });
