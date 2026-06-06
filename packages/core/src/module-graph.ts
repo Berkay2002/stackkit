@@ -17,6 +17,7 @@ export type StackAxes = {
   api?: string;
   db?: string;
   dbClient?: string;
+  dbProvider?: string;
   auth?: string | readonly string[];
   with?: readonly string[];
   deploy?: readonly string[];
@@ -88,6 +89,7 @@ export function resolveStackAxes(axes: StackAxes, modules: readonly StackkitModu
   if (db === "db/postgres") {
     appendExistingModules(resolved, modules, ["db/postgres"]);
     appendDatabaseClient(resolved, modules, axes.dbClient, { hasFastApi, hasAxum });
+    appendDatabaseProvider(resolved, modules, axes.dbProvider);
   } else if (db) {
     appendModule(resolved, db);
   } else if (axes.dbClient) {
@@ -146,6 +148,18 @@ function appendDatabaseClient(
   }
 
   appendExistingModules(resolved, modules, ["db/drizzle"]);
+}
+
+function appendDatabaseProvider(
+  resolved: string[],
+  modules: readonly StackkitModule[],
+  dbProvider: string | undefined
+): void {
+  if (!dbProvider || dbProvider === "byo") {
+    return;
+  }
+
+  appendModule(resolved, resolveModuleAlias(dbProvider, modules));
 }
 
 function resolveDatabaseClientAlias(

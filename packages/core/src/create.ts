@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
+  renderDatabaseClient,
   renderDockerFiles,
   renderFastApiService,
   renderKubernetesFiles,
@@ -247,6 +248,27 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
 
   if (selectedModuleIds.has("deploy/kubernetes")) {
     appendSelectedFileOperations(operations, seenPaths, renderKubernetesFiles(), selectedModuleIds);
+  }
+
+  const dbProvider = [...selectedModuleIds].find((id) => id.startsWith("postgres/"));
+
+  if (selectedModuleIds.has("web/nextjs") && selectedModuleIds.has("db/drizzle")) {
+    const runtime = config.options?.["db/drizzle"]?.runtime === "edge" ? "edge" : "node";
+    appendSelectedFileOperations(
+      operations,
+      seenPaths,
+      renderDatabaseClient({ client: "drizzle", runtime, provider: dbProvider }),
+      selectedModuleIds
+    );
+  }
+
+  if (selectedModuleIds.has("web/nextjs") && selectedModuleIds.has("db/prisma")) {
+    appendSelectedFileOperations(
+      operations,
+      seenPaths,
+      renderDatabaseClient({ client: "prisma", runtime: "node", provider: dbProvider }),
+      selectedModuleIds
+    );
   }
 
   for (const module of modules) {

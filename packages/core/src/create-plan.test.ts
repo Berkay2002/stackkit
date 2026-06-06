@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createCreatePlan, defineModule, validateProjectSlug } from "./index.js";
+import { createCreatePlan, defineModule, renderCreateFiles, validateProjectSlug } from "./index.js";
 
 const availableModules = [
   defineModule({
@@ -509,5 +509,56 @@ describe("createCreatePlan", () => {
         availableModules
       })
     ).toThrow("Unknown Stackkit module: missing/module");
+  });
+});
+
+describe("renderCreateFiles database client codegen", () => {
+  const mod = (id: string, extra: Record<string, unknown> = {}) =>
+    defineModule({ id, version: "1.0.0", title: id, description: id, ...extra });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cfg = (modules: any[], options?: Record<string, Record<string, unknown>>): any => ({
+    projectName: "acme",
+    packageManager: "pnpm",
+    workspace: "pnpm-turbo",
+    modules: modules.map((m) => m.id),
+    registries: {},
+    options,
+    ai: { skillTargets: ["codex"], skillMode: "install", linkMode: "copy" }
+  });
+
+  const find = (files: ReturnType<typeof renderCreateFiles>, path: string) => files.find((file) => file.path === path);
+
+  it("emits a standard Drizzle client for a Next.js + Drizzle + Neon stack (node default)", () => {
+    const modules = [mod("web/nextjs", { provides: ["nextjs-app"] }), mod("db/postgres", { provides: ["postgres"] }), mod("db/drizzle"), mod("postgres/neon")];
+    const client = find(renderCreateFiles(cfg(modules), modules), "apps/web/db/client.ts");
+
+    expect(client).toBeDefined();
+    expect(client!.owner).toBe("db/drizzle");
+    expect(client!.content).toContain("drizzle-orm/node-postgres");
+  });
+
+  it("emits the Neon serverless client when options set runtime=edge", () => {
+    const modules = [mod("web/nextjs", { provides: ["nextjs-app"] }), mod("db/postgres", { provides: ["postgres"] }), mod("db/drizzle"), mod("postgres/neon")];
+    const client = find(renderCreateFiles(cfg(modules, { "db/drizzle": { runtime: "edge" } }), modules), "apps/web/db/client.ts");
+
+    expect(client!.content).toContain("@neondatabase/serverless");
+  });
+
+  it("emits a Prisma datasource with directUrl for Supabase", () => {
+    const modules = [mod("web/nextjs", { provides: ["nextjs-app"] }), mod("db/postgres", { provides: ["postgres"] }), mod("db/prisma"), mod("postgres/supabase")];
+    const schema = find(renderCreateFiles(cfg(modules), modules), "apps/web/prisma/schema.prisma");
+
+    expect(schema).toBeDefined();
+    expect(schema!.owner).toBe("db/prisma");
+    expect(schema!.content).toContain('directUrl = env("DIRECT_URL")');
+  });
+
+  it("emits no TypeScript client for an API + SQLAlchemy stack", () => {
+    const modules = [mod("api/fastapi", { provides: ["api"] }), mod("db/postgres", { provides: ["postgres"] }), mod("db/sqlalchemy")];
+    const files = renderCreateFiles(cfg(modules), modules);
+
+    expect(find(files, "apps/web/db/client.ts")).toBeUndefined();
+    expect(find(files, "apps/web/prisma/schema.prisma")).toBeUndefined();
   });
 });

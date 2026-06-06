@@ -83,6 +83,38 @@ describe("Stackkit customizer state", () => {
     expect(result.recipe.modules).toEqual(expect.arrayContaining(["web/django", "deploy/vercel"]));
   });
 
+  it("includes the selected Postgres provider and edge runtime option", () => {
+    const result = buildCustomizerState({
+      ...createInitialCustomizerState(),
+      database: "postgres",
+      dbProvider: "supabase",
+      dbRuntime: "edge"
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.recipe.modules).toContain("postgres/supabase");
+    expect(result.recipe.options).toEqual({ "db/drizzle": { runtime: "edge" } });
+  });
+
+  it("omits a provider module for the default BYO selection", () => {
+    const result = buildCustomizerState({
+      ...createInitialCustomizerState(),
+      database: "postgres",
+      dbProvider: "byo"
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.recipe.modules.filter((id) => id.startsWith("postgres/"))).toEqual([]);
+  });
+
   it("generates a shell-safe command with custom project and package manager", () => {
     const result = buildCustomizerState({
       ...createInitialCustomizerState(),

@@ -163,6 +163,104 @@ describe("create integration", () => {
     );
   });
 
+  it("scaffolds correct env, client, and config files for each Postgres provider", async () => {
+    type ProviderCase = {
+      provider: string;
+      runtime?: "node" | "edge";
+      clientImport: string;
+      envContains?: string;
+      file?: { path: string; contains: string };
+    };
+
+    const cases: ProviderCase[] = [
+      { provider: "byo", clientImport: "drizzle-orm/node-postgres" },
+      { provider: "neon", clientImport: "drizzle-orm/node-postgres" },
+      { provider: "neon", runtime: "edge", clientImport: "@neondatabase/serverless" },
+      { provider: "supabase", clientImport: "drizzle-orm/node-postgres", envContains: "DIRECT_URL" },
+      {
+        provider: "supabase-local",
+        clientImport: "drizzle-orm/node-postgres",
+        envContains: "DIRECT_URL",
+        file: { path: join("supabase", "config.toml"), contains: "port = 54322" }
+      },
+      {
+        provider: "postgres-local",
+        clientImport: "drizzle-orm/node-postgres",
+        file: { path: "docker-compose.db.yml", contains: "postgres:17" }
+      }
+    ];
+
+    for (const testCase of cases) {
+      const parent = await mkdtemp(join(tmpdir(), `stackkit-provider-${testCase.provider}-`));
+      tempDirectories.push(parent);
+
+      const modules = resolveStackAxes(
+        { web: "next", db: "postgres", dbProvider: testCase.provider === "byo" ? undefined : testCase.provider },
+        builtinModules
+      );
+      const plan = createCreatePlan({
+        config: {
+          projectName: "provider-app",
+          packageManager: "pnpm",
+          workspace: "pnpm-turbo",
+          modules,
+          options: testCase.runtime === "edge" ? { "db/drizzle": { runtime: "edge" } } : undefined,
+          ai: { skillMode: "skip", skillTargets: ["codex"] }
+        },
+        availableModules: builtinModules,
+        curatedSkillSourceAllowlist
+      });
+
+      const result = await applyCreatePlan(plan, {
+        parentDirectory: parent,
+        runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
+      });
+
+      const label = `${testCase.provider}/${testCase.runtime ?? "node"}`;
+      const client = await readFile(join(result.projectDirectory, "apps", "web", "db", "client.ts"), "utf8");
+      expect(client, label).toContain(testCase.clientImport);
+
+      if (testCase.envContains) {
+        await expect(readFile(join(result.projectDirectory, ".env.example"), "utf8"), label).resolves.toContain(
+          testCase.envContains
+        );
+      }
+
+      if (testCase.file) {
+        await expect(readFile(join(result.projectDirectory, testCase.file.path), "utf8"), label).resolves.toContain(
+          testCase.file.contains
+        );
+      }
+
+      expect(result.doctor.ok, label).toBe(true);
+    }
+  }, 120_000);
+
+  it("does not emit a TypeScript db client for an API + SQLAlchemy stack", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "stackkit-provider-api-"));
+    tempDirectories.push(parent);
+
+    const modules = resolveStackAxes({ api: "fastapi", db: "postgres", dbProvider: "supabase" }, builtinModules);
+    const plan = createCreatePlan({
+      config: {
+        projectName: "api-supabase",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules,
+        ai: { skillMode: "skip", skillTargets: ["codex"] }
+      },
+      availableModules: builtinModules,
+      curatedSkillSourceAllowlist
+    });
+
+    const result = await applyCreatePlan(plan, {
+      parentDirectory: parent,
+      runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" })
+    });
+
+    await expect(access(join(result.projectDirectory, "apps", "web", "db", "client.ts"))).rejects.toThrow();
+  });
+
   it("runs web-only generated checks when uv is unavailable", async () => {
     const calls: Array<{ command: string; args: readonly string[]; cwd: string; allowFailure: boolean }> = [];
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveModuleGraph } from "@berkayorhan/stackkit-core";
+
 import { builtinModules, builtinPresets } from "./index.js";
 
 describe("builtinPresets", () => {
@@ -10,8 +12,31 @@ describe("builtinPresets", () => {
       "next-postgres-better-auth",
       "next-fastapi-postgres-auth0",
       "next-axum-postgres-auth0",
-      "containerized"
+      "containerized",
+      "next-neon-drizzle",
+      "next-supabase-drizzle"
     ]);
+  });
+
+  it("provider presets include exactly one postgres provider", () => {
+    const presetById = new Map(builtinPresets.map((preset) => [preset.id, preset.modules]));
+
+    const neon = presetById.get("next-neon-drizzle")!;
+    expect(neon.filter((id) => id.startsWith("postgres/"))).toEqual(["postgres/neon"]);
+    expect(neon).toEqual(expect.arrayContaining(["db/postgres", "db/drizzle"]));
+
+    const supabase = presetById.get("next-supabase-drizzle")!;
+    expect(supabase.filter((id) => id.startsWith("postgres/"))).toEqual(["postgres/supabase"]);
+    expect(supabase).toEqual(expect.arrayContaining(["db/postgres", "db/drizzle"]));
+  });
+
+  it("every preset resolves into a valid module graph", () => {
+    const moduleById = new Map(builtinModules.map((module) => [module.id, module]));
+
+    for (const preset of builtinPresets) {
+      const modules = preset.modules.map((id) => moduleById.get(id)!);
+      expect(() => resolveModuleGraph(modules), preset.id).not.toThrow();
+    }
   });
 
   it("contains named compositions of built-in modules", () => {

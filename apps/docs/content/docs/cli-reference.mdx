@@ -66,6 +66,8 @@ stackkit create <project-name> [flags]
 | `--web <framework>` | Web app framework (e.g. `next`) |
 | `--api <framework>` | API framework (e.g. `fastapi`) |
 | `--db <database>` | Database module (e.g. `postgres`) |
+| `--db-provider <host>` | Postgres host/provider: `neon`, `supabase`, `supabase-local`, `postgres-local` (omit for bring-your-own `DATABASE_URL`) |
+| `--db-runtime <mode>` | Database client runtime: `node` (default) or `edge`. `edge` applies to Neon + Drizzle and emits the `@neondatabase/serverless` client |
 | `--auth <provider>` | Auth provider (e.g. `auth0`) |
 | `--with <modules>` | Comma-separated additional modules (e.g. `shadcn,docker`) |
 | `--deploy <target>` | Deployment target (e.g. `vercel`) |
@@ -84,6 +86,22 @@ stackkit create my-app \
   --auth auth0 \
   --with shadcn,docker \
   --deploy vercel
+```
+
+**Postgres host examples**
+
+```bash
+# Cloud Supabase as the Postgres host (no Docker). Emits a DIRECT_URL for migrations.
+stackkit create my-app --web next --db postgres --db-provider supabase
+
+# Neon on an edge runtime — generates the @neondatabase/serverless Drizzle client.
+stackkit create my-app --web next --db postgres --db-provider neon --db-runtime edge
+
+# Local Postgres in Docker (adds docker-compose.db.yml).
+stackkit create my-app --web next --db postgres --db-provider postgres-local
+
+# Local Supabase via the Supabase CLI (adds supabase/config.toml; requires the CLI).
+stackkit create my-app --web next --db postgres --db-provider supabase-local
 ```
 
 ---

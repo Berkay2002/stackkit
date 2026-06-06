@@ -222,6 +222,57 @@ export function renderNextjsApp({ appName, packageManagerField }: NextjsAppOptio
   ];
 }
 
+type DatabaseClientOptions = {
+  client: "drizzle" | "prisma";
+  runtime?: "node" | "edge";
+  provider?: string;
+};
+
+const STANDARD_DRIZZLE_CLIENT = `// Install: pnpm add drizzle-orm pg && pnpm add -D @types/pg
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+export const db = drizzle(pool);
+`;
+
+const NEON_SERVERLESS_CLIENT = `// Install: pnpm add drizzle-orm @neondatabase/serverless
+// Neon serverless driver: use the pooled connection string with sslmode=require.
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
+
+const sql = neon(process.env.DATABASE_URL!);
+
+export const db = drizzle(sql);
+`;
+
+function renderPrismaSchema(provider: string | undefined): string {
+  const usesDirectUrl = provider === "postgres/supabase" || provider === "postgres/supabase-local";
+  const directUrlLine = usesDirectUrl ? '\n  directUrl = env("DIRECT_URL")' : "";
+
+  return `// Install: pnpm add @prisma/client && pnpm add -D prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")${directUrlLine}
+}
+`;
+}
+
+export function renderDatabaseClient({ client, runtime = "node", provider }: DatabaseClientOptions): FileOperation[] {
+  if (client === "prisma") {
+    return [writeFile("apps/web/prisma/schema.prisma", "db/prisma", renderPrismaSchema(provider))];
+  }
+
+  const content = runtime === "edge" && provider === "postgres/neon" ? NEON_SERVERLESS_CLIENT : STANDARD_DRIZZLE_CLIENT;
+
+  return [writeFile("apps/web/db/client.ts", "db/drizzle", content)];
+}
+
 export function renderShadcnUi({ appName }: NextjsAppOptions): FileOperation[] {
   const root = `apps/${appName}`;
 

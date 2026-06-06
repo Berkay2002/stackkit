@@ -354,7 +354,10 @@ export const builtinModules = [
     version: "1.0.0",
     title: "Neon Postgres",
     description: "Neon hosted Postgres provider",
+    aliases: ["neon"],
+    category: "database-provider",
     requires: ["postgres"],
+    conflicts: ["postgres/supabase", "postgres/supabase-local", "postgres/local"],
     aiSkills: [
       {
         source: "https://github.com/neondatabase/agent-skills",
@@ -364,6 +367,102 @@ export const builtinModules = [
         reason: "Neon provider-specific branch and database workflow guidance"
       }
     ]
+  }),
+  defineModule({
+    id: "postgres/supabase",
+    version: "1.0.0",
+    title: "Supabase Postgres",
+    description: "Supabase hosted Postgres provider (database host only)",
+    aliases: ["supabase"],
+    category: "database-provider",
+    requires: ["postgres"],
+    conflicts: ["postgres/neon", "postgres/supabase-local", "postgres/local"],
+    envVars: [
+      {
+        name: "DIRECT_URL",
+        description:
+          "Supabase direct connection (session mode, port 5432) for migrations. The app uses DATABASE_URL via the 6543 pooler with pgbouncer=true.",
+        required: false,
+        example:
+          "postgres://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres",
+        target: "db"
+      }
+    ],
+    readme: {
+      stack: ["Supabase Postgres"]
+    },
+    aiSkills: [
+      {
+        source: "https://github.com/supabase/agent-skills",
+        skills: ["supabase-postgres-best-practices"],
+        trust: "official",
+        causedBy: "postgres/supabase",
+        reason: "Supabase Postgres connection pooling and schema guidance"
+      }
+    ]
+  }),
+  defineModule({
+    id: "postgres/supabase-local",
+    version: "1.0.0",
+    title: "Local Supabase (CLI)",
+    description: "Local Supabase stack via the Supabase CLI (requires the CLI installed)",
+    aliases: ["supabase-local"],
+    category: "database-provider",
+    requires: ["postgres"],
+    conflicts: ["postgres/neon", "postgres/supabase", "postgres/local"],
+    envVars: [
+      {
+        name: "DIRECT_URL",
+        description: "Local Supabase direct connection (session mode) for migrations, as printed by `supabase start`.",
+        required: false,
+        example: "postgresql://postgres:postgres@localhost:54322/postgres",
+        target: "db"
+      }
+    ],
+    files: [
+      {
+        kind: "write",
+        path: "supabase/config.toml",
+        owner: "postgres/supabase-local",
+        overwrite: "if-owned",
+        content: 'project_id = "app"\n\n[db]\nport = 54322\n'
+      }
+    ],
+    readme: {
+      stack: ["Local Supabase (CLI)"]
+    },
+    aiSkills: [
+      {
+        source: "https://github.com/supabase/agent-skills",
+        skills: ["supabase-postgres-best-practices"],
+        trust: "official",
+        causedBy: "postgres/supabase-local",
+        reason: "Local Supabase Postgres workflow guidance"
+      }
+    ]
+  }),
+  defineModule({
+    id: "postgres/local",
+    version: "1.0.0",
+    title: "Local Postgres (Docker)",
+    description: "Local Postgres via a Docker Compose service",
+    aliases: ["postgres-local"],
+    category: "database-provider",
+    requires: ["postgres"],
+    conflicts: ["postgres/neon", "postgres/supabase", "postgres/supabase-local"],
+    files: [
+      {
+        kind: "write",
+        path: "docker-compose.db.yml",
+        owner: "postgres/local",
+        overwrite: "if-owned",
+        content:
+          'services:\n  db:\n    image: postgres:17\n    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: postgres\n      POSTGRES_DB: app\n    ports:\n      - "5432:5432"\n    volumes:\n      - pgdata:/var/lib/postgresql/data\nvolumes:\n  pgdata:\n'
+      }
+    ],
+    readme: {
+      stack: ["Local Postgres (Docker)"]
+    }
   }),
   defineModule({
     id: "auth/clerk",
@@ -890,6 +989,40 @@ export const builtinPresets = [
       "db/sqlalchemy",
       "deploy/docker",
       "docs/local-dev"
+    ]
+  }),
+  definePreset({
+    id: "next-neon-drizzle",
+    title: "Next.js, Neon, and Drizzle",
+    description: "A Next.js app with ShadCN, Neon Postgres, and Drizzle",
+    modules: [
+      "workspace/pnpm-turbo",
+      "workspace/typescript",
+      "web/nextjs",
+      "ui/shadcn",
+      "db/postgres",
+      "db/drizzle",
+      "postgres/neon",
+      "deploy/vercel",
+      "quality/eslint",
+      "quality/prettier"
+    ]
+  }),
+  definePreset({
+    id: "next-supabase-drizzle",
+    title: "Next.js, Supabase, and Drizzle",
+    description: "A Next.js app with ShadCN, Supabase Postgres, and Drizzle",
+    modules: [
+      "workspace/pnpm-turbo",
+      "workspace/typescript",
+      "web/nextjs",
+      "ui/shadcn",
+      "db/postgres",
+      "db/drizzle",
+      "postgres/supabase",
+      "deploy/vercel",
+      "quality/eslint",
+      "quality/prettier"
     ]
   })
 ] as const;

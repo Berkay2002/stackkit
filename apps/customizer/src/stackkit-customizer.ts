@@ -12,6 +12,8 @@ import type { PackageManager, StackkitModule, StackkitRecipe } from "@berkayorha
 export type WebChoice = "nextjs" | "django" | "none";
 export type ApiChoice = "none" | "fastapi" | "axum";
 export type DatabaseChoice = "none" | "postgres";
+export type DatabaseProviderChoice = "byo" | "neon" | "supabase" | "supabase-local" | "postgres-local";
+export type DatabaseRuntimeChoice = "node" | "edge";
 export type AuthChoice = "none" | "auth0" | "clerk" | "better-auth";
 export type DeployChoice = "vercel" | "docker" | "kubernetes";
 export type AiSkillModeChoice = "install" | "plan" | "skip";
@@ -23,6 +25,8 @@ export type CustomizerState = {
   web: WebChoice;
   api: ApiChoice;
   database: DatabaseChoice;
+  dbProvider: DatabaseProviderChoice;
+  dbRuntime: DatabaseRuntimeChoice;
   auth: AuthChoice;
   deploy: DeployChoice[];
   aiSkillMode: AiSkillModeChoice;
@@ -57,6 +61,8 @@ export function createInitialCustomizerState(): CustomizerState {
     web: "nextjs",
     api: "none",
     database: "none",
+    dbProvider: "byo",
+    dbRuntime: "node",
     auth: "none",
     deploy: ["vercel"],
     aiSkillMode: "install",
@@ -96,12 +102,13 @@ export function buildCustomizerState(state: CustomizerState): CustomizerResult {
       }),
       { availableModules: builtinModules, availablePresets: builtinPresets }
     );
+    const usesEdgeDrizzle = state.dbRuntime === "edge" && modules.some((module) => module.id === "db/drizzle");
     const recipe: StackkitRecipe = {
       schemaVersion: 1,
       preset: state.preset === "custom" ? undefined : state.preset,
       packageManager: state.packageManager,
       modules: modules.map((module) => module.id),
-      options: {},
+      options: usesEdgeDrizzle ? { "db/drizzle": { runtime: "edge" } } : {},
       ai: {
         skillTargets: state.claudeCode ? ["codex", "claude-code"] : ["codex"],
         skillMode: state.aiSkillMode,
@@ -147,11 +154,16 @@ function resolveStateModuleIds(state: CustomizerState): string[] {
       web: webModule(state.web),
       api: apiModule(state.api),
       db: state.database === "postgres" ? "postgres" : undefined,
+      dbProvider: state.database === "postgres" ? providerModule(state.dbProvider) : undefined,
       auth: authModule(state.auth),
       deploy: state.deploy
     },
     builtinModules
   );
+}
+
+function providerModule(provider: DatabaseProviderChoice): string | undefined {
+  return provider === "byo" ? undefined : provider;
 }
 
 function webModule(web: WebChoice): string | undefined {

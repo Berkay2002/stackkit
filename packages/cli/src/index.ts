@@ -103,6 +103,8 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--api <alias>", "API framework alias")
     .option("--db <alias>", "Database alias")
     .option("--db-client <alias>", "Database client alias")
+    .option("--db-provider <alias>", "Postgres host/provider. (neon, supabase, supabase-local, postgres-local)")
+    .option("--db-runtime <mode>", "Database client runtime for scripted-axis creates. (node, edge) — edge applies to Neon + Drizzle", "node")
     .option("--auth <alias>", "Auth provider alias")
     .option("--with <aliases>", "Additional module aliases. Comma-separated")
     .option("--deploy <aliases>", "Deployment target aliases. Comma-separated")
@@ -126,10 +128,12 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
           api: options.api,
           db: options.db,
           dbClient: options.dbClient,
+          dbProvider: options.dbProvider,
           auth: parseCommaList(options.auth),
           with: parseCommaList(options.with),
           deploy: parseCommaList(options.deploy)
         },
+        dbRuntime: options.dbRuntime,
         recipeCode: options.recipe
       });
       const targetDirectory = options.dir ? resolve(options.dir) : undefined;
@@ -546,6 +550,7 @@ export type CreatePlanOptions = {
   skillMode?: string;
   skillLinkMode?: string;
   axes?: CreateAxisOptions;
+  dbRuntime?: string;
   recipeCode?: string;
 };
 
@@ -561,6 +566,8 @@ type CreateCommandOptions = {
   api?: string;
   db?: string;
   dbClient?: string;
+  dbProvider?: string;
+  dbRuntime?: string;
   auth?: string;
   with?: string;
   deploy?: string;
@@ -606,6 +613,7 @@ type CreateAxisOptions = {
   api?: string;
   db?: string;
   dbClient?: string;
+  dbProvider?: string;
   auth?: string[];
   with?: string[];
   deploy?: string[];
@@ -665,6 +673,7 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
       packageManager: planOptions.packageManager,
       preset: planOptions.preset ?? (hasAxisModules ? undefined : "next"),
       modules: axisModules,
+      options: dbRuntimeOptions(planOptions.dbRuntime, axisModules),
       ai: {
         skillTargets: planOptions.aiTargets ?? ["codex"],
         skillMode: planOptions.skillMode,
@@ -713,18 +722,36 @@ function resolveCreateAxisModules(axes: CreateAxisOptions | undefined): string[]
     return [];
   }
 
-  return resolveStackAxes(
+  const resolved = resolveStackAxes(
     {
       web: axes.web,
       api: axes.api,
       db: axes.db,
       dbClient: axes.dbClient,
+      dbProvider: axes.dbProvider,
       auth: axes.auth,
       with: axes.with,
       deploy: axes.deploy
     },
     builtinModules
   );
+
+  if (axes.dbProvider && axes.dbProvider !== "byo" && !resolved.some((id) => id.startsWith("postgres/"))) {
+    throw new Error("--db-provider requires a Postgres database. Add --db postgres.");
+  }
+
+  return resolved;
+}
+
+function dbRuntimeOptions(
+  dbRuntime: string | undefined,
+  modules: readonly string[]
+): Record<string, Record<string, unknown>> | undefined {
+  if (dbRuntime === "edge" && modules.includes("db/drizzle")) {
+    return { "db/drizzle": { runtime: "edge" } };
+  }
+
+  return undefined;
 }
 
 function hasCreateAxes(axes: CreateAxisOptions): boolean {
@@ -733,6 +760,7 @@ function hasCreateAxes(axes: CreateAxisOptions): boolean {
       axes.api ||
       axes.db ||
       axes.dbClient ||
+      axes.dbProvider ||
       (axes.auth && axes.auth.length > 0) ||
       (axes.with && axes.with.length > 0) ||
       (axes.deploy && axes.deploy.length > 0)

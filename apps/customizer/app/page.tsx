@@ -15,9 +15,11 @@ import {
   siDocker,
   siFastapi,
   siKubernetes,
+  siNeon,
   siNextdotjs,
   siPostgresql,
   siRust,
+  siSupabase,
   siVercel,
   type SimpleIcon
 } from "simple-icons";
@@ -32,6 +34,7 @@ import {
   type AuthChoice,
   type CustomizerState,
   type DatabaseChoice,
+  type DatabaseProviderChoice,
   type DeployChoice,
   type WebChoice
 } from "../src/stackkit-customizer";
@@ -59,6 +62,14 @@ const apiChoices: Choice<ApiChoice>[] = [
 const databaseChoices: Choice<DatabaseChoice>[] = [
   { value: "none", label: "No database", description: "Skip persistence", iconLabel: "None" },
   { value: "postgres", label: "Postgres", description: "Adds matching client defaults", icon: siPostgresql }
+];
+
+const databaseProviderChoices: Choice<DatabaseProviderChoice>[] = [
+  { value: "byo", label: "Bring your own", description: "Provide your own DATABASE_URL", iconLabel: "URL" },
+  { value: "neon", label: "Neon", description: "Serverless Postgres in the cloud", icon: siNeon },
+  { value: "supabase", label: "Supabase", description: "Hosted Postgres (host only)", icon: siSupabase },
+  { value: "supabase-local", label: "Supabase (local)", description: "Local stack via the Supabase CLI", icon: siSupabase },
+  { value: "postgres-local", label: "Postgres (Docker)", description: "Local Postgres compose service", icon: siDocker }
 ];
 
 const authChoices: Choice<AuthChoice>[] = [
@@ -166,6 +177,27 @@ export default function Page() {
 
               <Step title="Data and auth">
                 <ChoiceGrid choices={databaseChoices} value={state.database} onChange={(database) => patch({ database })} />
+                {state.database === "postgres" ? (
+                  <>
+                    <ChoiceGrid
+                      choices={databaseProviderChoices}
+                      value={state.dbProvider}
+                      onChange={(dbProvider) => patch({ dbProvider })}
+                    />
+                    {state.dbProvider === "neon" ? (
+                      <div className="switch-row">
+                        <label>
+                          <input
+                            checked={state.dbRuntime === "edge"}
+                            onChange={(event) => patch({ dbRuntime: event.target.checked ? "edge" : "node" })}
+                            type="checkbox"
+                          />
+                          Use Neon serverless (edge) driver
+                        </label>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
                 <ChoiceGrid choices={authChoices} value={state.auth} onChange={(auth) => patch({ auth })} />
               </Step>
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { defineModule, definePreset, resolveModuleGraph } from "./index.js";
+import { defineModule, definePreset, resolveModuleGraph, resolveStackAxes } from "./index.js";
 
 const workspace = defineModule({
   id: "workspace/pnpm-turbo",
@@ -114,5 +114,31 @@ describe("resolveModuleGraph", () => {
     });
 
     expect(graph.map((module) => module.id)).toEqual(["workspace/pnpm-turbo", "web/nextjs"]);
+  });
+});
+
+describe("resolveStackAxes database provider", () => {
+  const postgres = defineModule({ id: "db/postgres", version: "1.0.0", title: "Postgres", description: "Postgres", aliases: ["postgres"], provides: ["postgres"] });
+  const drizzle = defineModule({ id: "db/drizzle", version: "1.0.0", title: "Drizzle", description: "Drizzle", aliases: ["drizzle"], requires: ["postgres"] });
+  const neon = defineModule({ id: "postgres/neon", version: "1.0.0", title: "Neon", description: "Neon", aliases: ["neon"], requires: ["postgres"], conflicts: ["postgres/supabase"] });
+  const supabase = defineModule({ id: "postgres/supabase", version: "1.0.0", title: "Supabase", description: "Supabase", aliases: ["supabase"], requires: ["postgres"], conflicts: ["postgres/neon"] });
+  const modules = [postgres, drizzle, neon, supabase];
+
+  it("appends exactly one provider module for dbProvider", () => {
+    const resolved = resolveStackAxes({ db: "db/postgres", dbProvider: "supabase" }, modules);
+
+    expect(resolved.filter((id) => id.startsWith("postgres/"))).toEqual(["postgres/supabase"]);
+    expect(resolved).toEqual(expect.arrayContaining(["db/postgres", "db/drizzle"]));
+  });
+
+  it("resolves provider aliases", () => {
+    const resolved = resolveStackAxes({ db: "db/postgres", dbProvider: "neon" }, modules);
+
+    expect(resolved.filter((id) => id.startsWith("postgres/"))).toEqual(["postgres/neon"]);
+  });
+
+  it("appends no provider for byo or when dbProvider is omitted", () => {
+    expect(resolveStackAxes({ db: "db/postgres" }, modules).filter((id) => id.startsWith("postgres/"))).toEqual([]);
+    expect(resolveStackAxes({ db: "db/postgres", dbProvider: "byo" }, modules).filter((id) => id.startsWith("postgres/"))).toEqual([]);
   });
 });

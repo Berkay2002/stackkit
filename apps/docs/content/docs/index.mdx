@@ -61,6 +61,7 @@ Stackkit can generate and validate real starter monorepos today. The following a
 
 - pnpm / npm / yarn / bun project metadata
 - Next.js, ShadCN, FastAPI, Postgres, and Auth0 metadata
+- Postgres hosts: Neon, Supabase (cloud), Supabase (local CLI), and local Docker, with a generated Drizzle/Prisma client
 - Vercel, Docker, and Kubernetes file generation
 - Deterministic `README.md` and `.env.example`
 - Root `dev`, `build`, `test`, `typecheck`, `lint`, and `format` scripts
@@ -69,5 +70,5 @@ Stackkit can generate and validate real starter monorepos today. The following a
 - Project-local AI skill targets for Codex `.agents` and Claude Code `.claude`
 
 <Callout title="Known gaps" type="warn">
-Auth and database modules mostly emit metadata, docs, env vars, and AI skills rather than full integration code. Rust services are declared but not deeply templated yet. Remote registries are intentionally unsupported. The visual customizer is local-only.
+Auth modules mostly emit metadata, docs, env vars, and AI skills rather than full integration code. Postgres host selection generates connection scaffolding and a starter Drizzle/Prisma client (a documented starter — install its listed deps), but not full data-layer integration. Rust services are declared but not deeply templated yet. Remote registries are intentionally unsupported. The visual customizer is local-only.
 </Callout>
