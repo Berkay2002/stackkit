@@ -78,6 +78,16 @@ describe("buildQualityModules", () => {
     }
   });
 
+  it("assigns display icons to quality modules", () => {
+    expect(byId.get("quality/eslint")?.icon).toBe("eslint");
+    expect(byId.get("quality/prettier")?.icon).toBe("prettier");
+    expect(byId.get("quality/biome")?.icon).toBe("biome");
+    expect(byId.get("quality/tsc")?.icon).toBe("typescript");
+    expect(byId.get("quality/ruff")?.icon).toBe("ruff");
+    expect(byId.get("quality/mypy")?.icon).toBe("python");
+    expect(byId.get("quality/pyright")?.icon).toBe("pyright");
+  });
+
   it("makes combined tools conflict with the single-slot tools they replace", () => {
     const biome = byId.get("quality/biome");
     expect(biome?.provides).toEqual(expect.arrayContaining(["ts-lint", "ts-format"]));

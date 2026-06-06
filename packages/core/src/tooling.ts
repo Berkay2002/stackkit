@@ -22,6 +22,7 @@ export type ToolingToolSpec = {
   moduleId: string;
   title: string;
   description: string;
+  icon?: string;
   language: ToolingLanguage;
   slots: ToolingSlot[];
   isDefault: boolean;
@@ -60,6 +61,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     moduleId: "quality/eslint",
     title: "ESLint",
     description: "JavaScript and TypeScript linting",
+    icon: "eslint",
     language: "ts",
     slots: ["lint"],
     isDefault: true,
@@ -70,6 +72,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     moduleId: "quality/prettier",
     title: "Prettier",
     description: "Shared code formatting",
+    icon: "prettier",
     language: "ts",
     slots: ["format"],
     isDefault: true,
@@ -80,6 +83,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     moduleId: "quality/biome",
     title: "Biome",
     description: "Combined linter and formatter for JavaScript and TypeScript",
+    icon: "biome",
     language: "ts",
     slots: ["lint", "format"],
     isDefault: false,
@@ -95,6 +99,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     moduleId: "quality/tsc",
     title: "TypeScript type checking",
     description: "Static type checking via tsc --noEmit",
+    icon: "typescript",
     language: "ts",
     slots: ["typecheck"],
     isDefault: true,
@@ -105,6 +110,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     moduleId: "quality/ruff",
     title: "Ruff",
     description: "Python linting and formatting",
+    icon: "ruff",
     language: "py",
     slots: ["lint", "format"],
     isDefault: true,
@@ -115,6 +121,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     moduleId: "quality/mypy",
     title: "mypy",
     description: "Python static type checker",
+    icon: "python",
     language: "py",
     slots: ["typecheck"],
     isDefault: true,
@@ -130,6 +137,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     moduleId: "quality/pyright",
     title: "Pyright",
     description: "Python static type checker",
+    icon: "pyright",
     language: "py",
     slots: ["typecheck"],
     isDefault: false,
@@ -140,6 +148,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     moduleId: "quality/clippy",
     title: "Clippy",
     description: "Rust linting",
+    icon: "rust",
     language: "rust",
     slots: ["lint"],
     isDefault: true,
@@ -150,6 +159,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     moduleId: "quality/rustfmt",
     title: "rustfmt",
     description: "Rust formatting",
+    icon: "rust",
     language: "rust",
     slots: ["format"],
     isDefault: true,
@@ -160,6 +170,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     moduleId: "quality/cargo-check",
     title: "cargo check",
     description: "Rust type and compile checking",
+    icon: "rust",
     language: "rust",
     slots: ["typecheck"],
     isDefault: true,
@@ -193,6 +204,7 @@ export function buildQualityModules(catalog: readonly ToolingToolSpec[] = toolin
       version: "1.0.0",
       title: spec.title,
       description: spec.description,
+      icon: spec.icon,
       aliases: spec.aliases ?? [],
       category: "quality",
       requires: [languageCapability[spec.language]],

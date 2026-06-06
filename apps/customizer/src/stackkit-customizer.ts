@@ -80,11 +80,49 @@ export function createInitialCustomizerState(): CustomizerState {
   };
 }
 
+export function applyPresetBaseline(state: CustomizerState, preset: string): CustomizerState {
+  if (preset === "custom") {
+    return normalizeCustomizerState({ ...state, preset });
+  }
+
+  const baseline = presetBaseline(preset);
+
+  if (!baseline) {
+    return normalizeCustomizerState({ ...state, preset });
+  }
+
+  return normalizeCustomizerState({
+    ...state,
+    ...baseline,
+    preset
+  });
+}
+
 export function normalizeCustomizerState(state: CustomizerState): CustomizerState {
-  return {
+  const normalized = {
     ...state,
     deploy: state.deploy.filter((deploy) => isDeployChoiceSupported(state, deploy))
   };
+
+  if (!isDatabaseChoiceSupported(normalized, normalized.database)) {
+    normalized.database = "none";
+    normalized.dbProvider = "byo";
+    normalized.dbRuntime = "node";
+  }
+
+  if (!isAuthChoiceSupported(normalized, normalized.auth)) {
+    normalized.auth = "none";
+  }
+
+  if (!hasTypeScriptApplicationShape(normalized)) {
+    normalized.tsQuality = "eslint-prettier";
+  }
+
+  if (!hasPythonApplicationShape(normalized)) {
+    normalized.pyTypecheck = "mypy";
+  }
+
+  return normalized;
 }
 
 export function isDeployChoiceSupported(state: Pick<CustomizerState, "web">, deploy: DeployChoice): boolean {
@@ -93,6 +131,37 @@ export function isDeployChoiceSupported(state: Pick<CustomizerState, "web">, dep
   }
 
   return state.web === "nextjs";
+}
+
+export function hasPythonApplicationShape(state: Pick<CustomizerState, "api" | "web">): boolean {
+  return state.api === "fastapi" || state.web === "django";
+}
+
+export function hasTypeScriptApplicationShape(state: Pick<CustomizerState, "web">): boolean {
+  return state.web === "nextjs" || state.web === "vite" || state.web === "tanstack";
+}
+
+export function hasApplicationShape(state: Pick<CustomizerState, "api" | "web">): boolean {
+  return state.web !== "none" || state.api !== "none";
+}
+
+export function isDatabaseChoiceSupported(
+  state: Pick<CustomizerState, "api" | "web">,
+  database: DatabaseChoice
+): boolean {
+  return database === "none" || hasApplicationShape(state);
+}
+
+export function isAuthChoiceSupported(state: Pick<CustomizerState, "api" | "web">, auth: AuthChoice): boolean {
+  if (auth === "none") {
+    return true;
+  }
+
+  if (auth === "auth0") {
+    return state.web === "nextjs" || state.api === "fastapi";
+  }
+
+  return hasTypeScriptApplicationShape(state);
 }
 
 export function buildCustomizerState(state: CustomizerState): CustomizerResult {
@@ -148,16 +217,6 @@ export function toCreateCommand(projectName: string, recipeCode: string): string
 }
 
 function resolveStateModuleIds(state: CustomizerState): string[] {
-  if (state.preset !== "custom") {
-    const preset = builtinPresets.find((item) => item.id === state.preset);
-
-    if (!preset) {
-      throw new Error(`Unknown Stackkit preset: ${state.preset}`);
-    }
-
-    return preset.modules;
-  }
-
   return resolveStackAxes(
     {
       web: webModule(state.web),
@@ -167,11 +226,48 @@ function resolveStateModuleIds(state: CustomizerState): string[] {
       dbProvider: state.database === "postgres" ? providerModule(state.dbProvider) : undefined,
       auth: authModule(state.auth),
       deploy: state.deploy,
-      tsQuality: state.tsQuality,
-      pyTypecheck: state.pyTypecheck
+      tsQuality: hasTypeScriptApplicationShape(state) ? state.tsQuality : undefined,
+      pyTypecheck: hasPythonApplicationShape(state) ? state.pyTypecheck : undefined
     },
     builtinModules
   );
+}
+
+function presetBaseline(preset: string): Partial<CustomizerState> | undefined {
+  const baseline: Record<string, Partial<CustomizerState>> = {
+    next: {
+      web: "nextjs",
+      ui: "shadcn",
+      api: "none",
+      database: "none",
+      dbProvider: "byo",
+      dbRuntime: "node",
+      auth: "none",
+      deploy: []
+    },
+    "next-postgres-clerk": {
+      web: "nextjs",
+      ui: "shadcn",
+      api: "none",
+      database: "postgres",
+      dbProvider: "byo",
+      dbRuntime: "node",
+      auth: "clerk",
+      deploy: ["vercel"]
+    },
+    "next-fastapi-postgres-auth0": {
+      web: "nextjs",
+      ui: "shadcn",
+      api: "fastapi",
+      database: "postgres",
+      dbProvider: "byo",
+      dbRuntime: "node",
+      auth: "auth0",
+      deploy: ["vercel", "docker"]
+    }
+  };
+
+  return baseline[preset];
 }
 
 function providerModule(provider: DatabaseProviderChoice): string | undefined {

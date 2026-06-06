@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCustomizerState, createInitialCustomizerState, normalizeCustomizerState, toCreateCommand } from "./stackkit-customizer.js";
+import {
+  applyPresetBaseline,
+  buildCustomizerState,
+  createInitialCustomizerState,
+  normalizeCustomizerState,
+  toCreateCommand
+} from "./stackkit-customizer.js";
 
 describe("Stackkit customizer state", () => {
   it("builds a default Next.js recipe command", () => {
@@ -15,6 +21,41 @@ describe("Stackkit customizer state", () => {
     expect(result.recipe.modules).toContain("ui/shadcn");
     expect(result.command).toContain("npx @berkayorhan/stackkit@latest create my-stack --recipe sk_");
     expect(result.decoded).toEqual(result.recipe);
+  });
+
+  it("uses presets as editable baselines", () => {
+    const state = applyPresetBaseline(createInitialCustomizerState(), "next-fastapi-postgres-auth0");
+    const result = buildCustomizerState(state);
+
+    expect(state.web).toBe("nextjs");
+    expect(state.api).toBe("fastapi");
+    expect(state.database).toBe("postgres");
+    expect(state.auth).toBe("auth0");
+    expect(state.deploy).toEqual(["vercel", "docker"]);
+    expect(result.ok && result.recipe.modules).toEqual(
+      expect.arrayContaining(["web/nextjs", "api/fastapi", "db/postgres", "auth/auth0-nextjs", "auth/auth0-fastapi"])
+    );
+  });
+
+  it("customizes after applying a preset without keeping preset modules locked", () => {
+    const state = normalizeCustomizerState({
+      ...applyPresetBaseline(createInitialCustomizerState(), "next-postgres-clerk"),
+      preset: "custom",
+      ui: "none",
+      auth: "none"
+    });
+    const result = buildCustomizerState(state);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.recipe.preset).toBeUndefined();
+    expect(result.recipe.modules).toContain("web/nextjs");
+    expect(result.recipe.modules).toContain("db/postgres");
+    expect(result.recipe.modules).not.toContain("ui/shadcn");
+    expect(result.recipe.modules).not.toContain("auth/clerk");
   });
 
   it("includes web/vite when web is vite", () => {
@@ -182,6 +223,63 @@ describe("Stackkit customizer state", () => {
 
     expect(result.recipe.modules).toContain("quality/pyright");
     expect(result.recipe.modules).not.toContain("quality/mypy");
+  });
+
+  it("ignores Python type checker choices when no Python app is selected", () => {
+    const result = buildCustomizerState({
+      ...createInitialCustomizerState(),
+      api: "axum",
+      pyTypecheck: "pyright"
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.recipe.modules).not.toContain("quality/pyright");
+    expect(result.recipe.modules).not.toContain("quality/mypy");
+    expect(result.recipe.modules).toContain("quality/clippy");
+  });
+
+  it("ignores TypeScript quality choices when no TypeScript app is selected", () => {
+    const result = buildCustomizerState({
+      ...createInitialCustomizerState(),
+      web: "none",
+      api: "fastapi",
+      tsQuality: "biome"
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.recipe.modules).not.toContain("quality/biome");
+    expect(result.recipe.modules).not.toContain("quality/eslint");
+    expect(result.recipe.modules).toContain("quality/ruff");
+  });
+
+  it("normalizes unsupported auth and database choices", () => {
+    const unsupportedAuth = normalizeCustomizerState({
+      ...createInitialCustomizerState(),
+      web: "none",
+      api: "fastapi",
+      auth: "clerk"
+    });
+    const unsupportedDatabase = normalizeCustomizerState({
+      ...createInitialCustomizerState(),
+      web: "none",
+      api: "none",
+      database: "postgres",
+      dbProvider: "neon",
+      dbRuntime: "edge"
+    });
+
+    expect(unsupportedAuth.auth).toBe("none");
+    expect(unsupportedDatabase.database).toBe("none");
+    expect(unsupportedDatabase.dbProvider).toBe("byo");
+    expect(unsupportedDatabase.dbRuntime).toBe("node");
   });
 
   it("generates a shell-safe command with custom project and package manager", () => {

@@ -351,6 +351,7 @@ export const builtinModules = [
     description: "SQLx database access for Postgres",
     aliases: ["sqlx"],
     category: "database-client",
+    icon: "rust",
     requires: ["postgres"],
     provides: ["sqlx-db"],
     aiSkills: [
@@ -709,6 +710,7 @@ export const builtinModules = [
     description: "Tokio async Rust runtime",
     aliases: ["tokio"],
     category: "rust",
+    icon: "tokio",
     provides: ["rust-async"],
     aiSkills: [
       {
@@ -727,6 +729,7 @@ export const builtinModules = [
     description: "Rust web API service",
     aliases: ["axum", "rust"],
     category: "api",
+    icon: "rust",
     requires: ["rust-async"],
     provides: ["api", "rust"],
     aiSkills: localGuidance("rust/axum", "stackkit-axum-guidance", "Axum service structure and async handler guidance")
@@ -768,6 +771,7 @@ export const builtinModules = [
     description: "Rust SQL toolkit for Postgres",
     aliases: ["rust-sqlx"],
     category: "database-client",
+    icon: "rust",
     requires: ["postgres", "rust"],
     provides: ["rust-db"],
     aiSkills: localGuidance("rust/sqlx", "stackkit-rust-sqlx-guidance", "Rust SQLx query and migration guidance")

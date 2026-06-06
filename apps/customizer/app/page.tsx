@@ -2,7 +2,6 @@
 
 import {
   Check,
-  ChevronRight,
   Copy,
   Terminal
 } from "lucide-react";
@@ -10,27 +9,45 @@ import { useMemo, useState } from "react";
 import {
   siAuth0,
   siBetterauth,
+  siBiome,
   siClerk,
   siDjango,
   siDocker,
+  siDrizzle,
+  siEslint,
   siFastapi,
   siKubernetes,
   siNeon,
   siNextdotjs,
+  siPnpm,
   siPostgresql,
+  siPrettier,
+  siPython,
+  siRuff,
   siRust,
   siShadcnui,
+  siSqlalchemy,
   siSupabase,
   siTailwindcss,
   siTanstack,
+  siTokio,
+  siTypescript,
+  siTurborepo,
   siVercel,
+  siVitest,
   siVite,
   type SimpleIcon
 } from "simple-icons";
+import type { StackkitModule } from "@berkayorhan/stackkit-schemas";
 
 import {
+  applyPresetBaseline,
   buildCustomizerState,
   createInitialCustomizerState,
+  hasPythonApplicationShape,
+  hasTypeScriptApplicationShape,
+  isAuthChoiceSupported,
+  isDatabaseChoiceSupported,
   isDeployChoiceSupported,
   normalizeCustomizerState,
   type AiSkillModeChoice,
@@ -51,7 +68,43 @@ type Choice<T extends string> = {
   label: string;
   description: string;
   icon?: SimpleIcon;
+  icons?: SimpleIcon[];
+  customIcon?: LocalIconKey;
   iconLabel?: string;
+};
+
+type LocalIconKey = "pyright";
+
+const iconByKey: Record<string, SimpleIcon> = {
+  auth0: siAuth0,
+  "better-auth": siBetterauth,
+  biome: siBiome,
+  clerk: siClerk,
+  django: siDjango,
+  docker: siDocker,
+  drizzle: siDrizzle,
+  eslint: siEslint,
+  fastapi: siFastapi,
+  kubernetes: siKubernetes,
+  neon: siNeon,
+  nextjs: siNextdotjs,
+  pnpm: siPnpm,
+  postgres: siPostgresql,
+  prettier: siPrettier,
+  python: siPython,
+  ruff: siRuff,
+  rust: siRust,
+  shadcn: siShadcnui,
+  sqlalchemy: siSqlalchemy,
+  supabase: siSupabase,
+  tailwind: siTailwindcss,
+  tanstack: siTanstack,
+  tokio: siTokio,
+  typescript: siTypescript,
+  turborepo: siTurborepo,
+  vercel: siVercel,
+  vitest: siVitest,
+  vite: siVite
 };
 
 const webChoices: Choice<WebChoice>[] = [
@@ -101,13 +154,30 @@ const deployChoices: Choice<DeployChoice>[] = [
 ];
 
 const tsQualityChoices: Choice<TsQualityChoice>[] = [
-  { value: "eslint-prettier", label: "ESLint + Prettier", description: "Default lint and format", iconLabel: "ES+P" },
-  { value: "biome", label: "Biome", description: "Combined linter and formatter", iconLabel: "Biome" }
+  { value: "eslint-prettier", label: "ESLint + Prettier", description: "Default lint and format", icons: [siEslint, siPrettier] },
+  { value: "biome", label: "Biome", description: "Combined linter and formatter", icon: siBiome }
+];
+
+const presetChoices: Choice<string>[] = [
+  { value: "custom", label: "Custom", description: "Choose technology below", iconLabel: "Custom" },
+  { value: "next", label: "Next.js", description: "Next.js with shadcn/ui", icons: [siNextdotjs, siShadcnui] },
+  {
+    value: "next-postgres-clerk",
+    label: "Next + Clerk",
+    description: "Postgres and Clerk",
+    icons: [siNextdotjs, siShadcnui, siPostgresql, siClerk]
+  },
+  {
+    value: "next-fastapi-postgres-auth0",
+    label: "Next + FastAPI",
+    description: "Postgres and Auth0",
+    icons: [siNextdotjs, siFastapi, siPostgresql, siAuth0]
+  }
 ];
 
 const pyTypecheckChoices: Choice<PyTypecheckChoice>[] = [
-  { value: "mypy", label: "mypy", description: "Default Python type checker", iconLabel: "mypy" },
-  { value: "pyright", label: "pyright", description: "Alternative Python type checker", iconLabel: "pyr" }
+  { value: "mypy", label: "mypy", description: "Default Python type checker", icon: siPython },
+  { value: "pyright", label: "pyright", description: "Alternative Python type checker", customIcon: "pyright" }
 ];
 
 const aiModeChoices: Choice<AiSkillModeChoice>[] = [
@@ -124,6 +194,15 @@ export default function Page() {
   function patch(next: Partial<CustomizerState>) {
     setCopied(false);
     setState((current) => normalizeCustomizerState({ ...current, ...next }));
+  }
+
+  function patchStack(next: Partial<CustomizerState>) {
+    patch({ ...next, preset: "custom" });
+  }
+
+  function selectPreset(preset: string) {
+    setCopied(false);
+    setState((current) => applyPresetBaseline(current, preset));
   }
 
   async function copyCommand() {
@@ -173,107 +252,122 @@ export default function Page() {
         <div className="builder">
           <Step title="Start from a preset">
             <div className="preset-grid">
-              {[
-                ["custom", "Custom", "Choose technology below"],
-                ["next", "Next.js", "Next.js with shadcn/ui"],
-                ["next-postgres-clerk", "Next + Clerk", "Postgres and Clerk"],
-                ["next-fastapi-postgres-auth0", "Next + FastAPI", "Postgres and Auth0"]
-              ].map(([value, label, description]) => (
+              {presetChoices.map((choice) => (
                 <button
-                  className={state.preset === value ? "preset active" : "preset"}
-                  key={value}
-                  onClick={() => patch({ preset: value })}
-                  aria-pressed={state.preset === value}
+                  className={state.preset === choice.value ? "preset active" : "preset"}
+                  key={choice.value}
+                  onClick={() => selectPreset(choice.value)}
+                  aria-pressed={state.preset === choice.value}
                   type="button"
                 >
-                  <span>{label}</span>
-                  <small>{description}</small>
+                  <ChoiceIcon choice={choice} />
+                  <span>{choice.label}</span>
+                  <small>{choice.description}</small>
                 </button>
               ))}
             </div>
           </Step>
 
-          {state.preset === "custom" ? (
-            <>
-              <Step title="Application shape">
-                <ChoiceGrid choices={webChoices} value={state.web} onChange={(web) => patch({ web })} />
-                <ChoiceGrid choices={uiChoices} value={state.ui} onChange={(ui) => patch({ ui })} />
-                <ChoiceGrid choices={apiChoices} value={state.api} onChange={(api) => patch({ api })} />
-              </Step>
+          <Step title="Application shape">
+            <ChoiceGrid choices={webChoices} value={state.web} onChange={(web) => patchStack({ web })} />
+            <ChoiceGrid choices={uiChoices} value={state.ui} onChange={(ui) => patchStack({ ui })} />
+            <ChoiceGrid choices={apiChoices} value={state.api} onChange={(api) => patchStack({ api })} />
+          </Step>
 
-              <Step title="Data and auth">
-                <ChoiceGrid choices={databaseChoices} value={state.database} onChange={(database) => patch({ database })} />
-                {state.database === "postgres" ? (
-                  <>
-                    <ChoiceGrid
-                      choices={databaseProviderChoices}
-                      value={state.dbProvider}
-                      onChange={(dbProvider) => patch({ dbProvider })}
-                    />
-                    {state.dbProvider === "neon" ? (
-                      <div className="switch-row">
-                        <label>
-                          <input
-                            checked={state.dbRuntime === "edge"}
-                            onChange={(event) => patch({ dbRuntime: event.target.checked ? "edge" : "node" })}
-                            type="checkbox"
-                          />
-                          Use Neon serverless (edge) driver
-                        </label>
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-                <ChoiceGrid choices={authChoices} value={state.auth} onChange={(auth) => patch({ auth })} />
-              </Step>
+          <Step title="Data and auth">
+            <ChoiceGrid
+              choices={databaseChoices}
+              value={state.database}
+              onChange={(database) => patchStack({ database })}
+              isDisabled={(database) => !isDatabaseChoiceSupported(state, database)}
+              disabledDescription={() => "Select an app or API first"}
+            />
+            <div className="choice-group">
+              <h3>Postgres provider</h3>
+              <ChoiceGrid
+                choices={databaseProviderChoices}
+                value={state.database === "postgres" ? state.dbProvider : undefined}
+                onChange={(dbProvider) => patchStack({ database: "postgres", dbProvider })}
+                isDisabled={() => !isDatabaseChoiceSupported(state, "postgres")}
+                disabledDescription={() => "Select an app or API first"}
+              />
+            </div>
+            {state.database === "postgres" && state.dbProvider === "neon" ? (
+              <div className="switch-row">
+                <label>
+                  <input
+                    checked={state.dbRuntime === "edge"}
+                    onChange={(event) => patchStack({ dbRuntime: event.target.checked ? "edge" : "node" })}
+                    type="checkbox"
+                  />
+                  Use Neon serverless (edge) driver
+                </label>
+              </div>
+            ) : null}
+            <ChoiceGrid
+              choices={authChoices}
+              value={state.auth}
+              onChange={(auth) => patchStack({ auth })}
+              isDisabled={(auth) => !isAuthChoiceSupported(state, auth)}
+              disabledDescription={(auth) => unsupportedAuthReason(auth)}
+            />
+          </Step>
 
-              <Step title="Deployment">
-                <div className="choice-grid">
-                  {deployChoices.map((choice) => {
-                    const supported = isDeployChoiceSupported(state, choice.value);
-                    const active = supported && state.deploy.includes(choice.value);
+          <Step title="Deployment">
+            <div className="choice-grid">
+              {deployChoices.map((choice) => {
+                const supported = isDeployChoiceSupported(state, choice.value);
+                const active = supported && state.deploy.includes(choice.value);
 
-                    return (
-                      <button
-                        className={active ? "choice active" : supported ? "choice" : "choice disabled"}
-                        disabled={!supported}
-                        key={choice.value}
-                        onClick={() =>
-                          supported
-                            ? patch({
-                                deploy: active
-                                  ? state.deploy.filter((item) => item !== choice.value)
-                                  : [...state.deploy, choice.value]
-                              })
-                            : undefined
-                        }
-                        aria-disabled={!supported}
-                        aria-pressed={active}
-                        type="button"
-                      >
-                        <ChoiceIcon choice={choice} />
-                        <span>{choice.label}</span>
-                        <small>{supported ? choice.description : unsupportedDeployReason(choice.value)}</small>
-                      </button>
-                    );
-                  })}
-                </div>
-              </Step>
+                return (
+                  <button
+                    className={active ? "choice active" : supported ? "choice" : "choice disabled"}
+                    disabled={!supported}
+                    key={choice.value}
+                    onClick={() =>
+                      supported
+                        ? patchStack({
+                            deploy: active
+                              ? state.deploy.filter((item) => item !== choice.value)
+                              : [...state.deploy, choice.value]
+                          })
+                        : undefined
+                    }
+                    aria-disabled={!supported}
+                    aria-pressed={active}
+                    type="button"
+                  >
+                    <ChoiceIcon choice={choice} />
+                    <span>{choice.label}</span>
+                    <small>{supported ? choice.description : unsupportedDeployReason(choice.value)}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </Step>
 
-              <Step title="Code quality">
+          <Step title="Code quality">
+            {hasTypeScriptApplicationShape(state) ? (
+              <div className="choice-group">
+                <h3>TypeScript quality</h3>
                 <ChoiceGrid
                   choices={tsQualityChoices}
                   value={state.tsQuality}
-                  onChange={(tsQuality) => patch({ tsQuality })}
+                  onChange={(tsQuality) => patchStack({ tsQuality })}
                 />
+              </div>
+            ) : null}
+            {hasPythonApplicationShape(state) ? (
+              <div className="choice-group">
+                <h3>Python typecheck</h3>
                 <ChoiceGrid
                   choices={pyTypecheckChoices}
                   value={state.pyTypecheck}
-                  onChange={(pyTypecheck) => patch({ pyTypecheck })}
+                  onChange={(pyTypecheck) => patchStack({ pyTypecheck })}
                 />
-              </Step>
-            </>
-          ) : null}
+              </div>
+            ) : null}
+          </Step>
 
           <Step title="AI skills">
             <ChoiceGrid choices={aiModeChoices} value={state.aiSkillMode} onChange={(aiSkillMode) => patch({ aiSkillMode })} />
@@ -318,7 +412,7 @@ export default function Page() {
                 <h3>Resolved modules</h3>
                 {result.modules.map((module) => (
                   <div className="module" key={module.id}>
-                    <ChevronRight aria-hidden="true" />
+                    <ModuleIcon module={module} />
                     <span>{module.title}</span>
                     <code>{module.id}</code>
                   </div>
@@ -349,6 +443,18 @@ function unsupportedDeployReason(deploy: DeployChoice) {
   return "Requires Next.js support today";
 }
 
+function unsupportedAuthReason(auth: AuthChoice) {
+  if (auth === "auth0") {
+    return "Select Next.js or FastAPI first";
+  }
+
+  if (auth === "clerk" || auth === "better-auth") {
+    return "Select a React web app first";
+  }
+
+  return "Unavailable";
+}
+
 function Step({ children, title }: { children: React.ReactNode; title: string }) {
   return (
     <section className="step">
@@ -362,27 +468,35 @@ function Step({ children, title }: { children: React.ReactNode; title: string })
 
 function ChoiceGrid<T extends string>({
   choices,
+  disabledDescription,
+  isDisabled,
   onChange,
   value
 }: {
   choices: Choice<T>[];
+  disabledDescription?: (value: T) => string;
+  isDisabled?: (value: T) => boolean;
   onChange: (value: T) => void;
-  value: T;
+  value?: T;
 }) {
   return (
     <div className="choice-grid">
       {choices.map((choice) => {
+        const disabled = isDisabled?.(choice.value) ?? false;
+
         return (
           <button
-            className={value === choice.value ? "choice active" : "choice"}
+            className={value === choice.value ? "choice active" : disabled ? "choice disabled" : "choice"}
+            disabled={disabled}
             key={choice.value}
-            onClick={() => onChange(choice.value)}
+            onClick={() => (disabled ? undefined : onChange(choice.value))}
+            aria-disabled={disabled}
             aria-pressed={value === choice.value}
             type="button"
           >
             <ChoiceIcon choice={choice} />
             <span>{choice.label}</span>
-            <small>{choice.description}</small>
+            <small>{disabled ? (disabledDescription?.(choice.value) ?? choice.description) : choice.description}</small>
           </button>
         );
       })}
@@ -391,21 +505,16 @@ function ChoiceGrid<T extends string>({
 }
 
 function ChoiceIcon<T extends string>({ choice }: { choice: Choice<T> }) {
-  if (choice.icon) {
-    const needsContrast = isLightBrandColor(choice.icon.hex);
+  if (choice.icons) {
+    return <IconStack icons={choice.icons} />;
+  }
 
-    return (
-      <span className={needsContrast ? "brand-icon-frame contrast" : "brand-icon-frame"}>
-        <svg
-          aria-hidden="true"
-          className="brand-icon"
-          style={{ color: `#${choice.icon.hex}` }}
-          viewBox="0 0 24 24"
-        >
-          <path d={choice.icon.path} fill="currentColor" />
-        </svg>
-      </span>
-    );
+  if (choice.customIcon) {
+    return <LocalToolIcon icon={choice.customIcon} />;
+  }
+
+  if (choice.icon) {
+    return <BrandIcon icon={choice.icon} />;
   }
 
   return (
@@ -413,6 +522,116 @@ function ChoiceIcon<T extends string>({ choice }: { choice: Choice<T> }) {
       {choice.iconLabel}
     </span>
   );
+}
+
+function ModuleIcon({ module }: { module: StackkitModule }) {
+  if (module.id === "workspace/pnpm-turbo") {
+    return <IconStack icons={[siPnpm, siTurborepo]} />;
+  }
+
+  const localIcon = resolveLocalIconKey(module);
+  if (localIcon) {
+    return <LocalToolIcon icon={localIcon} />;
+  }
+
+  const icon = resolveModuleIcon(module);
+
+  if (icon) {
+    return <BrandIcon icon={icon} />;
+  }
+
+  return (
+    <span aria-hidden="true" className="text-icon module-fallback-icon">
+      {moduleFallbackLabel(module)}
+    </span>
+  );
+}
+
+function IconStack({ icons }: { icons: readonly SimpleIcon[] }) {
+  return (
+    <span aria-hidden="true" className="brand-icon-stack">
+      {icons.map((icon) => (
+        <BrandIcon icon={icon} key={icon.slug} />
+      ))}
+    </span>
+  );
+}
+
+function BrandIcon({ icon }: { icon: SimpleIcon }) {
+  const needsContrast = isLightBrandColor(icon.hex);
+
+  return (
+    <span className={needsContrast ? "brand-icon-frame contrast" : "brand-icon-frame"}>
+      <svg
+        aria-hidden="true"
+        className="brand-icon"
+        style={{ color: `#${icon.hex}` }}
+        viewBox="0 0 24 24"
+      >
+        <path d={icon.path} fill="currentColor" />
+      </svg>
+    </span>
+  );
+}
+
+function LocalToolIcon({ icon }: { icon: LocalIconKey }) {
+  return (
+    <span aria-hidden="true" className={`local-icon-frame ${icon}`}>
+      {icon === "pyright" ? <PyrightIcon /> : null}
+    </span>
+  );
+}
+
+function PyrightIcon() {
+  return (
+    <svg className="local-icon" viewBox="0 0 24 24">
+      <path d="M5 6.6 10.8 3l8.1 3.4 1.2 8-6.2 5.6-8.7-3.3L3.9 9.2Z" fill="#d7d9a8" />
+      <path d="M10.8 3 12 9.2l7.9-2.8Z" fill="#889261" />
+      <path d="M12 9.2 20.1 8l-3.1 4.7-5.8 1.1Z" fill="#4f5c35" />
+      <path d="m5.2 16.7 6-2.9 2.7 6.2Z" fill="#2e3521" />
+      <path d="m3.9 9.2 6.9-6.2L12 9.2 5.2 16.7Z" fill="#c5c783" />
+      <path d="M10.8 3 5.9 12.3h8.2Z" fill="#f1efb8" opacity=".72" />
+    </svg>
+  );
+}
+
+function resolveLocalIconKey(module: StackkitModule): LocalIconKey | undefined {
+  const key = module.icon ?? module.id.split("/").at(-1);
+
+  if (key === "pyright") {
+    return key;
+  }
+
+  return undefined;
+}
+
+function resolveModuleIcon(module: StackkitModule): SimpleIcon | undefined {
+  if (module.icon && iconByKey[module.icon]) {
+    return iconByKey[module.icon];
+  }
+
+  const idIcon = iconByKey[module.id.split("/").at(-1) ?? ""];
+  if (idIcon) {
+    return idIcon;
+  }
+
+  if (module.id.startsWith("postgres/")) {
+    return module.id.includes("supabase") ? siSupabase : module.id.includes("neon") ? siNeon : siPostgresql;
+  }
+
+  if (module.category === "quality" && module.id.includes("vitest")) {
+    return siVitest;
+  }
+
+  return undefined;
+}
+
+function moduleFallbackLabel(module: StackkitModule): string {
+  if (module.category === "workspace") {
+    return "WS";
+  }
+
+  return module.id.slice(0, 2).toUpperCase();
 }
 
 function isLightBrandColor(hex: string) {
