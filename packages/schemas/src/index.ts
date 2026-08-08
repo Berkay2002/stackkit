@@ -11,6 +11,15 @@ export const aiSkillAgentSchema = z.enum(["codex", "claude-code"]);
 export const aiSkillModeSchema = z.enum(["install", "plan", "skip"]);
 export const aiSkillLinkModeSchema = z.enum(["copy", "symlink"]);
 export const packageManagerSchema = z.enum(["pnpm", "npm", "yarn", "bun"]);
+export const supportLevelSchema = z.enum(["supported", "preview", "planned"]);
+export const supportMetadataSchema = z
+  .object({
+    level: supportLevelSchema,
+    reason: z.string().min(1).optional(),
+    verifiedAt: z.string().min(1).optional(),
+    verificationProfile: z.string().min(1).optional()
+  })
+  .default({ level: "planned" });
 
 export const aiSkillTargetSchema = z.object({
   agent: aiSkillAgentSchema,
@@ -173,11 +182,23 @@ export const moduleMigrationSchema = z.object({
   safety: z.enum(["automatic", "review-required", "manual"])
 });
 
+export const moduleRemovalPolicySchema = z.object({
+  mode: z.enum(["managed-files-only", "manual", "blocked"]),
+  retainedData: z.array(z.string().min(1)),
+  manualCleanup: z.array(z.string().min(1))
+});
+
 export const stackkitModuleSchema = z.object({
   id: moduleIdSchema,
   version: semverSchema,
   title: z.string().min(1),
   description: z.string().min(1),
+  support: supportMetadataSchema,
+  removalPolicy: moduleRemovalPolicySchema.default({
+    mode: "managed-files-only",
+    retainedData: [],
+    manualCleanup: []
+  }),
   aliases: z.array(z.string().min(1)).default([]),
   category: z.string().min(1).optional(),
   icon: z.string().min(1).optional(),
@@ -216,6 +237,7 @@ export const stackkitPresetSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   description: z.string().min(1),
+  support: supportMetadataSchema,
   modules: z.array(moduleIdSchema).min(1)
 });
 
@@ -277,6 +299,35 @@ export const stackkitManifestSourceSchema = z.discriminatedUnion("kind", [
   })
 ]);
 
+export const createApplyPhaseSchema = z.enum([
+  "planned",
+  "deterministic-files",
+  "initializers",
+  "skills",
+  "manifest",
+  "verification"
+]);
+
+export const createApplyPhaseStateSchema = z.object({
+  status: z.enum(["pending", "running", "completed", "failed"]),
+  completedAt: z.string().min(1).optional(),
+  error: z.string().min(1).optional()
+});
+
+export const createApplyStateSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    operation: z.literal("create"),
+    planHash: z.string().min(1),
+    projectDirectory: z.string().min(1),
+    startedAt: z.string().min(1),
+    updatedAt: z.string().min(1),
+    plan: z.record(z.string(), z.unknown()),
+    selectedModules: z.array(stackkitModuleSchema),
+    phases: z.record(createApplyPhaseSchema, createApplyPhaseStateSchema)
+  })
+  .passthrough();
+
 export const stackkitManifestSchema = z.object({
   schemaVersion: z.literal(1),
   stackkitVersion: z.string().min(1),
@@ -285,6 +336,7 @@ export const stackkitManifestSchema = z.object({
   source: stackkitManifestSourceSchema.default({ kind: "config", path: "stackkit.config.json" }),
   paths: z.record(z.string(), z.string()).default({ root: "." }),
   createdAt: z.string().min(1),
+  planHash: z.string().min(1).optional(),
   modules: z.array(
     z.object({
       id: moduleIdSchema,
@@ -346,6 +398,9 @@ export type AiSkillAgent = z.infer<typeof aiSkillAgentSchema>;
 export type AiSkillMode = z.infer<typeof aiSkillModeSchema>;
 export type AiSkillLinkMode = z.infer<typeof aiSkillLinkModeSchema>;
 export type PackageManager = z.infer<typeof packageManagerSchema>;
+export type SupportLevel = z.infer<typeof supportLevelSchema>;
+export type SupportMetadata = z.infer<typeof supportMetadataSchema>;
+export type ModuleRemovalPolicy = z.infer<typeof moduleRemovalPolicySchema>;
 export type AiSkillTarget = z.infer<typeof aiSkillTargetSchema>;
 export type AiSkillDependency = z.infer<typeof aiSkillDependencySchema>;
 export type FileOverwritePolicy = z.infer<typeof fileOverwritePolicySchema>;
@@ -376,6 +431,8 @@ export type StackkitRecipeInput = z.input<typeof stackkitRecipeSchema>;
 export type StackkitRecipe = z.infer<typeof stackkitRecipeSchema>;
 export type StackkitManifestSource = z.infer<typeof stackkitManifestSourceSchema>;
 export type StackkitManifest = z.infer<typeof stackkitManifestSchema>;
+export type CreateApplyPhase = z.infer<typeof createApplyPhaseSchema>;
+export type CreateApplyState = z.infer<typeof createApplyStateSchema>;
 export type SkillsLock = z.infer<typeof skillsLockSchema>;
 export type DoctorCheck = z.infer<typeof doctorCheckSchema>;
 export type DoctorResult = z.infer<typeof doctorResultSchema>;

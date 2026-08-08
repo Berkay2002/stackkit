@@ -71,6 +71,7 @@ type Choice<T extends string> = {
   icons?: SimpleIcon[];
   customIcon?: LocalIconKey;
   iconLabel?: string;
+  preview?: boolean;
 };
 
 type LocalIconKey = "pyright";
@@ -109,22 +110,20 @@ const iconByKey: Record<string, SimpleIcon> = {
 
 const webChoices: Choice<WebChoice>[] = [
   { value: "nextjs", label: "Next.js", description: "React app with shadcn/ui", icon: siNextdotjs },
-  { value: "vite", label: "Vite", description: "React SPA with Vite", icon: siVite },
-  { value: "tanstack", label: "TanStack Start", description: "Full-stack React", icon: siTanstack },
-  { value: "django", label: "Django", description: "Python web app baseline", icon: siDjango },
+  { value: "vite", label: "Vite", description: "React SPA with Vite", icon: siVite, preview: true },
+  { value: "tanstack", label: "TanStack Start", description: "Full-stack React", icon: siTanstack, preview: true },
   { value: "none", label: "No web app", description: "API or service only", iconLabel: "None" }
 ];
 
 const uiChoices: Choice<UiChoice>[] = [
   { value: "shadcn", label: "ShadCN", description: "shadcn/ui components", icon: siShadcnui },
-  { value: "tailwind", label: "Tailwind", description: "Tailwind CSS only", icon: siTailwindcss },
+  { value: "tailwind", label: "Tailwind", description: "Tailwind CSS only", icon: siTailwindcss, preview: true },
   { value: "none", label: "No UI kit", description: "Plain framework", iconLabel: "None" }
 ];
 
 const apiChoices: Choice<ApiChoice>[] = [
   { value: "none", label: "No API", description: "Frontend-only stack", iconLabel: "None" },
   { value: "fastapi", label: "FastAPI", description: "Python service", icon: siFastapi },
-  { value: "axum", label: "Axum", description: "Rust API service", icon: siRust }
 ];
 
 const databaseChoices: Choice<DatabaseChoice>[] = [
@@ -134,38 +133,38 @@ const databaseChoices: Choice<DatabaseChoice>[] = [
 
 const databaseProviderChoices: Choice<DatabaseProviderChoice>[] = [
   { value: "byo", label: "Bring your own", description: "Provide your own DATABASE_URL", iconLabel: "URL" },
-  { value: "neon", label: "Neon", description: "Serverless Postgres in the cloud", icon: siNeon },
-  { value: "supabase", label: "Supabase", description: "Hosted Postgres (host only)", icon: siSupabase },
-  { value: "supabase-local", label: "Supabase (local)", description: "Local stack via the Supabase CLI", icon: siSupabase },
+  { value: "neon", label: "Neon", description: "Serverless Postgres in the cloud", icon: siNeon, preview: true },
+  { value: "supabase", label: "Supabase", description: "Hosted Postgres (host only)", icon: siSupabase, preview: true },
+  { value: "supabase-local", label: "Supabase (local)", description: "Local stack via the Supabase CLI", icon: siSupabase, preview: true },
   { value: "postgres-local", label: "Postgres (Docker)", description: "Local Postgres compose service", icon: siDocker }
 ];
 
 const authChoices: Choice<AuthChoice>[] = [
   { value: "none", label: "No auth", description: "Keep auth out", iconLabel: "None" },
   { value: "auth0", label: "Auth0", description: "Framework-aware Auth0 modules", icon: siAuth0 },
-  { value: "clerk", label: "Clerk", description: "Hosted auth for React", icon: siClerk },
-  { value: "better-auth", label: "Better Auth", description: "Self-hosted TypeScript auth", icon: siBetterauth }
+  { value: "clerk", label: "Clerk", description: "Hosted auth for React", icon: siClerk, preview: true }
 ];
 
 const deployChoices: Choice<DeployChoice>[] = [
-  { value: "vercel", label: "Vercel", description: "Web deployment", icon: siVercel },
+  { value: "vercel", label: "Vercel", description: "Web deployment", icon: siVercel, preview: true },
   { value: "docker", label: "Docker", description: "Next.js or FastAPI containers", icon: siDocker },
-  { value: "kubernetes", label: "Kubernetes", description: "Container manifests", icon: siKubernetes }
+  { value: "kubernetes", label: "Kubernetes", description: "Container manifests", icon: siKubernetes, preview: true }
 ];
 
 const tsQualityChoices: Choice<TsQualityChoice>[] = [
   { value: "eslint-prettier", label: "ESLint + Prettier", description: "Default lint and format", icons: [siEslint, siPrettier] },
-  { value: "biome", label: "Biome", description: "Combined linter and formatter", icon: siBiome }
+  { value: "biome", label: "Biome", description: "Combined linter and formatter", icon: siBiome, preview: true }
 ];
 
 const presetChoices: Choice<string>[] = [
   { value: "custom", label: "Custom", description: "Choose technology below", iconLabel: "Custom" },
-  { value: "next", label: "Next.js", description: "Next.js with shadcn/ui", icons: [siNextdotjs, siShadcnui] },
+  { value: "next", label: "Next.js", description: "Next.js with shadcn/ui", icons: [siNextdotjs, siShadcnui], preview: true },
   {
     value: "next-postgres-clerk",
     label: "Next + Clerk",
     description: "Postgres and Clerk",
-    icons: [siNextdotjs, siShadcnui, siPostgresql, siClerk]
+    icons: [siNextdotjs, siShadcnui, siPostgresql, siClerk],
+    preview: true
   },
   {
     value: "next-fastapi-postgres-auth0",
@@ -177,7 +176,7 @@ const presetChoices: Choice<string>[] = [
 
 const pyTypecheckChoices: Choice<PyTypecheckChoice>[] = [
   { value: "mypy", label: "mypy", description: "Default Python type checker", icon: siPython },
-  { value: "pyright", label: "pyright", description: "Alternative Python type checker", customIcon: "pyright" }
+  { value: "pyright", label: "pyright", description: "Alternative Python type checker", customIcon: "pyright", preview: true }
 ];
 
 const aiModeChoices: Choice<AiSkillModeChoice>[] = [
@@ -203,6 +202,18 @@ export default function Page() {
   function selectPreset(preset: string) {
     setCopied(false);
     setState((current) => applyPresetBaseline(current, preset));
+  }
+
+  function setPreviewMode(includePreview: boolean) {
+    setCopied(false);
+    setState((current) =>
+      includePreview
+        ? { ...current, includePreview: true }
+        : applyPresetBaseline(
+            { ...current, includePreview: false, packageManager: "pnpm" },
+            "next-fastapi-postgres-auth0"
+          )
+    );
   }
 
   async function copyCommand() {
@@ -240,9 +251,9 @@ export default function Page() {
               onChange={(event) => patch({ packageManager: event.target.value as CustomizerState["packageManager"] })}
             >
               <option value="pnpm">pnpm</option>
-              <option value="npm">npm</option>
-              <option value="yarn">yarn</option>
-              <option value="bun">bun</option>
+              {state.includePreview ? <option value="npm">npm</option> : null}
+              {state.includePreview ? <option value="yarn">yarn</option> : null}
+              {state.includePreview ? <option value="bun">bun</option> : null}
             </select>
           </label>
         </div>
@@ -250,9 +261,19 @@ export default function Page() {
 
       <section className="workspace" id="builder">
         <div className="builder">
+          <div className="switch-row preview-toggle">
+            <label>
+              <input
+                checked={state.includePreview}
+                onChange={(event) => setPreviewMode(event.target.checked)}
+                type="checkbox"
+              />
+              Show preview choices with incomplete release verification
+            </label>
+          </div>
           <Step title="Start from a preset">
             <div className="preset-grid">
-              {presetChoices.map((choice) => (
+              {visibleChoices(presetChoices, state.includePreview).map((choice) => (
                 <button
                   className={state.preset === choice.value ? "preset active" : "preset"}
                   key={choice.value}
@@ -262,6 +283,7 @@ export default function Page() {
                 >
                   <ChoiceIcon choice={choice} />
                   <span>{choice.label}</span>
+                  {choice.preview ? <span className="preview-badge">Preview</span> : null}
                   <small>{choice.description}</small>
                 </button>
               ))}
@@ -269,14 +291,15 @@ export default function Page() {
           </Step>
 
           <Step title="Application shape">
-            <ChoiceGrid choices={webChoices} value={state.web} onChange={(web) => patchStack({ web })} />
-            <ChoiceGrid choices={uiChoices} value={state.ui} onChange={(ui) => patchStack({ ui })} />
-            <ChoiceGrid choices={apiChoices} value={state.api} onChange={(api) => patchStack({ api })} />
+            <ChoiceGrid choices={webChoices} includePreview={state.includePreview} value={state.web} onChange={(web) => patchStack({ web })} />
+            <ChoiceGrid choices={uiChoices} includePreview={state.includePreview} value={state.ui} onChange={(ui) => patchStack({ ui })} />
+            <ChoiceGrid choices={apiChoices} includePreview={state.includePreview} value={state.api} onChange={(api) => patchStack({ api })} />
           </Step>
 
           <Step title="Data and auth">
             <ChoiceGrid
               choices={databaseChoices}
+              includePreview={state.includePreview}
               value={state.database}
               onChange={(database) => patchStack({ database })}
               isDisabled={(database) => !isDatabaseChoiceSupported(state, database)}
@@ -286,6 +309,7 @@ export default function Page() {
               <h3>Postgres provider</h3>
               <ChoiceGrid
                 choices={databaseProviderChoices}
+                includePreview={state.includePreview}
                 value={state.database === "postgres" ? state.dbProvider : undefined}
                 onChange={(dbProvider) => patchStack({ database: "postgres", dbProvider })}
                 isDisabled={() => !isDatabaseChoiceSupported(state, "postgres")}
@@ -306,6 +330,7 @@ export default function Page() {
             ) : null}
             <ChoiceGrid
               choices={authChoices}
+              includePreview={state.includePreview}
               value={state.auth}
               onChange={(auth) => patchStack({ auth })}
               isDisabled={(auth) => !isAuthChoiceSupported(state, auth)}
@@ -315,7 +340,7 @@ export default function Page() {
 
           <Step title="Deployment">
             <div className="choice-grid">
-              {deployChoices.map((choice) => {
+              {visibleChoices(deployChoices, state.includePreview).map((choice) => {
                 const supported = isDeployChoiceSupported(state, choice.value);
                 const active = supported && state.deploy.includes(choice.value);
 
@@ -339,6 +364,7 @@ export default function Page() {
                   >
                     <ChoiceIcon choice={choice} />
                     <span>{choice.label}</span>
+                    {choice.preview ? <span className="preview-badge">Preview</span> : null}
                     <small>{supported ? choice.description : unsupportedDeployReason(choice.value)}</small>
                   </button>
                 );
@@ -352,6 +378,7 @@ export default function Page() {
                 <h3>TypeScript quality</h3>
                 <ChoiceGrid
                   choices={tsQualityChoices}
+                  includePreview={state.includePreview}
                   value={state.tsQuality}
                   onChange={(tsQuality) => patchStack({ tsQuality })}
                 />
@@ -362,6 +389,7 @@ export default function Page() {
                 <h3>Python typecheck</h3>
                 <ChoiceGrid
                   choices={pyTypecheckChoices}
+                  includePreview={state.includePreview}
                   value={state.pyTypecheck}
                   onChange={(pyTypecheck) => patchStack({ pyTypecheck })}
                 />
@@ -370,7 +398,7 @@ export default function Page() {
           </Step>
 
           <Step title="AI skills">
-            <ChoiceGrid choices={aiModeChoices} value={state.aiSkillMode} onChange={(aiSkillMode) => patch({ aiSkillMode })} />
+            <ChoiceGrid choices={aiModeChoices} includePreview={state.includePreview} value={state.aiSkillMode} onChange={(aiSkillMode) => patch({ aiSkillMode })} />
             <div className="switch-row">
               <label>
                 <input
@@ -408,6 +436,14 @@ export default function Page() {
                 {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
                 {copied ? "Copied" : "Copy command"}
               </button>
+              <nav className="summary-links" aria-label="Stackkit guidance">
+                <a href="https://github.com/Berkay2002/stackkit/blob/master/apps/docs/content/docs/getting-started.mdx">
+                  Setup guide
+                </a>
+                <a href="https://github.com/Berkay2002/stackkit/blob/master/apps/docs/content/docs/status.mdx">
+                  Support and limitations
+                </a>
+              </nav>
               <div className="module-list">
                 <h3>Resolved modules</h3>
                 {result.modules.map((module) => (
@@ -470,18 +506,20 @@ function ChoiceGrid<T extends string>({
   choices,
   disabledDescription,
   isDisabled,
+  includePreview,
   onChange,
   value
 }: {
   choices: Choice<T>[];
   disabledDescription?: (value: T) => string;
   isDisabled?: (value: T) => boolean;
+  includePreview: boolean;
   onChange: (value: T) => void;
   value?: T;
 }) {
   return (
     <div className="choice-grid">
-      {choices.map((choice) => {
+      {visibleChoices(choices, includePreview).map((choice) => {
         const disabled = isDisabled?.(choice.value) ?? false;
 
         return (
@@ -496,6 +534,7 @@ function ChoiceGrid<T extends string>({
           >
             <ChoiceIcon choice={choice} />
             <span>{choice.label}</span>
+            {choice.preview ? <span className="preview-badge">Preview</span> : null}
             <small>{disabled ? (disabledDescription?.(choice.value) ?? choice.description) : choice.description}</small>
           </button>
         );
@@ -522,6 +561,10 @@ function ChoiceIcon<T extends string>({ choice }: { choice: Choice<T> }) {
       {choice.iconLabel}
     </span>
   );
+}
+
+function visibleChoices<T extends string>(choices: readonly Choice<T>[], includePreview: boolean): Choice<T>[] {
+  return choices.filter((choice) => includePreview || !choice.preview);
 }
 
 function ModuleIcon({ module }: { module: StackkitModule }) {

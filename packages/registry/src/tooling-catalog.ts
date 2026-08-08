@@ -2,7 +2,8 @@ import {
   defineModule,
   type AiSkillDependency,
   type NativeInitializerInput,
-  type StackkitModule
+  type StackkitModule,
+  type SupportMetadata
 } from "@berkayorhan/stackkit-schemas";
 
 export type ToolingLanguage = "ts" | "py" | "rust";
@@ -19,6 +20,7 @@ export type ToolingToolSpec = {
   aliases?: string[];
   aiSkills?: AiSkillDependency[];
   nativeInitializers?: NativeInitializerInput[];
+  support: SupportMetadata;
 };
 
 /** Capability a Quality Module requires to gate it to a language. */
@@ -55,6 +57,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "ts",
     slots: ["lint"],
     isDefault: true,
+    support: { level: "supported" },
     aliases: ["eslint"]
   },
   {
@@ -65,6 +68,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "ts",
     slots: ["format"],
     isDefault: true,
+    support: { level: "supported" },
     aliases: ["prettier"]
   },
   {
@@ -75,6 +79,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "ts",
     slots: ["lint", "format"],
     isDefault: false,
+    support: { level: "preview", reason: "This alternative has not passed the golden-path release profile." },
     aliases: ["biome"],
     nativeInitializers: [
       {
@@ -83,7 +88,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
         disabledReason:
           "Researched and mapped, but not enabled until Stackkit replaces the matching deterministic template path.",
         phase: "tool-config",
-        tool: { execution: "package-manager-dlx", package: "@biomejs/biome@latest" },
+        tool: { execution: "package-manager-dlx", package: "@biomejs/biome@2.5.7" },
         args: ["init"],
         cwd: ".",
         mutationPolicy: "known-files",
@@ -105,6 +110,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "ts",
     slots: ["typecheck"],
     isDefault: true,
+    support: { level: "supported" },
     aliases: ["tsc"]
   },
   {
@@ -115,6 +121,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "py",
     slots: ["lint", "format"],
     isDefault: true,
+    support: { level: "supported" },
     aliases: ["ruff"]
   },
   {
@@ -125,6 +132,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "py",
     slots: ["typecheck"],
     isDefault: true,
+    support: { level: "supported" },
     aliases: ["mypy"],
     aiSkills: curatedGuidance(
       "quality/mypy",
@@ -141,6 +149,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "py",
     slots: ["typecheck"],
     isDefault: false,
+    support: { level: "preview", reason: "This alternative has not passed the golden-path release profile." },
     aliases: ["pyright"]
   },
   {
@@ -151,6 +160,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "rust",
     slots: ["lint"],
     isDefault: true,
+    support: { level: "planned", reason: "Rust application templates are not implemented." },
     aliases: ["clippy"]
   },
   {
@@ -161,6 +171,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "rust",
     slots: ["format"],
     isDefault: true,
+    support: { level: "planned", reason: "Rust application templates are not implemented." },
     aliases: ["rustfmt"]
   },
   {
@@ -171,6 +182,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     language: "rust",
     slots: ["typecheck"],
     isDefault: true,
+    support: { level: "planned", reason: "Rust application templates are not implemented." },
     aliases: ["cargo-check"]
   }
 ];
@@ -203,6 +215,7 @@ export function buildQualityModules(catalog: readonly ToolingToolSpec[] = toolin
       icon: spec.icon,
       aliases: spec.aliases ?? [],
       category: "quality",
+      support: spec.support,
       requires: [languageCapability[spec.language]],
       provides: spec.slots.map((slot) => slotCapability(spec.language, slot)),
       conflicts: conflicts.length > 0 ? conflicts : undefined,

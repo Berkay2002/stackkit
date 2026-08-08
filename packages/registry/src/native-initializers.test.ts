@@ -25,7 +25,7 @@ describe("builtin native initializers", () => {
       name: "shadcn init",
       tool: {
         execution: "package-manager-dlx",
-        package: "shadcn@latest"
+        package: "shadcn@4.16.2"
       },
       mutationPolicy: "merge-owned"
     });
@@ -39,7 +39,7 @@ describe("builtin native initializers", () => {
       name: "clerk init",
       tool: {
         execution: "package-manager-dlx",
-        package: "clerk@latest"
+        package: "clerk@3.0.0"
       },
       mutationPolicy: "external-state"
     });
@@ -67,6 +67,17 @@ describe("builtin native initializers", () => {
       expect(disabledInitializer, `${id} disabled native initializer`).toBeDefined();
       expect(disabledInitializer!.disabledReason, `${id} disabled reason`).toEqual(expect.any(String));
       expect(disabledInitializer!.disabledReason!.length, `${id} disabled reason length`).toBeGreaterThan(0);
+    }
+  });
+
+  it("pins every delegated package initializer", () => {
+    const initializers = builtinModules.flatMap((module) => module.nativeInitializers ?? []);
+
+    for (const initializer of initializers) {
+      if (initializer.tool.execution === "package-manager-dlx") {
+        expect(initializer.tool.package, initializer.name).not.toContain("@latest");
+        expect(initializer.tool.package, initializer.name).toMatch(/@\d+\.\d+\.\d+$/);
+      }
     }
   });
 });

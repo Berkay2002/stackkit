@@ -7,8 +7,13 @@ import {
 } from "@berkayorhan/stackkit-schemas";
 
 import { hashContent, readExistingFile } from "./fs-utils.js";
+import type { RunCommand } from "./package-manager.js";
 
-export async function runDoctor(projectDirectory: string): Promise<DoctorResult> {
+export type RunDoctorOptions = {
+  runCommand?: RunCommand;
+};
+
+export async function runDoctor(projectDirectory: string, options: RunDoctorOptions = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const manifestPath = join(projectDirectory, ".stackkit", "project.json");
   const manifestContent = await readExistingFile(manifestPath);
@@ -68,12 +73,51 @@ export async function runDoctor(projectDirectory: string): Promise<DoctorResult>
     }));
   }
 
+  for (const module of manifest.modules) {
+    for (const validation of module.snapshot?.validate ?? []) {
+      if (validation.kind === "command-succeeds") {
+        if (!options.runCommand) {
+          checks.push(createDoctorCheck({
+            id: `modules.${module.id}.command-${slugifyCheckId([validation.command, ...validation.args].join("-"))}`,
+            status: "warning",
+            message: `Runtime validation was not run for ${module.id}: ${[validation.command, ...validation.args].join(" ")}`,
+            actions: ["Run stackkit doctor from the Stackkit CLI"]
+          }));
+          continue;
+        }
+
+        const result = await options.runCommand(validation.command, validation.args, { cwd: projectDirectory });
+        checks.push(createDoctorCheck({
+          id: `modules.${module.id}.command-${slugifyCheckId([validation.command, ...validation.args].join("-"))}`,
+          status: result.exitCode === 0 ? "ok" : "error",
+          message: result.exitCode === 0
+            ? `Runtime validation passed for ${module.id}: ${[validation.command, ...validation.args].join(" ")}`
+            : `Runtime validation failed for ${module.id}: ${[validation.command, ...validation.args].join(" ")}`,
+          actions: result.exitCode === 0 ? [] : [`Re-run: ${[validation.command, ...validation.args].join(" ")}`]
+        }));
+        continue;
+      }
+
+      const content = await readExistingFile(join(projectDirectory, validation.path));
+      checks.push(
+        createDoctorCheck({
+          id: `modules.${module.id}.${slugifyCheckId(validation.path)}`,
+          status: content === undefined ? "error" : "ok",
+          message:
+            content === undefined
+              ? `Module validation failed for ${module.id}: missing ${validation.path}`
+              : `Module validation passed for ${module.id}: ${validation.path}`,
+          actions: content === undefined ? [`stackkit diff --file ${validation.path}`] : []
+        })
+      );
+    }
+  }
+
   for (const initializer of manifest.skippedInitializers) {
     checks.push(createDoctorCheck({
       id: `initializers.skipped.${slugifyCheckId(initializer.name)}`,
       status: "warning",
-      message: `Native initializer was skipped: ${initializer.name} (${initializer.mutationPolicy})`,
-      actions: ["stackkit create --allow-external-state"]
+      message: `Native initializer was skipped: ${initializer.name} (${initializer.mutationPolicy})`
     }));
   }
 

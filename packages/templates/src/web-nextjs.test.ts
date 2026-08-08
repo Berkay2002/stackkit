@@ -55,7 +55,7 @@ describe("web templates", () => {
         build: "next build",
         test: "vitest run --passWithNoTests",
         typecheck: "tsc --noEmit",
-        lint: "eslint --config ../../eslint.config.mjs app next.config.ts",
+        lint: "eslint --config ../../eslint.config.mjs app lib proxy.ts next.config.ts",
         format: "prettier --write ."
       })
     );
@@ -100,9 +100,36 @@ describe("web templates", () => {
     expect(tsconfig.include).toEqual(["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"]);
   });
 
+  it("renders the supported Auth0 protected Todo journey", () => {
+    const files = renderNextjsApp({ appName: "web", withAuth0: true, withTodoApi: true });
+    const packageJson = JSON.parse(files.find((file) => file.path === "apps/web/package.json")?.content ?? "{}");
+    const paths = files.map((file) => file.path);
+
+    expect(packageJson.dependencies["@auth0/nextjs-auth0"]).toBe("^4.26.0");
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "apps/web/lib/auth0.ts",
+        "apps/web/lib/api.ts",
+        "apps/web/lib/api.test.ts",
+        "apps/web/lib/auth-guard.ts",
+        "apps/web/lib/auth-guard.test.ts",
+        "apps/web/proxy.ts",
+        "apps/web/app/dashboard/page.tsx",
+        "apps/web/app/dashboard/actions.ts"
+      ])
+    );
+    expect(files.find((file) => file.path === "apps/web/app/page.tsx")?.content).toContain('href="/auth/login"');
+    expect(files.find((file) => file.path === "apps/web/lib/auth0.ts")?.content).toContain(
+      'AUTH0_ALLOW_INSECURE_REQUESTS === "true"'
+    );
+    expect(files.find((file) => file.path === "apps/web/app/dashboard/page.tsx")?.content).toContain("listTodos");
+  });
+
   it("renders ShadCN and Tailwind support files", () => {
     const files = renderShadcnUi({ appName: "web" });
+    const nextFiles = renderNextjsApp({ appName: "web", withShadcn: true });
     const uiPackage = JSON.parse(files.find((file) => file.path === "packages/ui/package.json")?.content ?? "{}");
+    const webPackage = JSON.parse(nextFiles.find((file) => file.path === "apps/web/package.json")?.content ?? "{}");
 
     expect(files).toEqual(
       expect.arrayContaining([
@@ -126,6 +153,12 @@ describe("web templates", () => {
         }),
         expect.objectContaining({
           kind: "write",
+          path: "packages/ui/postcss.config.mjs",
+          owner: "ui/shadcn",
+          overwrite: "if-owned"
+        }),
+        expect.objectContaining({
+          kind: "write",
           path: "packages/ui/src/styles/globals.css",
           owner: "ui/shadcn",
           content: expect.stringContaining('@import "tailwindcss"'),
@@ -140,13 +173,26 @@ describe("web templates", () => {
           "#components/*": "./src/components/*.tsx"
         }),
         dependencies: expect.objectContaining({
-          react: expect.any(String),
-          tailwindcss: expect.any(String)
+          react: expect.any(String)
         }),
         devDependencies: expect.objectContaining({
-          "@types/react": expect.any(String)
+          "@tailwindcss/postcss": "^4",
+          "@types/react": expect.any(String),
+          tailwindcss: "^4"
+        }),
+        exports: expect.objectContaining({
+          "./postcss.config": "./postcss.config.mjs"
         })
       })
+    );
+    expect(webPackage.devDependencies["@tailwindcss/postcss"]).toBe("^4");
+    expect(nextFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "apps/web/postcss.config.mjs",
+          content: 'export { default } from "@workspace/ui/postcss.config";\n'
+        })
+      ])
     );
   });
 });

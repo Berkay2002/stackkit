@@ -6,6 +6,7 @@ describe("create --db-provider / --db-runtime", () => {
   it("resolves a provider module from --db-provider", async () => {
     const plan = await createDryRunPlanFromConfig({
       name: "acme",
+      includePreview: true,
       axes: { web: "next", db: "postgres", dbProvider: "neon" }
     });
 
@@ -15,6 +16,7 @@ describe("create --db-provider / --db-runtime", () => {
   it("emits the Neon serverless client when --db-runtime edge is set", async () => {
     const plan = await createDryRunPlanFromConfig({
       name: "acme",
+      includePreview: true,
       axes: { web: "next", db: "postgres", dbProvider: "neon" },
       dbRuntime: "edge"
     });
@@ -32,6 +34,7 @@ describe("create --db-provider / --db-runtime", () => {
   it("defaults to the standard client without --db-runtime edge", async () => {
     const plan = await createDryRunPlanFromConfig({
       name: "acme",
+      includePreview: true,
       axes: { web: "next", db: "postgres", dbProvider: "neon" }
     });
 
@@ -42,13 +45,17 @@ describe("create --db-provider / --db-runtime", () => {
 
 describe("create --ui", () => {
   it("threads --ui none through create axes", async () => {
-    const plan = await createDryRunPlanFromConfig({ name: "demo", axes: { web: "vite", ui: "none" } });
+    const plan = await createDryRunPlanFromConfig({
+      name: "demo",
+      includePreview: true,
+      axes: { web: "vite", ui: "none" }
+    });
     expect(plan.modules.map((m) => m.id)).not.toContain("ui/shadcn");
     expect(plan.modules.map((m) => m.id)).toContain("web/vite");
   });
 
   it("defaults to shadcn for --web vite when --ui omitted", async () => {
-    const plan = await createDryRunPlanFromConfig({ name: "demo", axes: { web: "vite" } });
+    const plan = await createDryRunPlanFromConfig({ name: "demo", includePreview: true, axes: { web: "vite" } });
     expect(plan.modules.map((m) => m.id)).toContain("ui/shadcn");
   });
 });

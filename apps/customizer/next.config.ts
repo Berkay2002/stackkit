@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   turbopack: {
     resolveAlias: {
       "./module-graph.js": "../../packages/core/src/module-graph.ts",
+      "./support.js": "../../packages/core/src/support.ts",
       "./tooling.js": "../../packages/core/src/tooling.ts",
       "./tooling-catalog.js": "../../packages/registry/src/tooling-catalog.ts"
     }

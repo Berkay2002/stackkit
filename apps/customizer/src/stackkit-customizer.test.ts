@@ -9,7 +9,7 @@ import {
 } from "./stackkit-customizer.js";
 
 describe("Stackkit customizer state", () => {
-  it("builds a default Next.js recipe command", () => {
+  it("builds the supported golden-path recipe command by default", () => {
     const result = buildCustomizerState(createInitialCustomizerState());
 
     expect(result.ok).toBe(true);
@@ -18,9 +18,63 @@ describe("Stackkit customizer state", () => {
     }
 
     expect(result.recipe.modules).toContain("web/nextjs");
+    expect(result.recipe.modules).toContain("api/fastapi");
+    expect(result.recipe.modules).toContain("db/sqlalchemy");
+    expect(result.recipe.modules).toContain("auth/auth0-nextjs");
+    expect(result.recipe.modules).toContain("auth/auth0-fastapi");
+    expect(result.recipe.modules).toContain("deploy/docker");
     expect(result.recipe.modules).toContain("ui/shadcn");
-    expect(result.command).toContain("npx @berkayorhan/stackkit@latest create my-stack --recipe sk_");
+    expect(result.command).toContain("npx @berkayorhan/stackkit@0.3.0 create my-stack --recipe sk_");
     expect(result.decoded).toEqual(result.recipe);
+    expect(result.catalog.presets.map((preset) => preset.id)).toEqual(["next-fastapi-postgres-auth0"]);
+    expect(result.catalog.previewPresets).toEqual([]);
+  });
+
+  it("requires preview opt-in and refuses planned choices", () => {
+    const preview = buildCustomizerState({
+      ...createInitialCustomizerState(),
+      preset: "custom",
+      web: "vite",
+      api: "none",
+      database: "none",
+      dbProvider: "byo",
+      auth: "none",
+      deploy: []
+    });
+    expect(preview).toEqual(
+      expect.objectContaining({ ok: false, error: expect.stringContaining("Module web/vite is preview") })
+    );
+
+    const optedIn = buildCustomizerState({
+      ...createInitialCustomizerState(),
+      preset: "custom",
+      includePreview: true,
+      web: "vite",
+      api: "none",
+      database: "none",
+      dbProvider: "byo",
+      auth: "none",
+      deploy: []
+    });
+    expect(optedIn.ok && optedIn.recipe.modules).toContain("web/vite");
+    expect(optedIn.ok && optedIn.catalog.previewCategories.web).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "web/vite" })])
+    );
+
+    const planned = buildCustomizerState({
+      ...createInitialCustomizerState(),
+      preset: "custom",
+      includePreview: true,
+      web: "django",
+      api: "none",
+      database: "none",
+      dbProvider: "byo",
+      auth: "none",
+      deploy: []
+    });
+    expect(planned).toEqual(
+      expect.objectContaining({ ok: false, error: expect.stringContaining("Module web/django is planned") })
+    );
   });
 
   it("uses presets as editable baselines", () => {
@@ -31,7 +85,7 @@ describe("Stackkit customizer state", () => {
     expect(state.api).toBe("fastapi");
     expect(state.database).toBe("postgres");
     expect(state.auth).toBe("auth0");
-    expect(state.deploy).toEqual(["vercel", "docker"]);
+    expect(state.deploy).toEqual(["docker"]);
     expect(result.ok && result.recipe.modules).toEqual(
       expect.arrayContaining(["web/nextjs", "api/fastapi", "db/postgres", "auth/auth0-nextjs", "auth/auth0-fastapi"])
     );
@@ -40,6 +94,7 @@ describe("Stackkit customizer state", () => {
   it("customizes after applying a preset without keeping preset modules locked", () => {
     const state = normalizeCustomizerState({
       ...applyPresetBaseline(createInitialCustomizerState(), "next-postgres-clerk"),
+      includePreview: true,
       preset: "custom",
       ui: "none",
       auth: "none"
@@ -59,19 +114,36 @@ describe("Stackkit customizer state", () => {
   });
 
   it("includes web/vite when web is vite", () => {
-    const state = { ...createInitialCustomizerState(), web: "vite" as const, preset: "custom" };
+    const state = {
+      ...createInitialCustomizerState(),
+      includePreview: true,
+      web: "vite" as const,
+      preset: "custom"
+    };
     const result = buildCustomizerState(state);
     expect(result.ok && result.recipe.modules).toContain("web/vite");
   });
 
   it("drops ui/shadcn when ui is none", () => {
-    const state = { ...createInitialCustomizerState(), web: "vite" as const, ui: "none" as const, preset: "custom" };
+    const state = {
+      ...createInitialCustomizerState(),
+      includePreview: true,
+      web: "vite" as const,
+      ui: "none" as const,
+      preset: "custom"
+    };
     const result = buildCustomizerState(state);
     expect(result.ok && result.recipe.modules).not.toContain("ui/shadcn");
   });
 
   it("swaps to ui/tailwind when ui is tailwind", () => {
-    const state = { ...createInitialCustomizerState(), web: "tanstack" as const, ui: "tailwind" as const, preset: "custom" };
+    const state = {
+      ...createInitialCustomizerState(),
+      includePreview: true,
+      web: "tanstack" as const,
+      ui: "tailwind" as const,
+      preset: "custom"
+    };
     const result = buildCustomizerState(state);
     expect(result.ok && result.recipe.modules).toContain("ui/tailwind");
     expect(result.ok && result.recipe.modules).not.toContain("ui/shadcn");
@@ -125,29 +197,33 @@ describe("Stackkit customizer state", () => {
       normalizeCustomizerState({
         ...createInitialCustomizerState(),
         web: "django",
+        api: "none",
         deploy: ["vercel", "docker", "kubernetes"]
       }).deploy
     ).toEqual(["vercel"]);
   });
 
-  it("allows Django projects to target Vercel", () => {
+  it("refuses planned Django projects even with preview enabled", () => {
     const result = buildCustomizerState({
       ...createInitialCustomizerState(),
+      includePreview: true,
       web: "django",
+      api: "none",
+      database: "none",
+      auth: "none",
       deploy: ["vercel"]
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.recipe.modules).toEqual(expect.arrayContaining(["web/django", "deploy/vercel"]));
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, error: expect.stringContaining("Module web/django is planned") })
+    );
   });
 
   it("includes the selected Postgres provider and edge runtime option", () => {
     const result = buildCustomizerState({
       ...createInitialCustomizerState(),
+      includePreview: true,
+      api: "none",
       database: "postgres",
       dbProvider: "supabase",
       dbRuntime: "edge"
@@ -198,6 +274,7 @@ describe("Stackkit customizer state", () => {
   it("swaps to Biome when tsQuality is biome", () => {
     const result = buildCustomizerState({
       ...createInitialCustomizerState(),
+      includePreview: true,
       tsQuality: "biome"
     });
 
@@ -214,6 +291,7 @@ describe("Stackkit customizer state", () => {
   it("swaps to Pyright when pyTypecheck is pyright with a Python API", () => {
     const result = buildCustomizerState({
       ...createInitialCustomizerState(),
+      includePreview: true,
       api: "fastapi",
       pyTypecheck: "pyright"
     });
@@ -230,7 +308,10 @@ describe("Stackkit customizer state", () => {
   it("ignores Python type checker choices when no Python app is selected", () => {
     const result = buildCustomizerState({
       ...createInitialCustomizerState(),
-      api: "axum",
+      api: "none",
+      database: "none",
+      auth: "none",
+      deploy: [],
       pyTypecheck: "pyright"
     });
 
@@ -241,7 +322,7 @@ describe("Stackkit customizer state", () => {
 
     expect(result.recipe.modules).not.toContain("quality/pyright");
     expect(result.recipe.modules).not.toContain("quality/mypy");
-    expect(result.recipe.modules).toContain("quality/clippy");
+    expect(result.recipe.modules).not.toContain("quality/clippy");
   });
 
   it("ignores TypeScript quality choices when no TypeScript app is selected", () => {
@@ -288,7 +369,8 @@ describe("Stackkit customizer state", () => {
     const result = buildCustomizerState({
       ...createInitialCustomizerState(),
       projectName: "client portal",
-      packageManager: "bun"
+      packageManager: "bun",
+      includePreview: true
     });
 
     expect(result.ok).toBe(true);
@@ -296,9 +378,10 @@ describe("Stackkit customizer state", () => {
       return;
     }
 
-    expect(toCreateCommand("client portal", result.recipeCode)).toBe(
-      `npx @berkayorhan/stackkit@latest create "client portal" --recipe ${result.recipeCode}`
+    expect(toCreateCommand("client portal", result.recipeCode, true)).toBe(
+      `npx @berkayorhan/stackkit@0.3.0 create "client portal" --recipe ${result.recipeCode} --include-preview`
     );
+    expect(result.command).toBe(toCreateCommand("client portal", result.recipeCode, true));
     expect(result.recipe.packageManager).toBe("bun");
   });
 });

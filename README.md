@@ -18,12 +18,12 @@ The goal is not a single fixed starter. The goal is a generator platform for cus
 
 ## Status
 
-Stackkit is an early alpha. It can generate and validate real starter monorepos, but some framework integrations are still intentionally shallow.
+Stackkit is an early alpha with one supported preset: `next-fastapi-postgres-auth0`. Runnable alternatives are marked preview and require `--include-preview`. Declaration-only modules are planned and cannot be created.
 
 Verified today:
 
-- pnpm, npm, yarn, and bun project metadata
-- Next.js, ShadCN, FastAPI, Postgres metadata, Auth0 metadata, Vercel, Docker, and Kubernetes file generation
+- pnpm project metadata on the supported path
+- Next.js, ShadCN, FastAPI, Postgres, SQLAlchemy, Auth0, and Docker modules in the golden preset
 - deterministic `README.md` and `.env.example`
 - root `dev`, `build`, `test`, `typecheck`, `lint`, and `format` scripts
 - `stackkit doctor`, `stackkit diff --file`, `stackkit info`, module discovery, presets, recipes, and local registry listing
@@ -31,7 +31,7 @@ Verified today:
 
 Known gaps:
 
-- auth and database modules mostly emit metadata, docs, env examples, and AI skills rather than full application integration code
+- Docker runtime verification requires a running Docker daemon and is enforced by the Ubuntu release gate
 - Rust services are declared but not deeply templated yet
 - remote registries are intentionally unsupported
 - the visual customizer is local-only and does not host or persist recipes
@@ -41,7 +41,7 @@ Known gaps:
 After the first npm publish:
 
 ```bash
-npx @berkayorhan/stackkit@latest create my-app --web next --api fastapi --db postgres --auth auth0
+npx @berkayorhan/stackkit@0.3.0 create my-app --preset next-fastapi-postgres-auth0 --db-provider postgres-local --skills skip --yes
 ```
 
 Or install globally:
@@ -57,12 +57,9 @@ Generate a representative full-stack starter:
 
 ```bash
 stackkit create my-app \
-  --web next \
-  --api fastapi \
-  --db postgres \
-  --auth auth0 \
-  --with shadcn,docker \
-  --deploy vercel
+  --preset next-fastapi-postgres-auth0 \
+  --db-provider postgres-local \
+  --skills skip --yes
 ```
 
 Skip AI skill installation during a quick local test:
@@ -75,21 +72,23 @@ Validate the generated project:
 
 ```bash
 cd my-app
-pnpm install --lockfile-only
-pnpm install --ignore-scripts
+pnpm install
 pnpm test
 pnpm typecheck
-pnpm build
 pnpm lint
-stackkit doctor
+pnpm build
+pnpm stackkit:doctor
+docker compose build
 ```
+
+The generated auth tests use a local mock JWT/JWKS adapter, so the validation sequence does not need an Auth0 tenant. If create is interrupted, keep the target and run `stackkit create --resume --dir ./my-app`. Stackkit will require `--retry-initializers` before re-running a step that may have left partial output.
 
 ## Create Without Writing Files
 
 Preview a preset:
 
 ```bash
-stackkit create my-app --preset next-postgres-clerk --dry-run
+stackkit create my-app --preset next-postgres-clerk --include-preview --dry-run
 ```
 
 Preview explicit stack choices. Dry-run output includes extractable JSON markers:
@@ -102,6 +101,7 @@ View a planned file:
 
 ```bash
 stackkit create my-app --web next --dry-run --view apps/web/package.json
+stackkit create my-app --preset next-fastapi-postgres-auth0 --dry-run --view .env.example
 ```
 
 ## Presets And Recipes

@@ -50,7 +50,7 @@ export function renderBiomeConfig(): FileOperation[] {
  * scaffolded service passes `ruff check` without an immediate fix pass.
  */
 export function renderRuffConfig(): FileOperation[] {
-  const content = ["line-length = 100", "", "[lint]", 'select = ["E", "F"]', ""].join("\n");
+  const content = ["line-length = 100", "", "[lint]", 'select = ["E", "F"]', 'ignore = ["E501"]', ""].join("\n");
 
   return [writeFile("ruff.toml", "quality/ruff", content)];
 }

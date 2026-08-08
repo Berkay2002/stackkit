@@ -6,6 +6,7 @@ describe("create --ts-quality / --py-typecheck", () => {
   it("resolves quality/biome and suppresses eslint/prettier for --ts-quality biome", async () => {
     const plan = await createDryRunPlanFromConfig({
       name: "acme",
+      includePreview: true,
       axes: { web: "next", tsQuality: "biome" }
     });
 
@@ -30,6 +31,7 @@ describe("create --ts-quality / --py-typecheck", () => {
   it("resolves quality/pyright and suppresses mypy for --py-typecheck pyright", async () => {
     const plan = await createDryRunPlanFromConfig({
       name: "acme",
+      includePreview: true,
       axes: { api: "fastapi", pyTypecheck: "pyright" }
     });
 

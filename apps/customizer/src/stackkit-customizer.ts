@@ -1,4 +1,5 @@
 import {
+  assertCreateSupport,
   buildCustomizerCatalog,
   decodeRecipe,
   encodeRecipe,
@@ -38,6 +39,7 @@ export type CustomizerState = {
   aiSkillMode: AiSkillModeChoice;
   claudeCode: boolean;
   linkMode: "copy" | "symlink";
+  includePreview: boolean;
 };
 
 export type CustomizerSuccess = {
@@ -63,20 +65,21 @@ export function createInitialCustomizerState(): CustomizerState {
   return {
     projectName: "my-stack",
     packageManager: "pnpm",
-    preset: "custom",
+    preset: "next-fastapi-postgres-auth0",
     web: "nextjs",
     ui: "shadcn",
-    api: "none",
-    database: "none",
-    dbProvider: "byo",
+    api: "fastapi",
+    database: "postgres",
+    dbProvider: "postgres-local",
     dbRuntime: "node",
-    auth: "none",
-    deploy: ["vercel"],
+    auth: "auth0",
+    deploy: ["docker"],
     tsQuality: "eslint-prettier",
     pyTypecheck: "mypy",
     aiSkillMode: "install",
     claudeCode: false,
-    linkMode: "copy"
+    linkMode: "copy",
+    includePreview: false
   };
 }
 
@@ -180,6 +183,15 @@ export function buildCustomizerState(state: CustomizerState): CustomizerResult {
       }),
       { availableModules: builtinModules, availablePresets: builtinPresets }
     );
+    const selectedPreset = state.preset === "custom"
+      ? []
+      : builtinPresets.filter((preset) => preset.id === state.preset);
+    assertCreateSupport({
+      modules,
+      presets: selectedPreset,
+      packageManager: state.packageManager,
+      includePreview: state.includePreview
+    });
     const usesEdgeDrizzle = state.dbRuntime === "edge" && modules.some((module) => module.id === "db/drizzle");
     const recipe: StackkitRecipe = {
       schemaVersion: 1,
@@ -197,10 +209,14 @@ export function buildCustomizerState(state: CustomizerState): CustomizerResult {
 
     return {
       ok: true,
-      catalog: buildCustomizerCatalog({ modules: builtinModules, presets: builtinPresets }),
+      catalog: buildCustomizerCatalog({
+        modules: builtinModules,
+        presets: builtinPresets,
+        includePreview: state.includePreview
+      }),
       recipe,
       recipeCode,
-      command: toCreateCommand(state.projectName, recipeCode),
+      command: toCreateCommand(state.projectName, recipeCode, state.includePreview),
       decoded: decodeRecipe(recipeCode),
       modules
     };
@@ -212,8 +228,9 @@ export function buildCustomizerState(state: CustomizerState): CustomizerResult {
   }
 }
 
-export function toCreateCommand(projectName: string, recipeCode: string): string {
-  return `npx @berkayorhan/stackkit@latest create ${quoteShellArg(projectName.trim() || "my-stack")} --recipe ${recipeCode}`;
+export function toCreateCommand(projectName: string, recipeCode: string, includePreview = false): string {
+  const previewFlag = includePreview ? " --include-preview" : "";
+  return `npx @berkayorhan/stackkit@0.3.0 create ${quoteShellArg(projectName.trim() || "my-stack")} --recipe ${recipeCode}${previewFlag}`;
 }
 
 function resolveStateModuleIds(state: CustomizerState): string[] {
@@ -260,10 +277,10 @@ function presetBaseline(preset: string): Partial<CustomizerState> | undefined {
       ui: "shadcn",
       api: "fastapi",
       database: "postgres",
-      dbProvider: "byo",
+      dbProvider: "postgres-local",
       dbRuntime: "node",
       auth: "auth0",
-      deploy: ["vercel", "docker"]
+      deploy: ["docker"]
     }
   };
 

@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { applyCreatePlan, createCreatePlan, defineModule } from "./index.js";
+import { applyCreatePlan, createCreatePlan, defineModule, readCreateApplyState, resumeCreatePlan } from "./index.js";
 
 const tempDirectories: string[] = [];
 
@@ -59,6 +59,7 @@ describe("applyCreatePlan", () => {
         source: { kind: "config", path: "stackkit.config.json" },
         paths: { root: "." },
         createdAt: "2026-06-02T00:00:00.000Z",
+        planHash: plan.planHash,
         modules: [
           expect.objectContaining({
             id: "workspace/pnpm-turbo",
@@ -82,6 +83,10 @@ describe("applyCreatePlan", () => {
       ])
     );
     expect(result.manifest).toEqual(manifest);
+
+    const applyState = await readCreateApplyState(result.projectDirectory);
+    expect(applyState.planHash).toBe(plan.planHash);
+    expect(Object.values(applyState.phases).every((phase) => phase.status === "completed")).toBe(true);
   });
 
   it("writes to an explicit target directory", async () => {
@@ -628,12 +633,14 @@ describe("applyCreatePlan", () => {
 
     const result = await applyCreatePlan(plan, { parentDirectory });
 
-    const pkg = JSON.parse(await readFile(join(result.projectDirectory, "package.json"), "utf8"));
+    const packageContent = await readFile(join(result.projectDirectory, "package.json"), "utf8");
+    const envContent = await readFile(join(result.projectDirectory, ".env.example"), "utf8");
+    const pkg = JSON.parse(packageContent);
     expect(pkg.scripts.dev).toBe("next dev");
     expect(pkg.dependencies.next).toBe("^15.0.0");
-    await expect(readFile(join(result.projectDirectory, ".env.example"), "utf8")).resolves.toContain(
-      "DATABASE_URL=postgres://postgres:postgres@localhost:5432/app"
-    );
+    expect(envContent).toContain("DATABASE_URL=postgres://postgres:postgres@localhost:5432/app");
+    expect(packageContent).toBe(plan.filePlan.files.find((file) => file.path === "package.json")?.content);
+    expect(envContent).toBe(plan.filePlan.files.find((file) => file.path === ".env.example")?.content);
     expect(result.manifest.files).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: "package.json", owner: "workspace/pnpm-turbo" }),
@@ -811,5 +818,85 @@ describe("applyCreatePlan", () => {
         cwd: join(parentDirectory, "shadcn-app")
       }
     ]);
+  });
+
+  it("resumes an interrupted create from the first incomplete phase", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-resume-"));
+    tempDirectories.push(parentDirectory);
+    const projectDirectory = join(parentDirectory, "resume-app");
+    let attempts = 0;
+    const plan = createCreatePlan({
+      config: {
+        projectName: "resume-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo"],
+        ai: { skillTargets: ["codex"], skillMode: "skip" }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "Workspace foundation",
+          provides: ["workspace/node"],
+          nativeInitializers: [
+            {
+              name: "successful fixture init",
+              phase: "integration",
+              tool: { execution: "package-manager-dlx", package: "fixture-success@1.0.0" },
+              args: ["init"],
+              cwd: ".",
+              mutationPolicy: "merge-owned",
+              expectedFiles: []
+            },
+            {
+              name: "fixture init",
+              phase: "integration",
+              tool: { execution: "package-manager-dlx", package: "fixture-init@1.0.0" },
+              args: ["init"],
+              cwd: ".",
+              mutationPolicy: "merge-owned",
+              expectedFiles: []
+            }
+          ]
+        })
+      ]
+    });
+    const runCommand = vi.fn(async () => {
+      attempts += 1;
+      return attempts === 2
+        ? { exitCode: 1, stdout: "", stderr: "interrupted" }
+        : { exitCode: 0, stdout: "ok", stderr: "" };
+    });
+
+    await expect(applyCreatePlan(plan, { parentDirectory, runCommand })).rejects.toThrow(
+      "Native initializer failed: fixture init"
+    );
+    const interruptedState = await readCreateApplyState(projectDirectory);
+    expect(interruptedState.phases["deterministic-files"].status).toBe("completed");
+    expect(interruptedState.phases.initializers.status).toBe("failed");
+    const failedStepId = Object.keys(interruptedState.initializerProgress).find(
+      (stepId) => interruptedState.initializerProgress[stepId]?.status === "failed"
+    );
+    expect(failedStepId).toBeDefined();
+    interruptedState.initializerProgress[failedStepId!] = { status: "running" };
+    await writeFile(
+      join(projectDirectory, ".stackkit", "apply-state.json"),
+      `${JSON.stringify(interruptedState, null, 2)}\n`,
+      "utf8"
+    );
+
+    await writeFile(join(projectDirectory, "README.md"), "# preserved during resume\n", "utf8");
+    await expect(resumeCreatePlan({ projectDirectory, runCommand })).rejects.toThrow("--retry-initializers");
+    const result = await resumeCreatePlan({ projectDirectory, runCommand, retryInitializers: true });
+
+    await expect(readFile(join(projectDirectory, "README.md"), "utf8")).resolves.toBe("# preserved during resume\n");
+    expect(result.manifest.planHash).toBe(plan.planHash);
+    expect(runCommand).toHaveBeenCalledTimes(3);
+    expect(runCommand.mock.calls.filter(([, args]) => args.includes("fixture-success@1.0.0"))).toHaveLength(1);
+    const completedState = await readCreateApplyState(projectDirectory);
+    expect(Object.values(completedState.phases).every((phase) => phase.status === "completed")).toBe(true);
+    expect((await readdir(join(projectDirectory, ".stackkit"))).some((entry) => entry.endsWith(".tmp"))).toBe(false);
   });
 });

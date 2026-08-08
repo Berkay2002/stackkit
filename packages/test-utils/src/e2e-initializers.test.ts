@@ -58,7 +58,7 @@ describe("generated-project initializer e2e", () => {
         expect.objectContaining({
           id: "initializers.skipped.clerk-init",
           status: "warning",
-          actions: expect.arrayContaining([expect.stringContaining("--allow-external-state")])
+          actions: []
         })
       ])
     );
@@ -125,11 +125,11 @@ function resultlessProjectDirectory(parent: string, projectName: string): string
 }
 
 function isShadcnCommand(call: NativeInitializerCall): boolean {
-  return call.command === "pnpm" && call.args[0] === "dlx" && call.args[1] === "shadcn@latest";
+  return call.command === "pnpm" && call.args[0] === "dlx" && call.args[1] === "shadcn@4.16.2";
 }
 
 function isClerkCommand(call: NativeInitializerCall): boolean {
-  return call.command === "pnpm" && call.args[0] === "dlx" && call.args[1] === "clerk@latest";
+  return call.command === "pnpm" && call.args[0] === "dlx" && call.args[1] === "clerk@3.0.0";
 }
 
 async function simulateNativeInitializer(command: string, args: readonly string[], cwd: string): Promise<void> {
@@ -137,12 +137,12 @@ async function simulateNativeInitializer(command: string, args: readonly string[
     return;
   }
 
-  if (args[1] === "shadcn@latest") {
+  if (args[1] === "shadcn@4.16.2") {
     await simulateShadcnInit(cwd);
     return;
   }
 
-  if (args[1] === "clerk@latest") {
+  if (args[1] === "clerk@3.0.0") {
     await simulateClerkInit(cwd);
   }
 }

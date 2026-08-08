@@ -1,6 +1,38 @@
 import { describe, expect, it } from "vitest";
 
-import { doctorResultSchema, migrationOperationSchema, skillsLockSchema, stackkitManifestSchema } from "./index.js";
+import {
+  createApplyStateSchema,
+  doctorResultSchema,
+  migrationOperationSchema,
+  skillsLockSchema,
+  stackkitManifestSchema
+} from "./index.js";
+
+describe("createApplyStateSchema", () => {
+  it("validates the durable create phase journal", () => {
+    const completed = { status: "completed" as const, completedAt: "2026-08-08T00:00:00.000Z" };
+    const state = createApplyStateSchema.parse({
+      schemaVersion: 1,
+      operation: "create",
+      planHash: "abc123",
+      projectDirectory: "C:/projects/acme",
+      startedAt: "2026-08-08T00:00:00.000Z",
+      updatedAt: "2026-08-08T00:00:00.000Z",
+      plan: { operation: "create" },
+      selectedModules: [],
+      phases: {
+        planned: completed,
+        "deterministic-files": completed,
+        initializers: { status: "pending" },
+        skills: { status: "pending" },
+        manifest: { status: "pending" },
+        verification: { status: "pending" }
+      }
+    });
+
+    expect(state.phases.planned.status).toBe("completed");
+  });
+});
 
 describe("migrationOperationSchema", () => {
   it("accepts a write operation", () => {

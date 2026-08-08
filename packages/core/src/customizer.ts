@@ -3,12 +3,14 @@ import {
   type StackkitModule,
   type StackkitPreset,
   type StackkitRecipe,
-  type StackkitRecipeInput
+  type StackkitRecipeInput,
+  type SupportMetadata
 } from "@berkayorhan/stackkit-schemas";
 
 // `defineModule`/`definePreset` live canonically in schemas; re-exported here for back-compat so the
 // browser customizer entry and `@berkayorhan/stackkit-core/customizer` consumers keep working.
 export { defineModule, definePreset } from "@berkayorhan/stackkit-schemas";
+export { assertCreateSupport, isPubliclySelectable } from "./support.js";
 
 export {
   resolveModuleAlias,
@@ -36,6 +38,7 @@ export type CustomizerCatalogChoice = {
   title: string;
   description: string;
   icon?: string;
+  support: SupportMetadata;
 };
 
 export type CustomizerCatalog = {
@@ -44,47 +47,75 @@ export type CustomizerCatalog = {
     title: string;
     description: string;
     modules: string[];
+    support: SupportMetadata;
+  }[];
+  previewPresets: {
+    id: string;
+    title: string;
+    description: string;
+    modules: string[];
+    support: SupportMetadata;
   }[];
   categories: Record<string, CustomizerCatalogChoice[]>;
+  previewCategories: Record<string, CustomizerCatalogChoice[]>;
 };
 
 export function buildCustomizerCatalog(input: {
   modules: readonly StackkitModule[];
   presets: readonly StackkitPreset[];
+  includePreview?: boolean;
 }): CustomizerCatalog {
   const categories: Record<string, CustomizerCatalogChoice[]> = {};
+  const previewCategories: Record<string, CustomizerCatalogChoice[]> = {};
 
   for (const module of input.modules) {
+    if (module.support.level === "planned") {
+      continue;
+    }
+
+    const target = module.support.level === "preview" ? previewCategories : categories;
+    if (module.support.level === "preview" && !input.includePreview) {
+      continue;
+    }
+
     const category = module.category ?? "other";
     const choice: CustomizerCatalogChoice = {
       id: module.id,
       alias: module.aliases[0] ?? module.id,
       title: module.title,
-      description: module.description
+      description: module.description,
+      support: module.support
     };
 
     if (module.icon) {
       choice.icon = module.icon;
     }
 
-    categories[category] ??= [];
-    categories[category].push(choice);
+    target[category] ??= [];
+    target[category].push(choice);
   }
 
-  for (const choices of Object.values(categories)) {
+  for (const choices of [...Object.values(categories), ...Object.values(previewCategories)]) {
     choices.sort(compareCatalogChoices);
   }
 
-  return {
-    presets: input.presets
+  const mapPresets = (level: "supported" | "preview") =>
+    input.presets
+      .filter((preset) => preset.support.level === level)
       .map((preset) => ({
         id: preset.id,
         title: preset.title,
         description: preset.description,
-        modules: [...preset.modules]
+        modules: [...preset.modules],
+        support: preset.support
       }))
-      .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id)),
-    categories: Object.fromEntries(Object.entries(categories).sort(([left], [right]) => left.localeCompare(right)))
+      .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+
+  return {
+    presets: mapPresets("supported"),
+    previewPresets: input.includePreview ? mapPresets("preview") : [],
+    categories: sortCategories(categories),
+    previewCategories: input.includePreview ? sortCategories(previewCategories) : {}
   };
 }
 
@@ -108,6 +139,12 @@ export function decodeRecipe(code: string): StackkitRecipe {
 
 function compareCatalogChoices(left: CustomizerCatalogChoice, right: CustomizerCatalogChoice): number {
   return left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
+}
+
+function sortCategories(
+  categories: Record<string, CustomizerCatalogChoice[]>
+): Record<string, CustomizerCatalogChoice[]> {
+  return Object.fromEntries(Object.entries(categories).sort(([left], [right]) => left.localeCompare(right)));
 }
 
 function toBase64Url(value: string): string {

@@ -3,14 +3,17 @@ title: Status and Known Gaps
 description: Current alpha status, verified capabilities, and limitations of Stackkit.
 ---
 
-Stackkit is usable locally as an internal alpha. The generate, inspect, validate, recipe, registry, and customizer paths are working, while generated application depth and lifecycle confidence are still expanding.
+Stackkit exposes one supported preset for the public alpha: `next-fastapi-postgres-auth0`. Other runnable starters are marked preview and require explicit opt-in. Declaration-only modules are planned and cannot be created.
 
 ## Verified capabilities
 
-- pnpm, npm, yarn, and bun project metadata.
-- Next.js, Vite, and TanStack Start web starters.
-- FastAPI service generation with a health endpoint and test path.
-- ShadCN, Tailwind, Postgres, Drizzle, Prisma, SQLAlchemy, Auth0 metadata, Docker, Kubernetes, and Vercel modules at their current support depth.
+- pnpm on the supported path; npm, yarn, and bun remain preview until they pass the same release profile.
+- Next.js 16 and ShadCN on the supported path; Vite and TanStack Start as preview starters.
+- Auth0 session and proxy wiring, protected typed Todo calls, FastAPI JWT/JWKS verification, SQLAlchemy CRUD, and Alembic migrations.
+- Local mock JWT/JWKS tests that do not require a real Auth0 tenant.
+- Web, API, and Postgres Docker Compose topology with API migrations and readiness checks.
+- Exact dry-run/apply plans, persisted plan hashes, and resumable create journals.
+- Registry-owned support metadata across every built-in module and preset.
 - Default and selectable TypeScript and Python quality tooling.
 - Deterministic `README.md`, `.env.example`, root scripts, manifests, recipes, module discovery, presets, and local registry inspection.
 - Project-local Codex and Claude Code skill targets.
@@ -27,16 +30,16 @@ pnpm smoke
 ## Known gaps
 
 <Callout title="Alpha boundary" type="warn">
-Generated projects are starter-level. Auth and database modules mostly provide metadata, environment examples, and skill guidance rather than complete application integrations.
+Only `next-fastapi-postgres-auth0` is supported. Preview combinations can be useful, but they do not carry the golden path runtime and recovery guarantee.
 </Callout>
 
 - Rust services are declared, but Rust service templates are not deeply implemented.
-- Docker and Kubernetes templates currently cover Next.js and FastAPI. Vite, TanStack Start, and Rust API container templates are not implemented.
+- Docker build is part of the Ubuntu release gate; local verification requires a running Docker daemon.
 - Vite and TanStack Start output is starter-depth; TanStack Start generates its route tree during the Vite dev or build path.
 - Remote registries are rejected instead of fetched.
 - The customizer is local-only and does not host or persist recipe IDs.
-- `init` is registered in the CLI but is not implemented yet.
+- `init` remains hidden until repository adoption has a real ownership proposal and dry-run.
 - Lifecycle commands are tested but need more representative generated-project verification before they should be treated as stable.
-- Managed diff may need richer manifest provenance for files whose expected content depends on metadata not retained in the manifest.
+- Add, remove, update, and migrate remain experimental until they pass the golden-path lifecycle promotion gate.
 
 Read [Getting Started](/docs/getting-started) for the supported generate-and-validate path, and [Managed Updates](/docs/managed-updates) before using alpha lifecycle commands.

@@ -50,7 +50,6 @@ description: Complete reference for all Stackkit CLI commands, flags, and lifecy
 | `stackkit skills sync` | Sync AI skill targets for the current stack *(alpha)* |
 | `stackkit skills update` | Update AI skill content in the project *(alpha)* |
 | `stackkit config validate [path]` | Validate a Stackkit config file |
-| `stackkit init` | Adopt an existing repository into Stackkit management *(not implemented yet)* |
 
 ---
 
@@ -87,35 +86,32 @@ stackkit create <project-name> [flags]
 | `--recipe <code>` | Use an offline recipe code |
 | `--dry-run` | Print the plan without writing files. |
 | `--allow-external-state` | Allow native initializers that can mutate external state. Use only when you understand the initializer. |
+| `--include-preview` | Allow preview presets and modules. Planned entries remain unavailable. |
 | `--view <path>` | Print one planned file during `--dry-run`. |
 | `--diff` | Print file-oriented planned changes during `--dry-run`. |
 | `--dir <path>` | Write to a specific target project directory. |
+| `--resume` | Resume an interrupted create from the journal in `--dir`. |
+| `--retry-initializers` | With `--resume`, explicitly retry an initializer left running or failed after you inspect partial output. |
 | `-y, --yes` | Skip confirmation prompts. |
 
 **Example**
 
 ```bash
-stackkit create my-app \
-  --web next \
-  --api fastapi \
-  --db postgres \
-  --auth auth0 \
-  --with shadcn,docker \
-  --deploy vercel
+stackkit create my-app --preset next-fastapi-postgres-auth0 --db-provider postgres-local --skills skip --yes
 ```
 
 **Web framework examples**
 
 ```bash
 # React SPA with Vite.
-stackkit create my-spa --web vite
+stackkit create my-spa --web vite --include-preview
 
 # Full-stack React with TanStack Start.
-stackkit create my-app --web tanstack
+stackkit create my-app --web tanstack --include-preview
 
 # Swap ShadCN for plain Tailwind, or opt out of a UI layer entirely.
-stackkit create my-app --web vite --ui tailwind
-stackkit create my-app --web vite --ui none
+stackkit create my-app --web vite --ui tailwind --include-preview
+stackkit create my-app --web vite --ui none --include-preview
 ```
 
 The `--ui` flag tunes the UI layer for the stack-axis flags above. It does not apply to `--recipe` or `--config`, which carry their own complete module list.
@@ -125,21 +121,18 @@ ShadCN setup is delegated to the ShadCN CLI for supported Next.js stacks. Clerk 
 **Auth examples**
 
 ```bash
-# Next.js with Clerk.
-stackkit create my-app --web next --auth clerk
-
-# Next.js and FastAPI with Auth0 metadata.
-stackkit create my-app --web next --api fastapi --auth auth0
+# Supported Auth0 vertical slice.
+stackkit create my-app --preset next-fastapi-postgres-auth0 --db-provider postgres-local
 ```
 
 **Deployment examples**
 
 ```bash
 # FastAPI API with Docker and Kubernetes files.
-stackkit create my-api --api fastapi --with docker --deploy k8s
+stackkit create my-api --api fastapi --with docker --deploy k8s --include-preview
 
 # Vite web app with Vercel deployment files.
-stackkit create my-spa --web vite --deploy vercel
+stackkit create my-spa --web vite --deploy vercel --include-preview
 ```
 
 `deploy/docker` and `deploy/kubernetes` currently render container files for Next.js and FastAPI. Vercel requires a web app. Vite, TanStack Start, and Rust API container templates are not implemented yet.
@@ -169,10 +162,10 @@ Stackkit models developer tooling as per-language Tooling Slots — `lint`, `for
 
 ```bash
 # Use Biome instead of ESLint + Prettier.
-stackkit create my-app --web next --ts-quality biome
+stackkit create my-app --web next --ts-quality biome --include-preview
 
 # Use Pyright instead of mypy for a FastAPI service.
-stackkit create my-app --api fastapi --py-typecheck pyright
+stackkit create my-app --api fastapi --py-typecheck pyright --include-preview
 ```
 
 Rust tooling (Clippy, rustfmt, cargo check) is modeled in the registry, but its config files are not yet generated.
@@ -219,6 +212,7 @@ Dry-run output includes extractable `STACKKIT_PLAN_JSON_START` and `STACKKIT_PLA
 
 ```bash
 stackkit create my-app --web next --dry-run --view apps/web/package.json
+stackkit create my-app --preset next-fastapi-postgres-auth0 --dry-run --view .env.example
 stackkit create my-app --web next --dry-run --diff
 ```
 
@@ -310,6 +304,14 @@ stackkit config validate ./stackkit.config.json
 ```
 
 Use `--json` on commands that support it when another tool needs stable machine-readable output. Human-friendly module discovery may show aliases, while JSON output preserves canonical IDs.
+
+If create was interrupted and the target contains `.stackkit/apply-state.json`, resume without rebuilding the plan:
+
+```bash
+stackkit create --resume --dir ./my-app
+```
+
+Completed initializer steps are never repeated. If the journal records a running or failed initializer, Stackkit stops so you can inspect its partial output. Retry it explicitly with `--resume --retry-initializers` only after that review.
 
 ---
 

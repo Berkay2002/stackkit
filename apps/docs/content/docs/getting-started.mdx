@@ -57,43 +57,40 @@ Install Stackkit globally, or skip the install step entirely and run it directly
 Or run it once without installing:
 
 ```bash
-npx @berkayorhan/stackkit@latest create my-app --web next --api fastapi --db postgres --auth auth0
+npx @berkayorhan/stackkit@0.3.0 create my-app --preset next-fastapi-postgres-auth0 --db-provider postgres-local --skills skip --yes
 ```
 
 ## Generate Your First Project
 
-The `create` command accepts stack-axis flags to compose your monorepo. The following example creates a full-stack project with a Next.js web app, a FastAPI backend, Postgres, Auth0, ShadCN UI, Docker support, and Vercel deployment configuration:
+The supported alpha path creates a pnpm monorepo with Next.js, ShadCN, FastAPI, local Postgres, SQLAlchemy, Auth0, and Docker:
 
 ```bash
 stackkit create my-app \
-  --web next \
-  --api fastapi \
-  --db postgres \
-  --auth auth0 \
-  --with shadcn,docker \
-  --deploy vercel
+  --preset next-fastapi-postgres-auth0 \
+  --db-provider postgres-local \
+  --skills skip --yes
 ```
 
 Stackkit records every module choice in `.stackkit/project.json` so future commands can inspect, diff, and evolve the project without guessing what was originally generated.
 
-Prefer a lighter React setup? Generate a Vite single-page app or a full-stack TanStack Start app instead of Next.js:
+Preview modules are hidden from normal selection and require `--include-preview`. Planned modules cannot be created.
 
 ```bash
 # React SPA with Vite.
-stackkit create my-spa --web vite
+stackkit create my-spa --web vite --include-preview
 
 # Full-stack React with TanStack Start.
-stackkit create my-app --web tanstack
+stackkit create my-app --web tanstack --include-preview
 ```
 
 React frameworks include ShadCN UI by default. Add `--ui none` to skip ShadCN, or `--ui tailwind` to swap it for plain Tailwind CSS.
 
 Stackkit delegates ShadCN setup to the ShadCN CLI when that module is enabled. Clerk-backed Next.js stacks use the Clerk CLI as well, so official initializer behavior stays in the upstream tools instead of being copied into Stackkit templates.
 
-Need an API-only container path? FastAPI can be paired with Docker and Kubernetes without selecting a web app:
+Need an API-only container path? The Kubernetes module is preview:
 
 ```bash
-stackkit create my-api --api fastapi --with docker --deploy k8s
+stackkit create my-api --api fastapi --with docker --deploy k8s --include-preview
 ```
 
 <Callout title="Tip: skip AI skill installation for quick tests" type="info">
@@ -121,7 +118,7 @@ stackkit create my-app --web next --api fastapi --db postgres --auth auth0 --dry
 ```
 
 ```bash
-stackkit create my-app --preset next-postgres-clerk --dry-run
+stackkit create my-app --preset next-postgres-clerk --include-preview --dry-run
 ```
 
 Dry-run output includes extractable `STACKKIT_PLAN_JSON_START` and `STACKKIT_PLAN_JSON_END` markers.
@@ -130,6 +127,7 @@ Dry-run output includes extractable `STACKKIT_PLAN_JSON_START` and `STACKKIT_PLA
 
 ```bash
 stackkit create my-app --web next --dry-run --view apps/web/package.json
+stackkit create my-app --preset next-fastapi-postgres-auth0 --dry-run --view .env.example
 ```
 
 ## Validate the Generated Project
@@ -138,16 +136,26 @@ After generation, run the following sequence inside the project directory to con
 
 ```bash
 cd my-app
-pnpm install --lockfile-only
-pnpm install --ignore-scripts
+pnpm install
 pnpm test
 pnpm typecheck
-pnpm build
 pnpm lint
-stackkit doctor
+pnpm build
+pnpm stackkit:doctor
+docker compose build
 ```
 
-`stackkit doctor` checks every managed file in the project against its canonical template and reports any drift or missing entries.
+The generated tests use a local mock JWT/JWKS adapter, so this validation sequence does not need a real Auth0 tenant. To run the application, copy `.env.example` to `.env`, configure the Auth0 values, register `http://localhost:3000/auth/callback`, then run `docker compose up --build`. The Compose topology migrates Postgres before starting FastAPI.
+
+If create is interrupted after writing `.stackkit/apply-state.json`, keep the directory and resume the exact hashed plan:
+
+```bash
+stackkit create --resume --dir ./my-app
+```
+
+If an initializer itself was running or failed, inspect the generated directory before retrying it with `stackkit create --resume --retry-initializers --dir ./my-app`.
+
+`stackkit doctor` checks managed hashes and module-owned runtime files. A warning is reported as "completed with warnings"; an error exits non-zero.
 
 ---
 

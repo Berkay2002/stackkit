@@ -86,11 +86,58 @@ describe("planRemoveModules", () => {
         modules: [...manifest.modules, { id: "web/nextjs", version: "1.0.0", options: {} }]
       },
       moduleIds: ["web/nextjs"],
-      currentFiles: [{ path: "apps/web/page.tsx", owner: "web/nextjs", hash: hashContent("changed\n") }]
+      currentFiles: [{ path: "apps/web/page.tsx", owner: "web/nextjs", hash: hashContent("changed\n") }],
+      availableModules: [
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js app",
+          removalPolicy: {
+            mode: "managed-files-only",
+            retainedData: ["Hosted deployments are retained."],
+            manualCleanup: ["Delete hosted deployments separately."]
+          }
+        })
+      ]
     });
 
     expect(plan.safe).toBe(false);
     expect(plan.refusals).toEqual([{ path: "apps/web/page.tsx", reason: "modified-owned" }]);
+    expect(plan.removalAdvisories).toEqual([
+      {
+        moduleId: "web/nextjs",
+        policy: {
+          mode: "managed-files-only",
+          retainedData: ["Hosted deployments are retained."],
+          manualCleanup: ["Delete hosted deployments separately."]
+        }
+      }
+    ]);
+  });
+
+  it("blocks automatic removal when the module policy forbids it", () => {
+    const manifest = baseManifest();
+    const plan = planRemoveModules({
+      manifest: {
+        ...manifest,
+        modules: [...manifest.modules, { id: "service/manual", version: "1.0.0", options: {} }]
+      },
+      moduleIds: ["service/manual"],
+      currentFiles: [],
+      availableModules: [
+        defineModule({
+          id: "service/manual",
+          version: "1.0.0",
+          title: "Manual service",
+          description: "Requires a manual removal workflow",
+          removalPolicy: { mode: "blocked", retainedData: [], manualCleanup: ["Follow the service runbook."] }
+        })
+      ]
+    });
+
+    expect(plan.safe).toBe(false);
+    expect(plan.blockedModules).toEqual(["service/manual"]);
   });
 });
 

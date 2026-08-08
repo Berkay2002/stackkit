@@ -182,7 +182,7 @@ describe("builtin module file declarations", () => {
       expect.arrayContaining([
         expect.objectContaining({
           name: "AUTH0_AUDIENCE",
-          target: "api"
+          target: "root"
         })
       ])
     );

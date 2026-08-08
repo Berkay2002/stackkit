@@ -11,6 +11,7 @@ describe("buildCustomizerCatalog", () => {
           version: "1.0.0",
           title: "Vercel",
           description: "Vercel deployment",
+          support: { level: "supported" },
           aliases: ["vercel"],
           category: "deploy",
           icon: "vercel"
@@ -20,6 +21,7 @@ describe("buildCustomizerCatalog", () => {
           version: "1.0.0",
           title: "Next.js",
           description: "Next.js app",
+          support: { level: "supported" },
           aliases: ["next", "nextjs"],
           category: "web",
           icon: "nextjs"
@@ -29,6 +31,7 @@ describe("buildCustomizerCatalog", () => {
           version: "1.0.0",
           title: "FastAPI",
           description: "FastAPI API service",
+          support: { level: "supported" },
           aliases: ["fastapi"],
           category: "api",
           icon: "fastapi"
@@ -37,7 +40,8 @@ describe("buildCustomizerCatalog", () => {
           id: "docs/readme",
           version: "1.0.0",
           title: "README",
-          description: "Project README documentation"
+          description: "Project README documentation",
+          support: { level: "supported" }
         })
       ],
       presets: [
@@ -45,12 +49,14 @@ describe("buildCustomizerCatalog", () => {
           id: "z-custom",
           title: "Custom",
           description: "Custom stack",
+          support: { level: "supported" },
           modules: ["web/nextjs"]
         }),
         definePreset({
           id: "a-next",
           title: "Next.js",
           description: "Next.js app",
+          support: { level: "supported" },
           modules: ["web/nextjs", "deploy/vercel"]
         })
       ]
@@ -64,6 +70,7 @@ describe("buildCustomizerCatalog", () => {
         alias: "next",
         title: "Next.js",
         description: "Next.js app",
+        support: { level: "supported" },
         icon: "nextjs"
       }
     ]);
@@ -72,7 +79,8 @@ describe("buildCustomizerCatalog", () => {
         id: "docs/readme",
         alias: "docs/readme",
         title: "README",
-        description: "Project README documentation"
+        description: "Project README documentation",
+        support: { level: "supported" }
       }
     ]);
     expect(JSON.parse(JSON.stringify(catalog))).toEqual(catalog);
@@ -86,6 +94,7 @@ describe("buildCustomizerCatalog", () => {
           version: "1.0.0",
           title: "API",
           description: "Zeta API",
+          support: { level: "supported" },
           aliases: ["zeta"],
           category: "api"
         }),
@@ -94,6 +103,7 @@ describe("buildCustomizerCatalog", () => {
           version: "1.0.0",
           title: "API",
           description: "Alpha API",
+          support: { level: "supported" },
           aliases: ["alpha"],
           category: "api"
         })
@@ -102,5 +112,51 @@ describe("buildCustomizerCatalog", () => {
     });
 
     expect(catalog.categories.api.map((choice) => choice.id)).toEqual(["api/alpha", "api/zeta"]);
+  });
+
+  it("separates preview choices when explicitly included and always hides planned entries", () => {
+    const modules = [
+      defineModule({
+        id: "web/supported",
+        version: "1.0.0",
+        title: "Supported web",
+        description: "Supported web",
+        aliases: ["supported"],
+        category: "web",
+        support: { level: "supported" }
+      }),
+      defineModule({
+        id: "web/preview",
+        version: "1.0.0",
+        title: "Preview web",
+        description: "Preview web",
+        aliases: ["preview"],
+        category: "web",
+        support: { level: "preview", reason: "Release verification is incomplete" }
+      }),
+      defineModule({
+        id: "web/planned",
+        version: "1.0.0",
+        title: "Planned web",
+        description: "Planned web",
+        aliases: ["planned"],
+        category: "web",
+        support: { level: "planned", reason: "No generated app exists" }
+      })
+    ];
+
+    const supportedOnly = buildCustomizerCatalog({ modules, presets: [] });
+    const withPreview = buildCustomizerCatalog({ modules, presets: [], includePreview: true });
+
+    expect(supportedOnly.categories.web.map((choice) => choice.id)).toEqual(["web/supported"]);
+    expect(supportedOnly.previewCategories).toEqual({});
+    expect(withPreview.categories.web.map((choice) => choice.id)).toEqual(["web/supported"]);
+    expect(withPreview.previewCategories.web).toEqual([
+      expect.objectContaining({
+        id: "web/preview",
+        support: { level: "preview", reason: "Release verification is incomplete" }
+      })
+    ]);
+    expect(JSON.stringify(withPreview)).not.toContain("web/planned");
   });
 });

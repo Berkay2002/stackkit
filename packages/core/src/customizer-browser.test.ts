@@ -18,6 +18,7 @@ describe("browser-safe customizer API", () => {
       description: "Workspace",
       aliases: ["workspace"],
       category: "workspace",
+      support: { level: "supported" },
       provides: ["workspace/node"]
     }),
     defineModule({
@@ -26,6 +27,7 @@ describe("browser-safe customizer API", () => {
       title: "TypeScript",
       description: "TypeScript",
       category: "workspace",
+      support: { level: "supported" },
       requires: ["workspace/node"],
       provides: ["typescript"]
     }),
@@ -37,6 +39,7 @@ describe("browser-safe customizer API", () => {
       aliases: ["next"],
       category: "web",
       icon: "nextjs",
+      support: { level: "supported" },
       requires: ["workspace/node"],
       provides: ["web-app", "nextjs-app", "react"]
     }),
@@ -46,6 +49,7 @@ describe("browser-safe customizer API", () => {
       title: "ShadCN",
       description: "UI components",
       category: "ui",
+      support: { level: "supported" },
       requires: ["react"]
     }),
     defineModule({
@@ -55,6 +59,7 @@ describe("browser-safe customizer API", () => {
       description: "Python API",
       aliases: ["fastapi"],
       category: "api",
+      support: { level: "supported" },
       requires: ["workspace/node"],
       provides: ["api", "python"]
     }),
@@ -65,6 +70,7 @@ describe("browser-safe customizer API", () => {
       description: "Database",
       aliases: ["postgres"],
       category: "database",
+      support: { level: "supported" },
       provides: ["postgres"]
     }),
     defineModule({
@@ -74,6 +80,7 @@ describe("browser-safe customizer API", () => {
       description: "Python database client",
       aliases: ["sqlalchemy"],
       category: "database-client",
+      support: { level: "supported" },
       requires: ["postgres", "python"]
     }),
     defineModule({
@@ -82,6 +89,7 @@ describe("browser-safe customizer API", () => {
       title: "Auth0 for Next.js",
       description: "Next auth",
       category: "auth",
+      support: { level: "supported" },
       requires: ["react"],
       provides: ["auth"]
     }),
@@ -91,6 +99,7 @@ describe("browser-safe customizer API", () => {
       title: "Auth0 for FastAPI",
       description: "API auth",
       category: "auth",
+      support: { level: "supported" },
       requires: ["python"],
       provides: ["auth"]
     }),
@@ -101,6 +110,7 @@ describe("browser-safe customizer API", () => {
       description: "Container files",
       aliases: ["docker"],
       category: "deploy",
+      support: { level: "supported" },
       requires: ["nextjs-app"]
     })
   ];
@@ -113,6 +123,7 @@ describe("browser-safe customizer API", () => {
           id: "next-fastapi",
           title: "Next.js and FastAPI",
           description: "Full-stack app",
+          support: { level: "supported" },
           modules: ["web/nextjs", "api/fastapi"]
         })
       ]

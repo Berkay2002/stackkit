@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,6 +9,7 @@ import { Command } from "commander";
 
 import {
   applyAddModules,
+  assertCreateSupport,
   applyAutomaticMigrations,
   applyCreatePlan,
   applyModuleUpdates,
@@ -30,8 +32,10 @@ import {
   readCurrentManagedFileHashes,
   readManifest,
   readSkillsLock,
+  resumeCreatePlan,
   inspectRecipe,
   inspectStackkitModule,
+  isPubliclySelectable,
   listStackkitModules,
   loadProjectRegistries,
   resolveSpawnCommand,
@@ -65,6 +69,10 @@ import { stackkitConfigSchema, type AiSkillAgent, type PackageManager, type Stac
 
 export type CreateDryRunPlan = CreatePlan;
 
+export const stackkitVersion = String(
+  (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version
+);
+
 export type StackkitProgramOptions = {
   runCommand?: RunCommand;
 };
@@ -92,7 +100,8 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
   const runCommand = programOptions.runCommand ?? runLocalCommand;
   const program = new Command()
     .name("stackkit")
-    .description("Generate and maintain Stackkit-managed monorepos");
+    .description("Generate and maintain Stackkit-managed monorepos")
+    .version(stackkitVersion);
 
   program
     .command("create [name]")
@@ -119,11 +128,33 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--recipe <code>", "Offline Stackkit recipe code")
     .option("--dry-run", "Print the create plan without writing files")
     .option("--allow-external-state", "Allow native initializers that mutate external state")
+    .option("--include-preview", "Allow preview presets and modules")
     .option("--view <path>", "Print one planned file during --dry-run")
     .option("--diff", "Print file-oriented planned changes during --dry-run")
     .option("--dir <path>", "Target project directory")
+    .option("--resume", "Resume an interrupted create from .stackkit/apply-state.json")
+    .option("--retry-initializers", "Retry an incomplete initializer after reviewing partial output")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (name: string | undefined, options: CreateCommandOptions) => {
+      if (options.resume) {
+        if (!options.dir) {
+          throw new Error("--resume requires --dir <path>");
+        }
+        if (name || options.config || options.preset || options.recipe || options.dryRun) {
+          throw new Error("--resume cannot be combined with a project name, create source, or --dry-run");
+        }
+
+        const result = await resumeCreatePlan({
+          projectDirectory: resolve(options.dir),
+          stackkitVersion,
+          runCommand,
+          allowExternalState: options.allowExternalState,
+          retryInitializers: options.retryInitializers
+        });
+        writeProgramOutput(program, `Resumed Stackkit project at ${result.projectDirectory}\n`);
+        return;
+      }
+
       const plan = await createDryRunPlanFromConfig({
         name,
         configPath: options.config,
@@ -147,7 +178,8 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
         },
         dbRuntime: options.dbRuntime,
         recipeCode: options.recipe,
-        allowExternalState: options.allowExternalState
+        allowExternalState: options.allowExternalState,
+        includePreview: options.includePreview
       });
       const targetDirectory = options.dir ? resolve(options.dir) : undefined;
 
@@ -172,6 +204,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
       const result = await applyCreatePlan(plan, {
         parentDirectory: process.cwd(),
         targetDirectory,
+        stackkitVersion,
         runCommand,
         allowExternalState: options.allowExternalState
       });
@@ -183,8 +216,6 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
       }
       writeProgramOutput(program, `Created Stackkit project at ${result.projectDirectory}\n`);
     });
-
-  program.command("init").description("Adopt an existing repository into Stackkit management");
 
   program
     .command("add <module>")
@@ -243,7 +274,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
 
       if (options.dryRun) {
         const currentFiles = await readCurrentManagedFileHashes(projectDirectory, manifest);
-        const plan = planRemoveModules({ manifest, moduleIds: [moduleId], currentFiles });
+        const plan = planRemoveModules({ manifest, moduleIds: [moduleId], currentFiles, availableModules: builtinModules });
         writeProgramOutput(program, formatRemovePlan(plan));
         return;
       }
@@ -252,8 +283,18 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
         throw new Error(`Refusing to remove ${moduleId} without --yes. Re-run with --yes to apply, or use --dry-run to preview.`);
       }
 
-      const result = await applyRemoveModules({ projectDirectory, manifest, moduleIds: [moduleId] });
-      writeProgramOutput(program, `Removed ${moduleId} from ${result.manifest.projectName}\n`);
+      const currentFiles = await readCurrentManagedFileHashes(projectDirectory, manifest);
+      const plan = planRemoveModules({ manifest, moduleIds: [moduleId], currentFiles, availableModules: builtinModules });
+      const result = await applyRemoveModules({
+        projectDirectory,
+        manifest,
+        moduleIds: [moduleId],
+        availableModules: builtinModules
+      });
+      writeProgramOutput(
+        program,
+        [...formatRemovalAdvisories(plan), `Removed ${moduleId} from ${result.manifest.projectName}`, ""].join("\n")
+      );
     });
 
   program
@@ -372,10 +413,16 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--dir <path>", "Project directory")
     .action(async (options: { dir?: string }) => {
       const projectDirectory = options.dir ? resolve(options.dir) : process.cwd();
-      const result = await runDoctor(projectDirectory);
+      const result = await runDoctor(projectDirectory, { runCommand });
+      const hasWarnings = result.checks.some((check) => check.status === "warning");
+      const summary = !result.ok
+        ? "Stackkit doctor found issues"
+        : hasWarnings
+          ? "Stackkit doctor completed with warnings"
+          : "Stackkit doctor passed";
       writeProgramOutput(
         program,
-        `${result.ok ? "Stackkit doctor passed" : "Stackkit doctor found issues"}\n${formatDoctorChecks(result.checks)}\n`
+        `${summary}\n${formatDoctorChecks(result.checks)}\n`
       );
 
       if (!result.ok) {
@@ -401,15 +448,29 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .command("list")
     .description("List available modules")
     .option("--json", "Output JSON")
-    .action((options: { json?: boolean }) => {
-      writeProgramOutput(program, formatModuleDiscovery(listStackkitModules(builtinModules), options.json));
+    .option("--include-preview", "Include preview modules")
+    .action((options: { json?: boolean; includePreview?: boolean }) => {
+      writeProgramOutput(
+        program,
+        formatModuleDiscovery(
+          listStackkitModules(builtinModules, { includePreview: options.includePreview }),
+          options.json
+        )
+      );
     });
   module
     .command("search <query>")
     .description("Search available modules")
     .option("--json", "Output JSON")
-    .action((query: string, options: { json?: boolean }) => {
-      writeProgramOutput(program, formatModuleDiscovery(searchStackkitModules(query, builtinModules), options.json));
+    .option("--include-preview", "Include preview modules")
+    .action((query: string, options: { json?: boolean; includePreview?: boolean }) => {
+      writeProgramOutput(
+        program,
+        formatModuleDiscovery(
+          searchStackkitModules(query, builtinModules, { includePreview: options.includePreview }),
+          options.json
+        )
+      );
     });
   module
     .command("inspect <module>")
@@ -506,8 +567,15 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
   preset
     .command("list")
     .description("List available presets")
-    .action(() => {
-      writeProgramOutput(program, builtinPresets.map((preset) => `${preset.id}\t${preset.title}`).join("\n") + "\n");
+    .option("--include-preview", "Include preview presets")
+    .action((options: { includePreview?: boolean }) => {
+      writeProgramOutput(
+        program,
+        builtinPresets
+          .filter((preset) => isPubliclySelectable(preset.support, options.includePreview))
+          .map((preset) => `${preset.id}\t${preset.title}`)
+          .join("\n") + "\n"
+      );
     });
   preset
     .command("inspect <preset>")
@@ -582,6 +650,7 @@ export type CreatePlanOptions = {
   dbRuntime?: string;
   recipeCode?: string;
   allowExternalState?: boolean;
+  includePreview?: boolean;
 };
 
 type CreateCommandOptions = {
@@ -607,9 +676,12 @@ type CreateCommandOptions = {
   recipe?: string;
   dryRun?: boolean;
   allowExternalState?: boolean;
+  includePreview?: boolean;
   view?: string;
   diff?: boolean;
   dir?: string;
+  resume?: boolean;
+  retryInitializers?: boolean;
   yes?: boolean;
 };
 
@@ -694,14 +766,17 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
   if (!planOptions.configPath && !planOptions.recipeCode && !projectName) {
     const interactiveConfig = await promptForCreateConfig();
 
-    return createCreatePlan({
-      config: interactiveConfig,
-      source: { kind: "interactive" },
-      availableModules: builtinModules,
-      availablePresets: builtinPresets,
-      curatedSkillSourceAllowlist,
-      allowExternalState: planOptions.allowExternalState ?? false
-    });
+    return createCliCreatePlan(
+      {
+        config: interactiveConfig,
+        source: { kind: "interactive" },
+        availableModules: builtinModules,
+        availablePresets: builtinPresets,
+        curatedSkillSourceAllowlist,
+        allowExternalState: planOptions.allowExternalState ?? false
+      },
+      planOptions.includePreview
+    );
   }
 
   if (planOptions.recipeCode) {
@@ -717,14 +792,17 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
       }
     });
 
-    return createCreatePlan({
-      config,
-      source: { kind: "recipe", code: planOptions.recipeCode },
-      availableModules: builtinModules,
-      availablePresets: builtinPresets,
-      curatedSkillSourceAllowlist,
-      allowExternalState: planOptions.allowExternalState ?? false
-    });
+    return createCliCreatePlan(
+      {
+        config,
+        source: { kind: "recipe", code: planOptions.recipeCode },
+        availableModules: builtinModules,
+        availablePresets: builtinPresets,
+        curatedSkillSourceAllowlist,
+        allowExternalState: planOptions.allowExternalState ?? false
+      },
+      planOptions.includePreview
+    );
   }
 
   if (!planOptions.configPath) {
@@ -732,7 +810,7 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
     const config = stackkitConfigSchema.parse({
       projectName,
       packageManager: planOptions.packageManager,
-      preset: planOptions.preset ?? (hasAxisModules ? undefined : "next"),
+      preset: planOptions.preset ?? (hasAxisModules ? undefined : "next-fastapi-postgres-auth0"),
       modules: axisModules,
       options: dbRuntimeOptions(planOptions.dbRuntime, axisModules),
       ai: {
@@ -742,14 +820,17 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
       }
     });
 
-    return createCreatePlan({
-      config,
-      source: { kind: "scripted" },
-      availableModules: builtinModules,
-      availablePresets: builtinPresets,
-      curatedSkillSourceAllowlist,
-      allowExternalState: planOptions.allowExternalState ?? false
-    });
+    return createCliCreatePlan(
+      {
+        config,
+        source: { kind: "scripted" },
+        availableModules: builtinModules,
+        availablePresets: builtinPresets,
+        curatedSkillSourceAllowlist,
+        allowExternalState: planOptions.allowExternalState ?? false
+      },
+      planOptions.includePreview
+    );
   }
 
   const rawConfig = JSON.parse(await readFile(planOptions.configPath, "utf8"));
@@ -770,14 +851,38 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
   }
   const config = stackkitConfigSchema.parse(configInput);
 
-  return createCreatePlan({
-    config,
-    source: { kind: "config", path: "stackkit.config.json" },
-    availableModules: builtinModules,
-    availablePresets: builtinPresets,
-    curatedSkillSourceAllowlist,
-    allowExternalState: planOptions.allowExternalState ?? false
+  return createCliCreatePlan(
+    {
+      config,
+      source: { kind: "config", path: "stackkit.config.json" },
+      availableModules: builtinModules,
+      availablePresets: builtinPresets,
+      curatedSkillSourceAllowlist,
+      allowExternalState: planOptions.allowExternalState ?? false
+    },
+    planOptions.includePreview
+  );
+}
+
+function createCliCreatePlan(
+  input: Parameters<typeof createCreatePlan>[0],
+  includePreview = false
+): CreatePlan {
+  const plan = createCreatePlan(input);
+  const presetIds = input.config.preset ? [input.config.preset] : [];
+  const presetById = new Map((input.availablePresets ?? []).map((preset) => [preset.id, preset]));
+
+  assertCreateSupport({
+    modules: plan.selectedModules,
+    presets: presetIds.flatMap((presetId) => {
+      const preset = presetById.get(presetId);
+      return preset ? [preset] : [];
+    }),
+    packageManager: input.config.packageManager,
+    includePreview
   });
+
+  return plan;
 }
 
 function resolveCreateAxisModules(axes: CreateAxisOptions | undefined): string[] {
@@ -1027,6 +1132,15 @@ function formatModuleInspect(module: ModuleDiscoveryEntry): string {
     `Version: ${module.version}`,
     `Aliases: ${module.aliases.length > 0 ? module.aliases.join(", ") : "none"}`,
     `Category: ${module.category ?? "none"}`,
+    `Removal mode: ${module.removalPolicy.mode}`,
+    "Retained data:",
+    ...(module.removalPolicy.retainedData.length > 0
+      ? module.removalPolicy.retainedData.map((item) => `- ${item}`)
+      : ["- none"]),
+    "Manual cleanup:",
+    ...(module.removalPolicy.manualCleanup.length > 0
+      ? module.removalPolicy.manualCleanup.map((item) => `- ${item}`)
+      : ["- none"]),
     ""
   ].join("\n");
 }
@@ -1206,6 +1320,7 @@ export function formatRemovePlan(plan: RemoveModulesPlan): string {
     "Dry run: no files will be deleted.",
     `Modules to remove: ${plan.modulesToRemove.length > 0 ? plan.modulesToRemove.join(", ") : "none"}`,
     `Safe to remove: ${plan.safe ? "yes" : "no"}`,
+    ...formatRemovalAdvisories(plan),
     "Files to delete:",
     ...(filesToRemove.length > 0 ? filesToRemove : ["- none"]),
     "Refusals:",
@@ -1215,6 +1330,20 @@ export function formatRemovePlan(plan: RemoveModulesPlan): string {
     "STACKKIT_PLAN_JSON_END",
     ""
   ].join("\n");
+}
+
+function formatRemovalAdvisories(plan: RemoveModulesPlan): string[] {
+  return plan.removalAdvisories.flatMap((advisory) => [
+    `Removal policy for ${advisory.moduleId}: ${advisory.policy.mode}`,
+    "Retained data:",
+    ...(advisory.policy.retainedData.length > 0
+      ? advisory.policy.retainedData.map((item) => `- ${item}`)
+      : ["- none"]),
+    "Manual cleanup:",
+    ...(advisory.policy.manualCleanup.length > 0
+      ? advisory.policy.manualCleanup.map((item) => `- ${item}`)
+      : ["- none"])
+  ]);
 }
 
 function scopeModules(modules: readonly StackkitModule[], moduleId: string | undefined): readonly StackkitModule[] {
@@ -1394,11 +1523,13 @@ async function promptForCreateConfig(): Promise<StackkitConfig> {
 
   const preset = await prompts.select({
     message: "Preset",
-    options: builtinPresets.map((presetItem) => ({
-      value: presetItem.id,
-      label: presetItem.title,
-      hint: presetItem.description
-    }))
+    options: builtinPresets
+      .filter((presetItem) => presetItem.support.level === "supported")
+      .map((presetItem) => ({
+        value: presetItem.id,
+        label: presetItem.title,
+        hint: presetItem.description
+      }))
   });
 
   if (prompts.isCancel(preset)) {
@@ -1467,22 +1598,40 @@ function writeProgramOutput(program: Command, output: string): void {
   process.stdout.write(output);
 }
 
-export function runStackkitCli(argv: readonly string[] = process.argv): void {
-  createStackkitProgram().parse(argv);
+export async function runStackkitCli(argv: readonly string[] = process.argv): Promise<void> {
+  try {
+    await createStackkitProgram().parseAsync(argv);
+  } catch (error) {
+    process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }
 
-export function isDirectCliExecution(moduleUrl: string, argvEntry = process.argv[1]): boolean {
+export function isDirectCliExecution(
+  moduleUrl: string,
+  argvEntry = process.argv[1],
+  realpath: (entry: string) => string = realpathSync.native
+): boolean {
   if (!argvEntry) {
     return false;
   }
 
-  const modulePath = fileURLToPath(moduleUrl);
+  const modulePath = resolveCliEntryPath(fileURLToPath(moduleUrl), realpath);
+  const entryPath = resolveCliEntryPath(argvEntry, realpath);
 
-  if (isWindowsCliEntryPath(modulePath) || isWindowsCliEntryPath(argvEntry)) {
-    return normalizeWindowsCliEntryPath(modulePath) === normalizeWindowsCliEntryPath(argvEntry);
+  if (isWindowsCliEntryPath(modulePath) || isWindowsCliEntryPath(entryPath)) {
+    return normalizeWindowsCliEntryPath(modulePath) === normalizeWindowsCliEntryPath(entryPath);
   }
 
-  return resolve(modulePath) === resolve(argvEntry);
+  return resolve(modulePath) === resolve(entryPath);
+}
+
+function resolveCliEntryPath(entry: string, realpath: (entry: string) => string): string {
+  try {
+    return realpath(entry);
+  } catch {
+    return entry;
+  }
 }
 
 function writeProgramError(program: Command, output: string): void {
@@ -1505,5 +1654,5 @@ function normalizeWindowsCliEntryPath(filePath: string): string {
 }
 
 if (isDirectCliExecution(import.meta.url)) {
-  runStackkitCli();
+  void runStackkitCli();
 }

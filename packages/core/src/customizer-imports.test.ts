@@ -11,7 +11,7 @@ function importSpecifiers(relPath: string): string[] {
 }
 
 describe("/customizer entry is browser-safe", () => {
-  const ALLOWED = new Set(["./module-graph.js", "./tooling.js", "@berkayorhan/stackkit-schemas"]);
+  const ALLOWED = new Set(["./module-graph.js", "./support.js", "./tooling.js", "@berkayorhan/stackkit-schemas"]);
   it("customizer.ts imports only pure, node-free modules", () => {
     for (const spec of importSpecifiers("./customizer.ts")) {
       expect(spec.startsWith("node:"), `leaked node import: ${spec}`).toBe(false);

@@ -2,7 +2,8 @@ import {
   defineModule,
   definePreset,
   stackkitRegistrySchema,
-  type NativeInitializerInput
+  type NativeInitializerInput,
+  type SupportMetadata
 } from "@berkayorhan/stackkit-schemas";
 
 import { buildQualityModules } from "./tooling-catalog.js";
@@ -36,6 +37,94 @@ export const curatedSkillSourceAllowlist = [
 const researchedInitializerDisabledReason =
   "Researched and mapped, but not enabled until Stackkit replaces the matching deterministic template path.";
 
+const supportedModuleIds = new Set([
+  "workspace/pnpm-turbo",
+  "workspace/typescript",
+  "web/nextjs",
+  "ui/shadcn",
+  "api/fastapi",
+  "quality/eslint",
+  "quality/prettier",
+  "quality/tsc",
+  "quality/ruff",
+  "quality/mypy",
+  "quality/pytest",
+  "db/postgres",
+  "db/sqlalchemy",
+  "postgres/local",
+  "auth/auth0-nextjs",
+  "auth/auth0-fastapi",
+  "deploy/docker"
+]);
+const previewModuleIds = new Set([
+  "web/vite",
+  "web/tanstack-start",
+  "ui/tailwind",
+  "quality/biome",
+  "quality/pyright",
+  "quality/vitest",
+  "db/drizzle",
+  "postgres/neon",
+  "postgres/supabase",
+  "postgres/supabase-local",
+  "auth/clerk",
+  "auth/none",
+  "deploy/vercel",
+  "workspace/docker-compose",
+  "workspace/github-actions",
+  "deploy/kubernetes",
+  "docs/local-dev",
+  "docs/readme",
+  "docs/architecture",
+  "docs/env",
+  "ai/skills"
+]);
+const previewPresetIds = new Set([
+  "next",
+  "vite",
+  "tanstack-start",
+  "next-postgres-clerk",
+  "containerized",
+  "next-neon-drizzle",
+  "next-supabase-drizzle"
+]);
+
+function moduleSupport(moduleId: string): SupportMetadata {
+  if (supportedModuleIds.has(moduleId)) {
+    return { level: "supported" };
+  }
+
+  if (previewModuleIds.has(moduleId)) {
+    return {
+      level: "preview",
+      reason: "Generated output exists, but this module has not passed the golden-path release profile."
+    };
+  }
+
+  return {
+    level: "planned",
+    reason: "The registry declaration is not backed by a supported generated integration."
+  };
+}
+
+function presetSupport(presetId: string): SupportMetadata {
+  if (presetId === "next-fastapi-postgres-auth0") {
+    return { level: "supported" };
+  }
+
+  if (previewPresetIds.has(presetId)) {
+    return {
+      level: "preview",
+      reason: "The preset generates a starter, but it has not passed the golden-path release profile."
+    };
+  }
+
+  return {
+    level: "planned",
+    reason: "One or more preset integrations are declaration-only and cannot be created."
+  };
+}
+
 const packageManagerFlag = {
   token: "package-manager",
   values: {
@@ -52,7 +141,7 @@ const nativeInitializers = {
     enabled: false,
     disabledReason: "Root scaffold initializer requires a dedicated root-scaffold phase before execution.",
     phase: "root-scaffold",
-    tool: { execution: "package-manager-dlx", package: "create-turbo@latest" },
+    tool: { execution: "package-manager-dlx", package: "create-turbo@2.10.9" },
     args: [
       { token: "target-directory-name" },
       "--package-manager",
@@ -69,7 +158,7 @@ const nativeInitializers = {
     enabled: false,
     disabledReason: researchedInitializerDisabledReason,
     phase: "app-scaffold",
-    tool: { execution: "package-manager-dlx", package: "create-next-app@latest" },
+    tool: { execution: "package-manager-dlx", package: "create-next-app@16.3.0" },
     args: [
       "apps/web",
       "--ts",
@@ -92,7 +181,7 @@ const nativeInitializers = {
     enabled: false,
     disabledReason: researchedInitializerDisabledReason,
     phase: "app-scaffold",
-    tool: { execution: "package-manager-dlx", package: "create-vite@latest" },
+    tool: { execution: "package-manager-dlx", package: "create-vite@9.1.2" },
     args: ["apps/web", "--template", "react-ts", "--no-interactive"],
     cwd: ".",
     mutationPolicy: "generated-subtree",
@@ -103,7 +192,7 @@ const nativeInitializers = {
     enabled: false,
     disabledReason: researchedInitializerDisabledReason,
     phase: "app-scaffold",
-    tool: { execution: "package-manager-dlx", package: "@tanstack/cli@latest" },
+    tool: { execution: "package-manager-dlx", package: "@tanstack/cli@0.70.2" },
     args: [
       "create",
       { token: "project-name" },
@@ -130,7 +219,7 @@ const nativeInitializers = {
   shadcnInit: {
     name: "shadcn init",
     phase: "integration",
-    tool: { execution: "package-manager-dlx", package: "shadcn@latest" },
+    tool: { execution: "package-manager-dlx", package: "shadcn@4.16.2" },
     args: [
       "init",
       "-d",
@@ -157,7 +246,7 @@ const nativeInitializers = {
     enabled: false,
     disabledReason: researchedInitializerDisabledReason,
     phase: "integration",
-    tool: { execution: "package-manager-dlx", package: "prisma@latest" },
+    tool: { execution: "package-manager-dlx", package: "prisma@7.9.1" },
     args: [
       "init",
       "--datasource-provider",
@@ -177,7 +266,7 @@ const nativeInitializers = {
     enabled: false,
     disabledReason: researchedInitializerDisabledReason,
     phase: "tool-config",
-    tool: { execution: "package-manager-dlx", package: "supabase@latest" },
+    tool: { execution: "package-manager-dlx", package: "supabase@2.113.0" },
     args: ["init", "--yes", "--workdir", "."],
     cwd: ".",
     mutationPolicy: "known-files",
@@ -186,7 +275,7 @@ const nativeInitializers = {
   clerkInit: {
     name: "clerk init",
     phase: "integration",
-    tool: { execution: "package-manager-dlx", package: "clerk@latest" },
+    tool: { execution: "package-manager-dlx", package: "clerk@3.0.0" },
     args: [
       "init",
       "--framework",
@@ -215,7 +304,7 @@ const nativeInitializers = {
     disabledReason: "Researched and mapped, but Django is not yet wired into Stackkit create output.",
     phase: "app-scaffold",
     tool: { execution: "system", command: "uvx" },
-    args: ["--from", "django", "django-admin", "startproject", "config", "apps/web"],
+    args: ["--from", "django==6.1", "django-admin", "startproject", "config", "apps/web"],
     cwd: ".",
     mutationPolicy: "generated-subtree",
     expectedFiles: ["apps/web/manage.py", "apps/web/config/settings.py"]
@@ -236,7 +325,7 @@ const nativeInitializers = {
     enabled: false,
     disabledReason: "Researched and mapped, but Tauri is not yet wired into Stackkit create output.",
     phase: "app-scaffold",
-    tool: { execution: "package-manager-dlx", package: "create-tauri-app@latest" },
+    tool: { execution: "package-manager-dlx", package: "create-tauri-app@4.6.2" },
     args: [
       "apps/desktop",
       "--manager",
@@ -255,7 +344,7 @@ const nativeInitializers = {
   }
 } satisfies Record<string, NativeInitializerInput>;
 
-export const builtinModules = [
+const builtinModuleDefinitions = [
   defineModule({
     id: "workspace/pnpm-turbo",
     version: "1.0.0",
@@ -301,6 +390,10 @@ export const builtinModules = [
     provides: ["web-app", "nextjs-app", "react", "container-app"],
     conflicts: ["web/vite", "web/tanstack-start"],
     nativeInitializers: [nativeInitializers.createNextApp],
+    validate: [
+      { kind: "file-exists", path: "apps/web/app/page.tsx" },
+      { kind: "command-succeeds", command: "pnpm", args: ["--dir", "apps/web", "typecheck"] }
+    ],
     readme: {
       stack: ["Next.js", "React"],
       layout: [{ path: "apps/web", description: "Next.js App Router web application" }]
@@ -425,6 +518,10 @@ export const builtinModules = [
     category: "api",
     icon: "fastapi",
     provides: ["api", "python", "container-app"],
+    validate: [
+      { kind: "file-exists", path: "apps/api/app/main.py" },
+      { kind: "command-succeeds", command: "pnpm", args: ["--dir", "apps/api", "typecheck"] }
+    ],
     readme: {
       stack: ["FastAPI", "uv", "pytest", "Ruff"],
       layout: [
@@ -532,12 +629,26 @@ export const builtinModules = [
     icon: "sqlalchemy",
     requires: ["postgres", "python"],
     provides: ["python-db"],
+    packageChanges: [
+      {
+        packagePath: "package.json",
+        scripts: { "db:migrate": "pnpm --dir apps/api exec uv run alembic upgrade head" },
+        dependencies: {},
+        devDependencies: {},
+        peerDependencies: {},
+        optionalDependencies: {}
+      }
+    ],
+    validate: [
+      { kind: "file-exists", path: "apps/api/app/database.py" },
+      { kind: "file-exists", path: "apps/api/migrations/versions/0001_create_todos.py" }
+    ],
     envVars: [
       {
         name: "DATABASE_URL",
         description: "Postgres connection string.",
         required: true,
-        example: "",
+        example: "postgresql+psycopg://postgres:postgres@localhost:5432/app",
         target: "api"
       }
     ],
@@ -666,6 +777,7 @@ export const builtinModules = [
     category: "database-provider",
     requires: ["postgres"],
     conflicts: ["postgres/neon", "postgres/supabase", "postgres/supabase-local"],
+    validate: [{ kind: "file-exists", path: "docker-compose.db.yml" }],
     files: [
       {
         kind: "write",
@@ -731,6 +843,20 @@ export const builtinModules = [
     icon: "auth0",
     requires: ["react"],
     provides: ["auth"],
+    validate: [
+      { kind: "file-exists", path: "apps/web/lib/auth0.ts" },
+      { kind: "file-exists", path: "apps/web/proxy.ts" }
+    ],
+    packageChanges: [
+      {
+        packagePath: "apps/web/package.json",
+        scripts: {},
+        dependencies: { "@auth0/nextjs-auth0": "^4.26.0" },
+        devDependencies: {},
+        peerDependencies: {},
+        optionalDependencies: {}
+      }
+    ],
     envVars: [
       {
         name: "AUTH0_DOMAIN",
@@ -766,6 +892,20 @@ export const builtinModules = [
         required: true,
         example: "http://localhost:3000",
         target: "web"
+      },
+      {
+        name: "AUTH0_AUDIENCE",
+        description: "Auth0 API audience.",
+        required: true,
+        example: "https://api.example.com",
+        target: "root"
+      },
+      {
+        name: "API_BASE_URL",
+        description: "FastAPI base URL used by the Next.js server.",
+        required: true,
+        example: "http://localhost:8000",
+        target: "web"
       }
     ],
     readme: {
@@ -791,6 +931,7 @@ export const builtinModules = [
     icon: "auth0",
     requires: ["python"],
     provides: ["auth"],
+    validate: [{ kind: "file-exists", path: "apps/api/app/auth.py" }],
     envVars: [
       {
         name: "AUTH0_DOMAIN",
@@ -803,8 +944,8 @@ export const builtinModules = [
         name: "AUTH0_AUDIENCE",
         description: "Auth0 API audience.",
         required: true,
-        example: "",
-        target: "api"
+        example: "https://api.example.com",
+        target: "root"
       }
     ],
     readme: {
@@ -982,6 +1123,10 @@ export const builtinModules = [
     icon: "docker",
     requires: ["container-app"],
     provides: ["container"],
+    validate: [
+      { kind: "file-exists", path: "docker-compose.yml" },
+      { kind: "command-succeeds", command: "docker", args: ["compose", "config", "--quiet"] }
+    ],
     readme: {
       stack: ["Docker"],
       layout: [
@@ -1060,7 +1205,43 @@ export const builtinModules = [
   })
 ] as const;
 
-export const builtinPresets = [
+export const builtinModules = builtinModuleDefinitions.map((module) =>
+  defineModule({ ...module, support: moduleSupport(module.id), removalPolicy: moduleRemovalPolicy(module.id) })
+);
+
+function moduleRemovalPolicy(moduleId: string) {
+  if (moduleId === "postgres/local") {
+    return {
+      mode: "managed-files-only" as const,
+      retainedData: ["The Docker pgdata volume and its PostgreSQL data are retained."],
+      manualCleanup: ["Run docker compose down --volumes only when the database data is no longer needed."]
+    };
+  }
+  if (moduleId === "db/sqlalchemy") {
+    return {
+      mode: "managed-files-only" as const,
+      retainedData: ["Applied database schema and application rows are retained."],
+      manualCleanup: ["Use a reviewed Alembic downgrade or a manual migration before dropping application tables."]
+    };
+  }
+  if (moduleId === "deploy/docker") {
+    return {
+      mode: "managed-files-only" as const,
+      retainedData: ["Docker images, containers, and named volumes are retained."],
+      manualCleanup: ["Remove runtime resources explicitly with Docker after confirming retained data is disposable."]
+    };
+  }
+  if (moduleId === "auth/auth0-nextjs" || moduleId === "auth/auth0-fastapi") {
+    return {
+      mode: "managed-files-only" as const,
+      retainedData: ["Auth0 tenant applications, APIs, users, and secrets are retained."],
+      manualCleanup: ["Remove Auth0 tenant resources separately after verifying no other deployment uses them."]
+    };
+  }
+  return { mode: "managed-files-only" as const, retainedData: [], manualCleanup: [] };
+}
+
+const builtinPresetDefinitions = [
   definePreset({
     id: "next",
     title: "Next.js",
@@ -1127,9 +1308,9 @@ export const builtinPresets = [
       "api/fastapi",
       "db/postgres",
       "db/sqlalchemy",
+      "postgres/local",
       "auth/auth0-nextjs",
       "auth/auth0-fastapi",
-      "deploy/vercel",
       "deploy/docker",
       "quality/eslint",
       "quality/prettier",
@@ -1219,6 +1400,10 @@ export const builtinPresets = [
     ]
   })
 ] as const;
+
+export const builtinPresets = builtinPresetDefinitions.map((preset) =>
+  definePreset({ ...preset, support: presetSupport(preset.id) })
+);
 
 export const builtinRegistry = stackkitRegistrySchema.parse({
   schemaVersion: 1,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   type AiSkillTarget,
   type LifecycleHook,
+  type ModuleRemovalPolicy,
   type ModuleMigration,
   type SkillsLock,
   type StackkitManifest,
@@ -57,7 +58,12 @@ export type RemoveModulesPlan = {
   operation: "remove";
   safe: boolean;
   refusals: FileConflict[];
+  blockedModules: string[];
   modulesToRemove: string[];
+  removalAdvisories: {
+    moduleId: string;
+    policy: ModuleRemovalPolicy;
+  }[];
   filesToRemove: ManifestFileRecord[];
   manifest: StackkitManifest;
 };
@@ -76,6 +82,7 @@ export type ApplyRemoveModulesInput = {
   projectDirectory: string;
   manifest: StackkitManifest;
   moduleIds: readonly string[];
+  availableModules?: readonly StackkitModule[];
 };
 
 export type ModuleUpdatePlan = {
@@ -149,6 +156,7 @@ export function planRemoveModules(input: {
   manifest: StackkitManifest;
   moduleIds: readonly string[];
   currentFiles: readonly ManifestFileRecord[];
+  availableModules?: readonly StackkitModule[];
 }): RemoveModulesPlan {
   const manifest = createManifest(input.manifest);
   const removeIds = new Set(input.moduleIds);
@@ -157,6 +165,21 @@ export function planRemoveModules(input: {
   const refusals = filesToRemove
     .filter((file) => currentFileByPath.get(normalizeProjectPath(file.path))?.hash !== file.hash)
     .map((file) => ({ path: normalizeProjectPath(file.path), reason: "modified-owned" as const }));
+  const availableModuleById = new Map(input.availableModules?.map((module) => [module.id, module]) ?? []);
+  const manifestModuleById = new Map(manifest.modules.map((module) => [module.id, module]));
+  const removalAdvisories = [...removeIds].map((moduleId) => ({
+    moduleId,
+    policy:
+      availableModuleById.get(moduleId)?.removalPolicy ??
+      manifestModuleById.get(moduleId)?.snapshot?.removalPolicy ?? {
+        mode: "managed-files-only" as const,
+        retainedData: [],
+        manualCleanup: []
+      }
+  }));
+  const blockedModules = removalAdvisories
+    .filter((advisory) => advisory.policy.mode === "blocked")
+    .map((advisory) => advisory.moduleId);
   const nextManifest = createManifest({
     ...manifest,
     modules: manifest.modules.filter((module) => !removeIds.has(module.id)),
@@ -166,9 +189,11 @@ export function planRemoveModules(input: {
   return {
     schemaVersion: 1,
     operation: "remove",
-    safe: refusals.length === 0,
+    safe: refusals.length === 0 && blockedModules.length === 0,
     refusals,
+    blockedModules,
     modulesToRemove: [...removeIds],
+    removalAdvisories,
     filesToRemove,
     manifest: nextManifest
   };
@@ -253,6 +278,10 @@ export async function applyAddModules(input: ApplyAddModulesInput): Promise<{ ma
 export async function applyRemoveModules(input: ApplyRemoveModulesInput): Promise<{ manifest: StackkitManifest }> {
   const currentFiles = await readCurrentManagedFileHashes(input.projectDirectory, input.manifest);
   const plan = planRemoveModules({ ...input, currentFiles });
+
+  if (plan.blockedModules.length > 0) {
+    throw new Error(`Removal is blocked by module policy: ${plan.blockedModules.join(", ")}`);
+  }
 
   if (!plan.safe) {
     throw new Error(

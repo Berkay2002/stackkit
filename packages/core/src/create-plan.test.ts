@@ -101,6 +101,9 @@ describe("createCreatePlan", () => {
         name: "shadcn init",
         command: "pnpm",
         args: ["dlx", "shadcn@latest", "init", "-t", "next"],
+        packageName: "shadcn",
+        requestedPackage: "shadcn@latest",
+        resolvedVersion: "latest",
         mutationPolicy: "merge-owned"
       })
     ]);
@@ -155,6 +158,31 @@ describe("createCreatePlan", () => {
         skipReason: undefined
       })
     ]);
+  });
+
+  it("binds selected module snapshots into the plan hash", () => {
+    const config = {
+      projectName: "snapshot-hash",
+      packageManager: "pnpm" as const,
+      workspace: "pnpm-turbo" as const,
+      modules: ["workspace/example"],
+      ai: { skillTargets: ["codex" as const], skillMode: "skip" as const }
+    };
+    const module = {
+      id: "workspace/example",
+      version: "1.0.0",
+      title: "Example workspace",
+      description: "First snapshot"
+    };
+
+    const first = createCreatePlan({ config, availableModules: [defineModule(module)] });
+    const changed = createCreatePlan({
+      config,
+      availableModules: [defineModule({ ...module, description: "Changed snapshot" })]
+    });
+
+    expect(first.filePlan).toEqual(changed.filePlan);
+    expect(first.planHash).not.toBe(changed.planHash);
   });
 
   it("builds a dry-run create plan from parsed config and available modules", () => {
@@ -433,6 +461,60 @@ describe("createCreatePlan", () => {
     expect(packageJson.packageManager).toBe("bun@1.2.15");
     expect(packageJson.workspaces).toEqual(["apps/*", "packages/*"]);
     expect(plan.filePlan.files.some((file) => file.path === "pnpm-workspace.yaml")).toBe(false);
+  });
+
+  it("includes module package and environment changes in the serialized create plan", () => {
+    const plan = createCreatePlan({
+      config: {
+        projectName: "planned-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo", "web/nextjs"],
+        ai: { skillTargets: ["codex"] }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "Workspace foundation",
+          provides: ["workspace/node"]
+        }),
+        defineModule({
+          id: "web/nextjs",
+          version: "1.0.0",
+          title: "Next.js",
+          description: "Next.js web application",
+          packageChanges: [
+            {
+              packagePath: "package.json",
+              scripts: { dev: "next dev" },
+              dependencies: { next: "^15.0.0" },
+              devDependencies: {},
+              peerDependencies: {},
+              optionalDependencies: {}
+            }
+          ],
+          envVars: [
+            {
+              name: "DATABASE_URL",
+              description: "Postgres connection string",
+              required: true,
+              example: "postgres://postgres:postgres@localhost:5432/app"
+            }
+          ]
+        })
+      ]
+    });
+
+    const packageFile = plan.filePlan.files.find((file) => file.path === "package.json");
+    const envFile = plan.filePlan.files.find((file) => file.path === ".env.example");
+    const packageJson = JSON.parse(packageFile?.content ?? "{}");
+
+    expect(packageJson.name).toBe("planned-app");
+    expect(packageJson.scripts.dev).toBe("next dev");
+    expect(packageJson.dependencies.next).toBe("^15.0.0");
+    expect(envFile?.content).toContain("DATABASE_URL=postgres://postgres:postgres@localhost:5432/app");
   });
 
   it("uses package-manager adapter commands when planning Docker files", () => {

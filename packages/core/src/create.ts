@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { mkdir, open, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -37,6 +37,7 @@ import {
   type StackkitManifestSource,
   type StackkitModule,
   type StackkitPreset,
+  createApplyStateSchema,
   stackkitModuleSchema
 } from "@berkayorhan/stackkit-schemas";
 
@@ -54,7 +55,6 @@ import {
   applyFilePlan,
   buildFilePlan,
   detectFileConflicts,
-  filePlanToOperations,
   mergeManifestFiles,
   type FileConflict,
   type FilePlan,
@@ -75,7 +75,6 @@ import { resolveConfiguredModules, resolveModuleGraph, validateProjectSlug } fro
 import {
   appendFileContent,
   mergePackageOperations,
-  planPackageChangeFiles,
   renderPackageChangeFiles
 } from "./package-files.js";
 import { runDoctor } from "./doctor.js";
@@ -87,6 +86,7 @@ export type CreatePlan = {
   schemaVersion: 1;
   operation: "create";
   dryRun: true;
+  planHash: string;
   projectName: string;
   packageManager: StackkitConfig["packageManager"];
   source: StackkitManifestSource;
@@ -117,6 +117,9 @@ export type PlannedNativeInitializer = {
   phase: NativeInitializerPhase;
   command: string;
   args: string[];
+  packageName?: string;
+  requestedPackage?: string;
+  resolvedVersion?: string;
   cwd: string;
   mutationPolicy: NativeInitializerMutationPolicy;
   expectedFiles: string[];
@@ -142,6 +145,8 @@ export type ApplyCreatePlanOptions = {
   installSkills?: boolean;
   runCommand?: RunCommand;
   allowExternalState?: boolean;
+  resume?: boolean;
+  retryInitializers?: boolean;
 };
 
 export type ApplyCreatePlanResult = {
@@ -150,7 +155,7 @@ export type ApplyCreatePlanResult = {
   doctor: import("@berkayorhan/stackkit-schemas").DoctorResult;
 };
 
-type ResolveSkillInstallResult = {
+export type ResolveSkillInstallResult = {
   installed: AiSkillDependency[];
   planned: AiSkillDependency[];
   unresolved: AiSkillDependency[];
@@ -173,7 +178,7 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
   const effectiveResolvedSkills = mode === "skip" ? [] : resolvedSkills;
   const installableSkills = effectiveResolvedSkills.filter(isInstallableSkill);
   const installCommands = mode === "skip" ? [] : planAiSkillInstallCommands(effectiveResolvedSkills, targets, linkMode);
-  const filePlan = buildFilePlan(renderCreateFiles(input.config, modules));
+  const filePlan = buildCreateFilePlan(input.config, modules);
   const nativeInitializers = planNativeInitializers({
     config: input.config,
     modules,
@@ -182,7 +187,7 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
     allowExternalState: input.allowExternalState ?? false
   });
 
-  const plan: Omit<CreatePlan, "selectedModules"> = {
+  const planWithoutHash: Omit<CreatePlan, "selectedModules" | "planHash"> = {
     schemaVersion: 1,
     operation: "create",
     dryRun: true,
@@ -209,7 +214,22 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
     nativeInitializers
   };
 
+  const plan: Omit<CreatePlan, "selectedModules"> = {
+    ...planWithoutHash,
+    planHash: hashContent(
+      JSON.stringify({ ...planWithoutHash, selectedModules: modules.map(snapshotStackkitModule) })
+    )
+  };
+
   return attachSelectedModules(plan, modules);
+}
+
+export function computeCreatePlanHash(plan: Omit<CreatePlan, "selectedModules"> | CreatePlan): string {
+  const { planHash: _planHash, ...planWithoutHash } = plan;
+  const selectedModules = "selectedModules" in plan
+    ? plan.selectedModules.map(snapshotStackkitModule)
+    : [];
+  return hashContent(JSON.stringify({ ...planWithoutHash, selectedModules }));
 }
 
 function renderStackkitConfig(config: StackkitConfig): FileOperation {
@@ -271,6 +291,9 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
   }
 
   const hasShadcn = selectedModuleIds.has("ui/shadcn");
+  const hasSqlAlchemy = selectedModuleIds.has("db/sqlalchemy");
+  const hasAuth0Nextjs = selectedModuleIds.has("auth/auth0-nextjs");
+  const hasAuth0FastApi = selectedModuleIds.has("auth/auth0-fastapi");
   const webFramework: "nextjs" | "vite" | "tanstack-start" | undefined =
     selectedModuleIds.has("web/nextjs") ? "nextjs"
     : selectedModuleIds.has("web/vite") ? "vite"
@@ -285,7 +308,14 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
     appendSelectedFileOperations(
       operations,
       seenPaths,
-      renderNextjsApp({ appName: "web", packageManagerField: packageManager.packageManagerField, tsTooling, withShadcn: hasShadcn }),
+      renderNextjsApp({
+        appName: "web",
+        packageManagerField: packageManager.packageManagerField,
+        tsTooling,
+        withShadcn: hasShadcn,
+        withAuth0: hasAuth0Nextjs,
+        withTodoApi: hasAuth0Nextjs && hasAuth0FastApi && hasSqlAlchemy
+      }),
       selectedModuleIds
     );
   }
@@ -312,7 +342,13 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
     appendSelectedFileOperations(
       operations,
       seenPaths,
-      renderFastApiService({ serviceName: "api", projectName: config.projectName, pyTypecheck }),
+      renderFastApiService({
+        serviceName: "api",
+        projectName: config.projectName,
+        pyTypecheck,
+        withSqlAlchemy: hasSqlAlchemy,
+        withAuth0: hasAuth0FastApi
+      }),
       selectedModuleIds
     );
   }
@@ -327,7 +363,9 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
       seenPaths,
       renderDockerFiles({
         ...toDockerTemplateOptions(packageManager),
-        serviceTargets: selectedDockerServiceTargets(selectedModuleIds)
+        serviceTargets: selectedDockerServiceTargets(selectedModuleIds),
+        withPostgres: selectedModuleIds.has("postgres/local"),
+        withSqlAlchemy: hasSqlAlchemy
       }),
       selectedModuleIds
     );
@@ -421,99 +459,302 @@ export async function applyCreatePlan(
   options: ApplyCreatePlanOptions
 ): Promise<ApplyCreatePlanResult> {
   const projectDirectory = options.targetDirectory ?? join(options.parentDirectory, normalizeTargetDirectoryName(plan.targetDirectoryName));
-  await assertCreateTargetIsSafe(projectDirectory);
-
-  const packageOperations = await planPackageChangeFiles(
-    projectDirectory,
-    plan.selectedModules.flatMap((module) => module.packageChanges ?? [])
-  );
-  const envOperations = await planEnvExampleFiles(
-    projectDirectory,
-    plan.selectedModules.flatMap((module) => module.envVars ?? [])
-  );
-  const fullFilePlan = buildFilePlan(
-    mergeCreateFileOperations([...filePlanToOperations(plan.filePlan), ...packageOperations, ...envOperations])
-  );
-  const conflicts = await detectFileConflicts(projectDirectory, fullFilePlan, []);
-
-  if (conflicts.length > 0) {
-    throw new Error(
-      `Create target has conflicts: ${conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ")}`
-    );
+  const expectedPlanHash = computeCreatePlanHash(plan);
+  if (plan.planHash !== expectedPlanHash) {
+    throw new Error(`Create plan hash mismatch: expected ${expectedPlanHash}, received ${plan.planHash}.`);
   }
 
-  let files = await applyFilePlan(projectDirectory, fullFilePlan, {
-    ownedFiles: [],
-    conflictLabel: "Create target"
-  });
-  let skippedInitializers: SkippedInitializer[] = [];
-  if (options.runCommand) {
-    await runLifecycleHooks(
-      plan.selectedModules.flatMap((module) => module.postCreate ?? []),
-      { projectDirectory, runCommand: options.runCommand }
-    );
-    const initializerResult = await runNativeInitializers(plan.nativeInitializers, {
-      projectDirectory,
-      runCommand: options.runCommand,
-      allowExternalState: options.allowExternalState ?? false
+  let state: CreateApplyState;
+  if (options.resume) {
+    state = await readCreateApplyState(projectDirectory);
+    if (state.planHash !== plan.planHash) {
+      throw new Error(`Cannot resume create: journal plan hash ${state.planHash} does not match ${plan.planHash}.`);
+    }
+  } else {
+    await assertCreateTargetIsSafe(projectDirectory);
+    state = createInitialApplyState(plan, projectDirectory, options.now ?? (() => new Date()));
+    await writeCreateApplyState(projectDirectory, state);
+  }
+
+  await runCreateApplyPhase(state, "deterministic-files", projectDirectory, options.now, async () => {
+    const conflicts = await detectFileConflicts(projectDirectory, plan.filePlan, []);
+
+    if (conflicts.length > 0) {
+      throw new Error(
+        `Create target has conflicts: ${conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ")}`
+      );
+    }
+
+    state.files = await applyFilePlan(projectDirectory, plan.filePlan, {
+      ownedFiles: [],
+      conflictLabel: "Create target"
     });
-    files = await refreshManagedFileHashes(projectDirectory, files);
-    files = mergeManifestFiles(files, initializerResult.files);
-    skippedInitializers = initializerResult.skipped;
-  }
+  });
 
-  const skillInstallResult = await resolveSkillInstallResult(plan, projectDirectory, options);
-  const expectedFiles = await readManagedExpectedFiles(projectDirectory, files, plan.nativeInitializers);
-  const manifest = await writeManifest(projectDirectory, {
-    schemaVersion: 1,
-    stackkitVersion: options.stackkitVersion ?? "0.0.0",
-    projectName: plan.projectName,
-    packageManager: plan.packageManager,
-    source: plan.source,
-    paths: { root: "." },
-    createdAt: (options.now ?? (() => new Date()))().toISOString(),
-    modules: plan.selectedModules.map((module) => ({
-      id: module.id,
-      version: module.version,
-      options: {},
-      snapshot: snapshotStackkitModule(module)
-    })),
-    files,
-    expectedFiles,
-    skippedInitializers,
-    aiSkills: {
-      mode: plan.aiSkills.mode,
-      linkMode: plan.aiSkills.linkMode,
-      targets: plan.aiSkills.targets,
-      installed: skillInstallResult.installed,
-      planned: skillInstallResult.planned,
-      local: plan.aiSkills.local,
-      unresolved: skillInstallResult.unresolved
-    },
-    migrations: {
-      applied: []
+  await runCreateApplyPhase(state, "initializers", projectDirectory, options.now, async () => {
+    if (!options.runCommand) {
+      return;
+    }
+
+    for (const [moduleIndex, module] of plan.selectedModules.entries()) {
+      for (const [hookIndex, hook] of (module.postCreate ?? []).entries()) {
+        const stepId = `post-create:${moduleIndex}:${hookIndex}:${module.id}:${hook.name}`;
+        await runCheckpointedInitializerStep(state, stepId, projectDirectory, options.now, options.retryInitializers ?? false, async () => {
+          await runLifecycleHooks([hook], { projectDirectory, runCommand: options.runCommand! });
+        });
+      }
+    }
+
+    for (const [initializerIndex, initializer] of plan.nativeInitializers.entries()) {
+      const stepId = `native:${initializerIndex}:${initializer.moduleId}:${initializer.name}`;
+      await runCheckpointedInitializerStep(state, stepId, projectDirectory, options.now, options.retryInitializers ?? false, async () => {
+        const initializerResult = await runNativeInitializers([initializer], {
+          projectDirectory,
+          runCommand: options.runCommand!,
+          allowExternalState: options.allowExternalState ?? false
+        });
+        state.files = await refreshManagedFileHashes(projectDirectory, state.files);
+        state.files = mergeManifestFiles(state.files, initializerResult.files);
+        state.skippedInitializers = mergeSkippedInitializers(state.skippedInitializers, initializerResult.skipped);
+      });
     }
   });
-  if (plan.aiSkills.mode !== "skip") {
-    await writeSkillsLock(projectDirectory, {
+
+  await runCreateApplyPhase(state, "skills", projectDirectory, options.now, async () => {
+    state.skillInstallResult = await resolveSkillInstallResult(plan, projectDirectory, options);
+    if (plan.aiSkills.mode !== "skip") {
+      await writeSkillsLock(projectDirectory, {
+        schemaVersion: 1,
+        mode: plan.aiSkills.mode,
+        linkMode: plan.aiSkills.linkMode,
+        targets: plan.aiSkills.targets,
+        installed: state.skillInstallResult.installed,
+        planned: state.skillInstallResult.planned,
+        local: plan.aiSkills.local,
+        unresolved: state.skillInstallResult.unresolved
+      });
+      await writeLocalAiGuidance(projectDirectory, {
+        targets: plan.aiSkills.targets,
+        local: plan.aiSkills.local
+      });
+    }
+  });
+
+  await runCreateApplyPhase(state, "manifest", projectDirectory, options.now, async () => {
+    const skillInstallResult = state.skillInstallResult ?? emptySkillInstallResult(plan);
+    const expectedFiles = await readManagedExpectedFiles(projectDirectory, state.files, plan.nativeInitializers);
+    state.manifest = await writeManifest(projectDirectory, {
       schemaVersion: 1,
-      mode: plan.aiSkills.mode,
-      linkMode: plan.aiSkills.linkMode,
-      targets: plan.aiSkills.targets,
-      installed: skillInstallResult.installed,
-      planned: skillInstallResult.planned,
-      local: plan.aiSkills.local,
-      unresolved: skillInstallResult.unresolved
+      stackkitVersion: options.stackkitVersion ?? "0.0.0",
+      projectName: plan.projectName,
+      packageManager: plan.packageManager,
+      source: plan.source,
+      paths: { root: "." },
+      createdAt: state.startedAt,
+      planHash: plan.planHash,
+      modules: plan.selectedModules.map((module) => ({
+        id: module.id,
+        version: module.version,
+        options: {},
+        snapshot: snapshotStackkitModule(module)
+      })),
+      files: state.files,
+      expectedFiles,
+      skippedInitializers: state.skippedInitializers,
+      aiSkills: {
+        mode: plan.aiSkills.mode,
+        linkMode: plan.aiSkills.linkMode,
+        targets: plan.aiSkills.targets,
+        installed: skillInstallResult.installed,
+        planned: skillInstallResult.planned,
+        local: plan.aiSkills.local,
+        unresolved: skillInstallResult.unresolved
+      },
+      migrations: {
+        applied: []
+      }
     });
-    await writeLocalAiGuidance(projectDirectory, {
-      targets: plan.aiSkills.targets,
-      local: plan.aiSkills.local
-    });
+  });
+
+  await runCreateApplyPhase(state, "verification", projectDirectory, options.now, async () => {
+    state.doctor = await runDoctor(projectDirectory, { runCommand: options.runCommand });
+  });
+
+  if (!state.manifest || !state.doctor) {
+    throw new Error("Create journal is incomplete after apply.");
   }
 
-  const doctor = await runDoctor(projectDirectory);
+  return { projectDirectory, manifest: state.manifest, doctor: state.doctor };
+}
 
-  return { projectDirectory, manifest, doctor };
+export async function resumeCreatePlan(options: ResumeCreatePlanOptions): Promise<ApplyCreatePlanResult> {
+  const state = await readCreateApplyState(options.projectDirectory);
+  const selectedModules = state.selectedModules.map((module) => stackkitModuleSchema.parse(module));
+  const plan = attachSelectedModules(state.plan, selectedModules);
+
+  return await applyCreatePlan(plan, {
+    ...options,
+    parentDirectory: options.projectDirectory,
+    targetDirectory: options.projectDirectory,
+    resume: true
+  });
+}
+
+export async function readCreateApplyState(projectDirectory: string): Promise<CreateApplyState> {
+  const path = join(projectDirectory, ".stackkit", "apply-state.json");
+  const content = await readExistingFile(path);
+  if (content === undefined) {
+    throw new Error(`Cannot resume create: ${path} is missing.`);
+  }
+
+  const state = createApplyStateSchema.parse(JSON.parse(content)) as unknown as CreateApplyState;
+  state.initializerProgress ??= {};
+  if (state.schemaVersion !== 1 || state.operation !== "create" || !state.plan || !state.planHash) {
+    throw new Error(`Cannot resume create: ${path} is not a valid create journal.`);
+  }
+  if (state.projectDirectory !== projectDirectory) {
+    throw new Error(`Cannot resume create: journal target is ${state.projectDirectory}, not ${projectDirectory}.`);
+  }
+  state.selectedModules = state.selectedModules.map((module) => stackkitModuleSchema.parse(module));
+  const hydratedPlan = attachSelectedModules({ ...state.plan }, state.selectedModules);
+  if (state.plan.planHash !== state.planHash || computeCreatePlanHash(hydratedPlan) !== state.planHash) {
+    throw new Error("Cannot resume create: journal plan hash is invalid.");
+  }
+  return state;
+}
+
+function createInitialApplyState(plan: CreatePlan, projectDirectory: string, now: () => Date): CreateApplyState {
+  const timestamp = now().toISOString();
+  const phases = Object.fromEntries(
+    createApplyPhases.map((phase) => [phase, { status: "pending" as const }])
+  ) as CreateApplyState["phases"];
+  phases.planned = { status: "completed", completedAt: timestamp };
+  const { selectedModules: _selectedModules, ...serializedPlan } = plan;
+
+  return {
+    schemaVersion: 1,
+    operation: "create",
+    planHash: plan.planHash,
+    projectDirectory,
+    startedAt: timestamp,
+    updatedAt: timestamp,
+    plan: JSON.parse(JSON.stringify(serializedPlan)) as Omit<CreatePlan, "selectedModules">,
+    selectedModules: plan.selectedModules.map(snapshotStackkitModule),
+    phases,
+    files: [],
+    skippedInitializers: [],
+    initializerProgress: {}
+  };
+}
+
+async function runCheckpointedInitializerStep(
+  state: CreateApplyState,
+  stepId: string,
+  projectDirectory: string,
+  now: (() => Date) | undefined,
+  retryInitializers: boolean,
+  run: () => Promise<void>
+): Promise<void> {
+  const existing = state.initializerProgress[stepId];
+  if (existing?.status === "completed") {
+    return;
+  }
+  if (existing && !retryInitializers) {
+    throw new Error(
+      `Cannot safely retry initializer step ${stepId} after status ${existing.status}. ` +
+      "Inspect partial output, then re-run create --resume with --retry-initializers."
+    );
+  }
+
+  state.initializerProgress[stepId] = { status: "running" };
+  await writeCreateApplyState(projectDirectory, state, now);
+
+  try {
+    await run();
+    state.initializerProgress[stepId] = {
+      status: "completed",
+      completedAt: (now ?? (() => new Date()))().toISOString()
+    };
+    await writeCreateApplyState(projectDirectory, state, now);
+  } catch (error) {
+    state.initializerProgress[stepId] = { status: "failed", error: errorMessage(error) };
+    await writeCreateApplyState(projectDirectory, state, now);
+    throw error;
+  }
+}
+
+function mergeSkippedInitializers(
+  current: readonly SkippedInitializer[],
+  additions: readonly SkippedInitializer[]
+): SkippedInitializer[] {
+  const entries = new Map(current.map((entry) => [`${entry.moduleId}:${entry.name}`, entry]));
+  for (const entry of additions) {
+    entries.set(`${entry.moduleId}:${entry.name}`, entry);
+  }
+  return [...entries.values()];
+}
+
+async function runCreateApplyPhase(
+  state: CreateApplyState,
+  phase: CreateApplyPhase,
+  projectDirectory: string,
+  now: (() => Date) | undefined,
+  apply: () => Promise<void>
+): Promise<void> {
+  if (state.phases[phase].status === "completed") {
+    return;
+  }
+
+  state.phases[phase] = { status: "running" };
+  await writeCreateApplyState(projectDirectory, state, now);
+
+  try {
+    await apply();
+    const completedAt = (now ?? (() => new Date()))().toISOString();
+    state.phases[phase] = { status: "completed", completedAt };
+    await writeCreateApplyState(projectDirectory, state, now);
+  } catch (error) {
+    state.phases[phase] = { status: "failed", error: errorMessage(error) };
+    await writeCreateApplyState(projectDirectory, state, now);
+    throw error;
+  }
+}
+
+async function writeCreateApplyState(
+  projectDirectory: string,
+  state: CreateApplyState,
+  now: (() => Date) | undefined = undefined
+): Promise<void> {
+  const stackkitDirectory = join(projectDirectory, ".stackkit");
+  await mkdir(stackkitDirectory, { recursive: true });
+  state.updatedAt = (now ?? (() => new Date()))().toISOString();
+  const journalPath = join(stackkitDirectory, "apply-state.json");
+  const temporaryPath = `${journalPath}.${process.pid}.${Date.now()}.tmp`;
+  const handle = await open(temporaryPath, "wx");
+  try {
+    await handle.writeFile(`${JSON.stringify(state, null, 2)}\n`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    await rename(temporaryPath, journalPath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true });
+    throw error;
+  }
+}
+
+function emptySkillInstallResult(plan: CreatePlan): ResolveSkillInstallResult {
+  return {
+    installed: [],
+    planned: plan.aiSkills.planned,
+    unresolved: plan.aiSkills.unresolved
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function readManagedExpectedFiles(
@@ -576,6 +817,49 @@ type PlanNativeInitializersInput = {
   allowExternalState: boolean;
 };
 
+export const createApplyPhases = [
+  "planned",
+  "deterministic-files",
+  "initializers",
+  "skills",
+  "manifest",
+  "verification"
+] as const;
+
+export type CreateApplyPhase = (typeof createApplyPhases)[number];
+
+export type CreateApplyState = {
+  schemaVersion: 1;
+  operation: "create";
+  planHash: string;
+  projectDirectory: string;
+  startedAt: string;
+  updatedAt: string;
+  plan: Omit<CreatePlan, "selectedModules">;
+  selectedModules: StackkitModule[];
+  phases: Record<
+    CreateApplyPhase,
+    {
+      status: "pending" | "running" | "completed" | "failed";
+      completedAt?: string;
+      error?: string;
+    }
+  >;
+  files: ManifestFileRecord[];
+  skippedInitializers: SkippedInitializer[];
+  initializerProgress: Record<
+    string,
+    { status: "running" | "completed" | "failed"; completedAt?: string; error?: string }
+  >;
+  skillInstallResult?: ResolveSkillInstallResult;
+  manifest?: StackkitManifest;
+  doctor?: import("@berkayorhan/stackkit-schemas").DoctorResult;
+};
+
+export type ResumeCreatePlanOptions = Omit<ApplyCreatePlanOptions, "parentDirectory" | "targetDirectory" | "resume"> & {
+  projectDirectory: string;
+};
+
 function planNativeInitializers(input: PlanNativeInitializersInput): PlannedNativeInitializer[] {
   const selectedModuleIds = new Set(input.modules.map((module) => module.id));
   const capabilities = new Set(input.modules.flatMap((module) => module.provides ?? []));
@@ -604,6 +888,9 @@ function planNativeInitializers(input: PlanNativeInitializersInput): PlannedNati
           : [initializer.tool.command, ...resolvedArgs];
 
       const gating = nativeInitializerGating(initializer.mutationPolicy, input.allowExternalState);
+      const packageResolution = initializer.tool.execution === "package-manager-dlx"
+        ? parseInitializerPackage(initializer.tool.package)
+        : {};
 
       planned.push({
         moduleId: module.id,
@@ -611,6 +898,7 @@ function planNativeInitializers(input: PlanNativeInitializersInput): PlannedNati
         phase: initializer.phase,
         command,
         args,
+        ...packageResolution,
         cwd: normalizeNativeInitializerCwd(initializer.cwd),
         mutationPolicy: initializer.mutationPolicy,
         expectedFiles: initializer.expectedFiles.map(normalizeProjectPath),
@@ -622,6 +910,20 @@ function planNativeInitializers(input: PlanNativeInitializersInput): PlannedNati
   }
 
   return planned;
+}
+
+function parseInitializerPackage(requestedPackage: string): {
+  packageName: string;
+  requestedPackage: string;
+  resolvedVersion?: string;
+} {
+  const separator = requestedPackage.lastIndexOf("@");
+  const hasVersion = separator > 0;
+  return {
+    packageName: hasVersion ? requestedPackage.slice(0, separator) : requestedPackage,
+    requestedPackage,
+    resolvedVersion: hasVersion ? requestedPackage.slice(separator + 1) : undefined
+  };
 }
 
 function nativeInitializerGating(
@@ -900,6 +1202,14 @@ export function buildReconstructedManagedFilePlan(manifest: StackkitManifest): F
       linkMode: manifest.aiSkills.linkMode
     }
   };
+  const createOperations = renderCreateFiles(config, modules);
+  const packageOperations = renderPackageChangeFiles(modules.flatMap((module) => module.packageChanges ?? []));
+  const envOperations = renderEnvExampleFiles("", modules.flatMap((module) => module.envVars ?? []));
+
+  return buildFilePlan(mergeCreateFileOperations([...createOperations, ...packageOperations, ...envOperations]));
+}
+
+export function buildCreateFilePlan(config: StackkitConfig, modules: readonly StackkitModule[]): FilePlan {
   const createOperations = renderCreateFiles(config, modules);
   const packageOperations = renderPackageChangeFiles(modules.flatMap((module) => module.packageChanges ?? []));
   const envOperations = renderEnvExampleFiles("", modules.flatMap((module) => module.envVars ?? []));

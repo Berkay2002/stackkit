@@ -5,13 +5,15 @@ import {
   type StackkitConfig,
   type StackkitManifestSource,
   type StackkitModule,
-  type StackkitPreset
+  type ModuleRemovalPolicy,
+  type SupportMetadata
 } from "@berkayorhan/stackkit-schemas";
 
 import { readExistingFile } from "./fs-utils.js";
 import { type PackageManagerName } from "./package-manager.js";
 import { resolveModuleAlias } from "./module-graph.js";
 import { readManifest, readOptionalSkillsLock } from "./manifest.js";
+import { isPubliclySelectable } from "./support.js";
 
 export type StackkitInfo = {
   project: {
@@ -48,82 +50,35 @@ export type ModuleDiscoveryEntry = {
   description: string;
   aliases: string[];
   category?: string;
+  support: SupportMetadata;
+  removalPolicy: ModuleRemovalPolicy;
 };
 
-export type CustomizerCatalogChoice = {
-  id: string;
-  alias: string;
-  title: string;
-  description: string;
-  icon?: string;
+export type ModuleDiscoveryOptions = {
+  includePreview?: boolean;
 };
 
-export type CustomizerCatalog = {
-  presets: {
-    id: string;
-    title: string;
-    description: string;
-    modules: string[];
-  }[];
-  categories: Record<string, CustomizerCatalogChoice[]>;
-};
-
-export function buildCustomizerCatalog(input: {
-  modules: readonly StackkitModule[];
-  presets: readonly StackkitPreset[];
-}): CustomizerCatalog {
-  const categories: Record<string, CustomizerCatalogChoice[]> = {};
-
-  for (const module of input.modules) {
-    const category = module.category ?? "other";
-    const choice: CustomizerCatalogChoice = {
-      id: module.id,
-      alias: module.aliases[0] ?? module.id,
-      title: module.title,
-      description: module.description
-    };
-
-    if (module.icon) {
-      choice.icon = module.icon;
-    }
-
-    categories[category] ??= [];
-    categories[category].push(choice);
-  }
-
-  for (const choices of Object.values(categories)) {
-    choices.sort(compareCatalogChoices);
-  }
-
-  return {
-    presets: input.presets
-      .map((preset) => ({
-        id: preset.id,
-        title: preset.title,
-        description: preset.description,
-        modules: [...preset.modules]
-      }))
-      .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id)),
-    categories: Object.fromEntries(Object.entries(categories).sort(([left], [right]) => left.localeCompare(right)))
-  };
+export function listStackkitModules(
+  modules: readonly StackkitModule[],
+  options: ModuleDiscoveryOptions = {}
+): ModuleDiscoveryEntry[] {
+  return modules
+    .filter((module) => isPubliclySelectable(module.support, options.includePreview))
+    .map(moduleDiscoveryEntry);
 }
 
-function compareCatalogChoices(left: CustomizerCatalogChoice, right: CustomizerCatalogChoice): number {
-  return left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
-}
-
-export function listStackkitModules(modules: readonly StackkitModule[]): ModuleDiscoveryEntry[] {
-  return modules.map(moduleDiscoveryEntry);
-}
-
-export function searchStackkitModules(query: string, modules: readonly StackkitModule[]): ModuleDiscoveryEntry[] {
+export function searchStackkitModules(
+  query: string,
+  modules: readonly StackkitModule[],
+  options: ModuleDiscoveryOptions = {}
+): ModuleDiscoveryEntry[] {
   const normalizedQuery = query.trim().toLowerCase();
 
   if (normalizedQuery.length === 0) {
     return [];
   }
 
-  return listStackkitModules(modules).filter((module) =>
+  return listStackkitModules(modules, options).filter((module) =>
     [module.id, module.title, module.description, module.category ?? "", ...module.aliases].some((value) =>
       value.toLowerCase().includes(normalizedQuery)
     )
@@ -148,7 +103,9 @@ function moduleDiscoveryEntry(module: StackkitModule): ModuleDiscoveryEntry {
     title: module.title,
     description: module.description,
     aliases: module.aliases,
-    category: module.category
+    category: module.category,
+    support: module.support,
+    removalPolicy: module.removalPolicy
   };
 }
 

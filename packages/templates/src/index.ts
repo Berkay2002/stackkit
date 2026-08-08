@@ -2,6 +2,12 @@ import type { FileOperation } from "@berkayorhan/stackkit-schemas";
 
 import { writeFile } from "./file-operations.js";
 import type { PyTypecheckChoice, TsToolingChoice } from "./tooling-configs.js";
+import {
+  goldenFastApiDependencies,
+  renderGoldenFastApiFiles,
+  renderGoldenFastApiMain
+} from "./golden-fastapi.js";
+import { renderAuth0HomePage, renderAuth0NextjsFiles } from "./golden-nextjs.js";
 
 export type { PyTypecheckChoice, TsToolingChoice } from "./tooling-configs.js";
 export {
@@ -25,12 +31,16 @@ type NextjsAppOptions = {
   packageManagerField?: string;
   tsTooling?: TsToolingChoice;
   withShadcn?: boolean;
+  withAuth0?: boolean;
+  withTodoApi?: boolean;
 };
 
 type FastApiServiceOptions = {
   serviceName: string;
   projectName?: string;
   pyTypecheck?: PyTypecheckChoice;
+  withSqlAlchemy?: boolean;
+  withAuth0?: boolean;
 };
 
 type DockerFilesOptions = {
@@ -39,6 +49,8 @@ type DockerFilesOptions = {
   runBuildCommand?: readonly string[];
   runStartCommand?: readonly string[];
   serviceTargets?: readonly DockerServiceTarget[];
+  withPostgres?: boolean;
+  withSqlAlchemy?: boolean;
 };
 
 const workspaceOwner = "workspace/pnpm-turbo";
@@ -72,7 +84,8 @@ export function renderPnpmTurboFoundation({
       test: "turbo run test",
       typecheck: "turbo run typecheck",
       lint: "turbo run lint",
-      format: "turbo run format"
+      format: "turbo run format",
+      "stackkit:doctor": "node .stackkit/doctor.cjs"
     },
     devDependencies: {
       "@types/node": "^24.0.0",
@@ -157,7 +170,24 @@ export function renderPnpmTurboFoundation({
         2
       )}\n`
     ),
-    writeFile(".gitignore", workspaceOwner, "node_modules\n.turbo\ndist\n")
+    writeFile(
+      ".stackkit/doctor.cjs",
+      workspaceOwner,
+      [
+        'const { spawnSync } = require("node:child_process");',
+        'const directBinary = process.env.STACKKIT_DOCTOR_BIN;',
+        'const command = directBinary || (process.platform === "win32" ? "npx.cmd" : "npx");',
+        'const args = directBinary ? ["doctor"] : ["--yes", "@berkayorhan/stackkit@0.3.0", "doctor"];',
+        'const result = spawnSync(command, args, { stdio: "inherit" });',
+        'process.exit(result.status ?? 1);',
+        ""
+      ].join("\n")
+    ),
+    writeFile(
+      ".gitignore",
+      workspaceOwner,
+      "node_modules\n.turbo\ndist\n.next\n.venv\n__pycache__\n*.pyc\n.env\n.env.*\n!.env.example\n"
+    )
   ];
 
   if (workspaceManifest) {
@@ -171,21 +201,35 @@ export function renderNextjsApp({
   appName,
   packageManagerField,
   tsTooling = "eslint-prettier",
-  withShadcn = false
+  withShadcn = false,
+  withAuth0 = false,
+  withTodoApi = false
 }: NextjsAppOptions): FileOperation[] {
   const root = `apps/${appName}`;
   const lintFormatScripts =
     tsTooling === "biome"
       ? { lint: "biome lint .", format: "biome format --write ." }
-      : { lint: "eslint --config ../../eslint.config.mjs app next.config.ts", format: "prettier --write ." };
+      : { lint: "eslint --config ../../eslint.config.mjs app lib proxy.ts next.config.ts", format: "prettier --write ." };
   const dependencies: Record<string, string> = {
-    next: "^15.0.0",
-    react: "^19.0.0",
-    "react-dom": "^19.0.0"
+    next: "^16.3.0",
+    react: "^19.2.8",
+    "react-dom": "^19.2.8"
   };
 
   if (withShadcn) {
     dependencies["@workspace/ui"] = "workspace:*";
+  }
+  if (withAuth0) {
+    dependencies["@auth0/nextjs-auth0"] = "^4.26.0";
+  }
+  const devDependencies: Record<string, string> = {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    typescript: "^5.9.3"
+  };
+
+  if (withShadcn) {
+    devDependencies["@tailwindcss/postcss"] = "^4";
   }
 
   const packageJson: Record<string, unknown> = {
@@ -201,18 +245,14 @@ export function renderNextjsApp({
       ...lintFormatScripts
     },
     dependencies,
-    devDependencies: {
-      "@types/react": "^19.0.0",
-      "@types/react-dom": "^19.0.0",
-      typescript: "^5.9.3"
-    }
+    devDependencies
   };
 
   if (packageManagerField) {
     packageJson.packageManager = packageManagerField;
   }
 
-  return [
+  const files = [
     writeFile(
       `${root}/package.json`,
       "web/nextjs",
@@ -226,7 +266,7 @@ export function renderNextjsApp({
     writeFile(
       `${root}/app/page.tsx`,
       "web/nextjs",
-      "export default function Page() {\n  return <main>Stackkit app</main>;\n}\n"
+      withAuth0 ? renderAuth0HomePage() : "export default function Page() {\n  return <main>Stackkit app</main>;\n}\n"
     ),
     writeFile(
       `${root}/next.config.ts`,
@@ -258,6 +298,22 @@ export function renderNextjsApp({
       )}\n`
     )
   ];
+
+  if (withAuth0) {
+    files.push(...renderAuth0NextjsFiles(root, withTodoApi));
+  }
+
+  if (withShadcn) {
+    files.push(
+      writeFile(
+        `${root}/postcss.config.mjs`,
+        "ui/shadcn",
+        'export { default } from "@workspace/ui/postcss.config";\n'
+      )
+    );
+  }
+
+  return files;
 }
 
 type DatabaseClientOptions = {
@@ -379,18 +435,20 @@ export function renderShadcnUi({ appName, framework = "nextjs" }: ShadcnUiOption
           },
           exports: {
             "./globals.css": "./src/styles/globals.css",
+            "./postcss.config": "./postcss.config.mjs",
             "./components/*": "./src/components/*.tsx",
             "./lib/*": "./src/lib/*.ts",
             "./hooks/*": "./src/hooks/*.ts"
           },
           dependencies: {
             react: "^19.0.0",
-            "react-dom": "^19.0.0",
-            tailwindcss: "^4"
+            "react-dom": "^19.0.0"
           },
           devDependencies: {
+            "@tailwindcss/postcss": "^4",
             "@types/react": "^19.0.0",
             "@types/react-dom": "^19.0.0",
+            tailwindcss: "^4",
             typescript: "^5.9.3"
           }
         },
@@ -414,6 +472,11 @@ export function renderShadcnUi({ appName, framework = "nextjs" }: ShadcnUiOption
         null,
         2
       )}\n`
+    ),
+    writeFile(
+      "packages/ui/postcss.config.mjs",
+      "ui/shadcn",
+      '/** @type {import("postcss-load-config").Config} */\nconst config = {\n  plugins: { "@tailwindcss/postcss": {} }\n};\n\nexport default config;\n'
     ),
     writeFile(SHADCN_SHARED_CSS_PATH, "ui/shadcn", '@import "tailwindcss";\n')
   ];
@@ -499,7 +562,9 @@ export function renderTanStackStartApp({ appName, packageManagerField, withShadc
 export function renderFastApiService({
   serviceName,
   projectName,
-  pyTypecheck = "mypy"
+  pyTypecheck = "mypy",
+  withSqlAlchemy = false,
+  withAuth0 = false
 }: FastApiServiceOptions): FileOperation[] {
   const root = `apps/${serviceName}`;
   const packageName = projectName ? `@${projectName}/${serviceName}` : `@acme/${serviceName}`;
@@ -508,7 +573,8 @@ export function renderFastApiService({
     .filter((tool) => tool === "ruff" || tool === "httpx" || tool === "pytest" || tool === pyTypecheck)
     .sort();
 
-  return [
+  const dependencies = goldenFastApiDependencies({ withSqlAlchemy, withAuth0 });
+  const files = [
     writeFile(
       `${root}/package.json`,
       "api/fastapi",
@@ -517,7 +583,9 @@ export function renderFastApiService({
           name: packageName,
           private: true,
           scripts: {
-            dev: "uv run uvicorn app.main:app --reload",
+            dev: withSqlAlchemy
+              ? "uv run alembic upgrade head && uv run uvicorn app.main:app --reload"
+              : "uv run uvicorn app.main:app --reload",
             test: "uv run pytest",
             typecheck: `uv run ${pyTypecheck} .`,
             lint: "uv run ruff check .",
@@ -537,8 +605,7 @@ export function renderFastApiService({
         'version = "0.0.0"',
         'requires-python = ">=3.12"',
         "dependencies = [",
-        '  "fastapi",',
-        '  "uvicorn[standard]"',
+        ...dependencies.map((dependency, index) => `  "${dependency}"${index === dependencies.length - 1 ? "" : ","}`),
         "]",
         "",
         "[dependency-groups]",
@@ -554,7 +621,7 @@ export function renderFastApiService({
     writeFile(
       `${root}/app/main.py`,
       "api/fastapi",
-      'from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get("/health")\ndef health() -> dict[str, str]:\n    return {"status": "ok"}\n'
+      renderGoldenFastApiMain({ withSqlAlchemy, withAuth0 })
     ),
     writeFile(
       `${root}/tests/test_health.py`,
@@ -562,6 +629,9 @@ export function renderFastApiService({
       'from fastapi.testclient import TestClient\n\nfrom app.main import app\n\n\ndef test_health() -> None:\n    client = TestClient(app)\n    assert client.get("/health").json() == {"status": "ok"}\n'
     )
   ];
+
+  files.push(...renderGoldenFastApiFiles({ root, withSqlAlchemy, withAuth0 }));
+  return files;
 }
 
 export function renderVercelFiles(): FileOperation[] {
@@ -573,12 +643,19 @@ export function renderDockerFiles({
   installCommand = ["corepack", "enable", "&&", "pnpm", "install", "--frozen-lockfile"],
   runBuildCommand = ["pnpm", "build"],
   runStartCommand = ["pnpm", "start"],
-  serviceTargets = ["web"]
+  serviceTargets = ["web"],
+  withPostgres = false,
+  withSqlAlchemy = false
 }: DockerFilesOptions = {}): FileOperation[] {
   const baseImage = packageManagerName === "bun" ? "oven/bun:1-alpine" : "node:22-alpine";
   const targets = uniqueServiceTargets(serviceTargets);
   const files: FileOperation[] = [
-    writeFile("docker-compose.yml", "deploy/docker", renderDockerCompose(targets))
+    writeFile("docker-compose.yml", "deploy/docker", renderDockerCompose(targets, withPostgres)),
+    writeFile(
+      ".dockerignore",
+      "deploy/docker",
+      ".git\n.stackkit\nnode_modules\n**/node_modules\n.turbo\n**/.next\n**/dist\n**/.venv\n**/__pycache__\n.env\n.env.*\n!.env.example\n"
+    )
   ];
 
   if (targets.includes("web")) {
@@ -602,7 +679,9 @@ export function renderDockerFiles({
           "COPY . .",
           "WORKDIR /app/apps/api",
           "RUN pip install --no-cache-dir uv && uv sync",
-          'CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]',
+          withSqlAlchemy
+            ? 'CMD ["sh", "-c", "uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"]'
+            : 'CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]',
           ""
         ].join("\n")
       )
@@ -616,31 +695,113 @@ function uniqueServiceTargets(serviceTargets: readonly DockerServiceTarget[]): D
   return [...new Set(serviceTargets)];
 }
 
-function renderDockerCompose(serviceTargets: readonly DockerServiceTarget[]): string {
+function renderDockerCompose(serviceTargets: readonly DockerServiceTarget[], withPostgres: boolean): string {
   const services: string[] = [];
 
   // Build from the repository root so workspace packages (referenced via workspace:* deps) are
   // part of the build context; the per-service Dockerfile path is given explicitly.
   if (serviceTargets.includes("web")) {
-    services.push(renderComposeService({ name: "web", dockerfile: "apps/web/Dockerfile", port: 3000 }));
+    services.push(
+      renderComposeService({
+        name: "web",
+        dockerfile: "apps/web/Dockerfile",
+        port: 3000,
+        environment: serviceTargets.includes("api")
+          ? [
+              "API_BASE_URL=http://api:8000",
+              "APP_BASE_URL=http://localhost:3000",
+              "AUTH0_DOMAIN=${AUTH0_DOMAIN}",
+              "AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}",
+              "AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET}",
+              "AUTH0_SECRET=${AUTH0_SECRET}",
+              "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
+              "AUTH0_ALLOW_INSECURE_REQUESTS=${AUTH0_ALLOW_INSECURE_REQUESTS:-false}"
+            ]
+          : [],
+        dependsOn: serviceTargets.includes("api") ? { api: "service_started" } : {}
+      })
+    );
   }
 
   if (serviceTargets.includes("api")) {
-    services.push(renderComposeService({ name: "api", dockerfile: "apps/api/Dockerfile", port: 8000 }));
+    services.push(
+      renderComposeService({
+        name: "api",
+        dockerfile: "apps/api/Dockerfile",
+        port: 8000,
+        environment: withPostgres
+          ? [
+              "DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/app",
+              "AUTH0_DOMAIN=${AUTH0_DOMAIN}",
+              "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
+              "AUTH0_ISSUER=${AUTH0_ISSUER:-}",
+              "AUTH0_JWKS_URL=${AUTH0_JWKS_URL:-}"
+            ]
+          : [],
+        dependsOn: withPostgres ? { db: "service_healthy" } : {}
+      })
+    );
   }
 
-  return `services:\n${services.join("\n")}\n`;
+  if (withPostgres) {
+    services.push(
+      [
+        "  db:",
+        "    image: postgres:17-alpine",
+        "    environment:",
+        "      POSTGRES_USER: postgres",
+        "      POSTGRES_PASSWORD: postgres",
+        "      POSTGRES_DB: app",
+        "    ports:",
+        '      - "5432:5432"',
+        "    volumes:",
+        "      - pgdata:/var/lib/postgresql/data",
+        "    healthcheck:",
+        '      test: ["CMD-SHELL", "pg_isready -U postgres -d app"]',
+        "      interval: 2s",
+        "      timeout: 2s",
+        "      retries: 15"
+      ].join("\n")
+    );
+  }
+
+  return `services:\n${services.join("\n")}\n${withPostgres ? "volumes:\n  pgdata:\n" : ""}`;
 }
 
-function renderComposeService({ name, dockerfile, port }: { name: string; dockerfile: string; port: number }): string {
-  return [
+function renderComposeService({
+  name,
+  dockerfile,
+  port,
+  environment = [],
+  dependsOn = {}
+}: {
+  name: string;
+  dockerfile: string;
+  port: number;
+  environment?: readonly string[];
+  dependsOn?: Readonly<Record<string, "service_started" | "service_healthy">>;
+}): string {
+  const lines = [
     `  ${name}:`,
     "    build:",
     "      context: .",
     `      dockerfile: ${dockerfile}`,
     "    ports:",
     `      - "${port}:${port}"`
-  ].join("\n");
+  ];
+  if (environment.length > 0) {
+    lines.push("    environment:", ...environment.map((value) => `      - ${value}`));
+  }
+  if (Object.keys(dependsOn).length > 0) {
+    lines.push(
+      "    depends_on:",
+      ...Object.entries(dependsOn).flatMap(([service, condition]) => [
+        `      ${service}:`,
+        `        condition: ${condition}`
+      ])
+    );
+  }
+  return lines.join("\n");
 }
 
 function renderKubernetesDeployment({

@@ -80,9 +80,9 @@ describe("create integration", () => {
           "api/fastapi",
           "db/postgres",
           "db/sqlalchemy",
+          "postgres/local",
           "auth/auth0-nextjs",
           "auth/auth0-fastapi",
-          "deploy/vercel",
           "deploy/docker",
           "quality/eslint",
           "quality/prettier",
@@ -115,10 +115,13 @@ describe("create integration", () => {
     );
     await expect(readFile(join(result.projectDirectory, "apps", "api", "package.json"), "utf8")).resolves.toContain("uv run pytest");
     await expect(readFile(join(result.projectDirectory, "apps", "api", "app", "main.py"), "utf8")).resolves.toContain("FastAPI");
+    await expect(readFile(join(result.projectDirectory, "apps", "api", "app", "auth.py"), "utf8")).resolves.toContain("PyJWKClient");
+    await expect(readFile(join(result.projectDirectory, "apps", "api", "migrations", "versions", "0001_create_todos.py"), "utf8")).resolves.toContain("create_table");
+    await expect(readFile(join(result.projectDirectory, "apps", "web", "app", "dashboard", "page.tsx"), "utf8")).resolves.toContain("listTodos");
     await expect(readFile(join(result.projectDirectory, "apps", "api", "tests", "test_health.py"), "utf8")).resolves.toContain(
       "test_health"
     );
-    await expect(readFile(join(result.projectDirectory, "docker-compose.yml"), "utf8")).resolves.toContain("services:");
+    await expect(readFile(join(result.projectDirectory, "docker-compose.yml"), "utf8")).resolves.toContain("postgres:17-alpine");
     const rootPackageJson = JSON.parse(await readFile(join(result.projectDirectory, "package.json"), "utf8"));
     expect(rootPackageJson.scripts).toEqual(
       expect.objectContaining({
@@ -351,12 +354,12 @@ async function simulateNativeInitializer(command: string, args: readonly string[
     return;
   }
 
-  if (args[1] === "shadcn@latest") {
+  if (args[1] === "shadcn@4.16.2") {
     await simulateShadcnInit(cwd);
     return;
   }
 
-  if (args[1] === "clerk@latest") {
+  if (args[1] === "clerk@3.0.0") {
     await simulateClerkInit(cwd);
   }
 }

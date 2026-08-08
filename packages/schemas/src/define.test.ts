@@ -14,6 +14,27 @@ describe("defineModule", () => {
     expect(module.id).toBe("quality/example");
     // `aliases` defaults to [] via the schema.
     expect(module.aliases).toEqual([]);
+    expect(module.support).toEqual({ level: "planned" });
+  });
+
+  it("parses explicit support evidence", () => {
+    const module = defineModule({
+      id: "web/example",
+      version: "1.0.0",
+      title: "Example web",
+      description: "An example web module",
+      support: {
+        level: "supported",
+        verifiedAt: "2026-08-08",
+        verificationProfile: "golden-path"
+      }
+    });
+
+    expect(module.support).toEqual({
+      level: "supported",
+      verifiedAt: "2026-08-08",
+      verificationProfile: "golden-path"
+    });
   });
 
   it("throws on invalid module input", () => {
@@ -38,6 +59,7 @@ describe("definePreset", () => {
 
     expect(preset.id).toBe("next");
     expect(preset.modules).toEqual(["web/nextjs"]);
+    expect(preset.support).toEqual({ level: "planned" });
   });
 
   it("throws on invalid preset input (empty modules)", () => {

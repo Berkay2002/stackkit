@@ -39,4 +39,19 @@ describe('docs content', () => {
       expect(/\ndescription:\s*\S/.test(src), `${slug}.mdx should declare a description`).toBe(true);
     }
   });
+
+  it('documents the same supported golden path and preview opt-in as the CLI', () => {
+    const gettingStarted = readFileSync(join(docsDir, 'getting-started.mdx'), 'utf8');
+    const modules = readFileSync(join(docsDir, 'modules.mdx'), 'utf8');
+    const status = readFileSync(join(docsDir, 'status.mdx'), 'utf8');
+
+    expect(gettingStarted).toContain(
+      'npx @berkayorhan/stackkit@0.3.0 create my-app --preset next-fastapi-postgres-auth0 --db-provider postgres-local'
+    );
+    expect(gettingStarted).toContain('--include-preview');
+    expect(modules).toContain('supported | Safe default');
+    expect(modules).toContain('preview | Explicit opt-in');
+    expect(modules).toContain('planned | Documentation only');
+    expect(status).toContain('one supported preset');
+  });
 });

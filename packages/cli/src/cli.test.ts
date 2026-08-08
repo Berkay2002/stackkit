@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { type RunCommand } from "@berkayorhan/stackkit-core";
 
-import { buildConfigFromInteractiveAnswers, createStackkitProgram, isDirectCliExecution } from "./index.js";
+import { buildConfigFromInteractiveAnswers, createStackkitProgram, isDirectCliExecution, stackkitVersion } from "./index.js";
 
 const tempDirectories: string[] = [];
 
@@ -15,12 +15,16 @@ afterEach(async () => {
 });
 
 describe("createStackkitProgram", () => {
+  it("reports the package version", () => {
+    expect(stackkitVersion).toBe("0.3.0");
+    expect(createStackkitProgram().version()).toBe("0.3.0");
+  });
+
   it("exposes the full Stackkit lifecycle command surface", () => {
     const program = createStackkitProgram();
 
     expect(program.commands.map((command) => command.name())).toEqual([
       "create",
-      "init",
       "add",
       "remove",
       "update",
@@ -75,6 +79,17 @@ describe("createStackkitProgram", () => {
     expect(isDirectCliExecution(new URL(`file:///${entrypoint.replaceAll("\\", "/")}`).href, undefined)).toBe(false);
   });
 
+  it("recognizes a pnpm bin entrypoint that resolves through a symlink", () => {
+    const packageEntry = "C:\\store\\@berkayorhan\\stackkit\\dist\\index.js";
+    const binEntry = "C:\\project\\node_modules\\@berkayorhan\\stackkit\\dist\\index.js";
+
+    expect(
+      isDirectCliExecution(new URL(`file:///${packageEntry.replaceAll("\\", "/")}`).href, binEntry, (entry) =>
+        entry === binEntry ? packageEntry : entry
+      )
+    ).toBe(true);
+  });
+
   it("prints a human summary and extractable JSON plan for create --config", async () => {
     const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
     tempDirectories.push(directory);
@@ -104,7 +119,7 @@ describe("createStackkitProgram", () => {
       }
     });
 
-    await program.parseAsync(["create", "--config", configPath, "--dry-run"], { from: "user" });
+    await program.parseAsync(["create", "--config", configPath, "--include-preview", "--dry-run"], { from: "user" });
 
     expect(output).toContain("Stackkit create plan for acme-dashboard");
     expect(output).toContain("Modules: workspace/pnpm-turbo, web/nextjs, deploy/docker, deploy/kubernetes");
@@ -147,18 +162,59 @@ describe("createStackkitProgram", () => {
 
   it("accepts a project name positional argument for create", async () => {
     const { output } = await runProgram(["create", "acme", "--dry-run"]);
+    const plan = readCreatePlan(output);
 
     expect(output).toContain("Stackkit create plan for acme");
     expect(output).toContain("STACKKIT_PLAN_JSON_START");
+    expect(plan.modules.map((module) => module.id)).toEqual(
+      expect.arrayContaining([
+        "web/nextjs",
+        "api/fastapi",
+        "db/postgres",
+        "db/sqlalchemy",
+        "auth/auth0-nextjs",
+        "auth/auth0-fastapi",
+        "deploy/docker"
+      ])
+    );
+  });
+
+  it("requires an explicit opt-in for preview creates and always refuses planned entries", async () => {
+    await expect(runProgram(["create", "acme", "--web", "vite", "--dry-run"])).rejects.toThrow(
+      "Module web/vite is preview. Re-run with --include-preview"
+    );
+
+    const { output } = await runProgram([
+      "create",
+      "acme",
+      "--web",
+      "vite",
+      "--include-preview",
+      "--dry-run"
+    ]);
+    expect(readCreatePlan(output).modules.map((module) => module.id)).toContain("web/vite");
+
+    await expect(
+      runProgram(["create", "acme", "--api", "flask", "--include-preview", "--dry-run"])
+    ).rejects.toThrow("Module api/flask is planned and cannot be created");
   });
 
   it("renders native initializer commands and gated state in create dry-run", async () => {
-    const { output } = await runProgram(["create", "acme", "--web", "next", "--auth", "clerk", "--dry-run"]);
+    const { output } = await runProgram([
+      "create",
+      "acme",
+      "--web",
+      "next",
+      "--auth",
+      "clerk",
+      "--include-preview",
+      "--dry-run"
+    ]);
     const plan = readCreatePlan(output);
 
     expect(output).toContain("Native initializers:");
-    expect(output).toContain("- shadcn init: pnpm dlx shadcn@latest init");
-    expect(output).toContain("- clerk init: pnpm dlx clerk@latest init");
+    expect(output).toContain("- shadcn init: pnpm dlx shadcn@4.16.2 init");
+    expect(output).toContain("- clerk init: pnpm dlx clerk@3.0.0 init");
     expect(output).toContain("GATED (needs --allow-external-state)");
     expect(plan.nativeInitializers).toEqual(
       expect.arrayContaining([
@@ -222,6 +278,7 @@ describe("createStackkitProgram", () => {
       "docker",
       "--deploy",
       "k8s",
+      "--include-preview",
       "--dry-run"
     ]);
     const plan = readCreatePlan(output);
@@ -267,6 +324,7 @@ describe("createStackkitProgram", () => {
       "docker",
       "--deploy",
       "vercel",
+      "--include-preview",
       "--dry-run"
     ]);
     const plan = readCreatePlan(output);
@@ -314,7 +372,7 @@ describe("createStackkitProgram", () => {
   });
 
   it("uses --pm to override the package manager in create dry-run", async () => {
-    const { output } = await runProgram(["create", "acme", "--pm", "bun", "--dry-run"]);
+    const { output } = await runProgram(["create", "acme", "--pm", "bun", "--include-preview", "--dry-run"]);
     const plan = readCreatePlan(output);
     const packageJson = JSON.parse(plan.filePlan.files.find((file) => file.path === "package.json")?.content ?? "{}");
 
@@ -364,7 +422,15 @@ describe("createStackkitProgram", () => {
       "utf8"
     );
 
-    const { output } = await runProgram(["create", "--config", configPath, "--package-manager", "yarn", "--dry-run"]);
+    const { output } = await runProgram([
+      "create",
+      "--config",
+      configPath,
+      "--package-manager",
+      "yarn",
+      "--include-preview",
+      "--dry-run"
+    ]);
     const plan = readCreatePlan(output);
     const packageJson = JSON.parse(plan.filePlan.files.find((file) => file.path === "package.json")?.content ?? "{}");
 
@@ -431,7 +497,7 @@ describe("createStackkitProgram", () => {
       }
     });
 
-    await program.parseAsync(["create", "--config", configPath, "--dry-run"], { from: "user" });
+    await program.parseAsync(["create", "--config", configPath, "--include-preview", "--dry-run"], { from: "user" });
 
     expect(output).toContain("Stackkit create plan for next-starter");
     expect(output).toContain("Modules: workspace/pnpm-turbo, workspace/typescript, web/nextjs, ui/shadcn, quality/eslint, quality/prettier");
@@ -496,7 +562,12 @@ describe("createStackkitProgram", () => {
 
     await program.parseAsync(["preset", "list"], { from: "user" });
 
-    expect(output).toContain("next");
+    expect(output.trim().split("\n").map((line) => line.split("\t")[0])).toEqual(["next-fastapi-postgres-auth0"]);
+
+    output = "";
+    await program.parseAsync(["preset", "list", "--include-preview"], { from: "user" });
+    expect(output).toContain("next\tNext.js");
+    expect(output).not.toContain("next-axum-postgres-auth0");
 
     output = "";
     await program.parseAsync(["preset", "inspect", "next"], { from: "user" });
@@ -646,7 +717,14 @@ describe("createStackkitProgram", () => {
   it("creates from a recipe and uses the positional project name", async () => {
     const encoded = await runProgram(["recipe", "encode", "--preset", "next-postgres-clerk"]);
     const code = encoded.output.trim();
-    const { output } = await runProgram(["create", "acme", "--recipe", code, "--dry-run"]);
+    const { output } = await runProgram([
+      "create",
+      "acme",
+      "--recipe",
+      code,
+      "--include-preview",
+      "--dry-run"
+    ]);
     const plan = readCreatePlan(output);
 
     expect(plan.projectName).toBe("acme");
@@ -658,7 +736,16 @@ describe("createStackkitProgram", () => {
   it("uses --pm to override the recipe package manager in create dry-run", async () => {
     const encoded = await runProgram(["recipe", "encode", "--preset", "next"]);
     const code = encoded.output.trim();
-    const { output } = await runProgram(["create", "acme", "--recipe", code, "--pm", "bun", "--dry-run"]);
+    const { output } = await runProgram([
+      "create",
+      "acme",
+      "--recipe",
+      code,
+      "--pm",
+      "bun",
+      "--include-preview",
+      "--dry-run"
+    ]);
     const plan = readCreatePlan(output);
 
     expect(output).toContain("Package manager: bun");
@@ -672,7 +759,16 @@ describe("createStackkitProgram", () => {
     const encoded = await runProgram(["recipe", "encode", "--preset", "next"]);
     const code = encoded.output.trim();
 
-    await runProgram(["create", "acme", "--recipe", code, "--dir", targetDirectory, "--yes"]);
+    await runProgram([
+      "create",
+      "acme",
+      "--recipe",
+      code,
+      "--include-preview",
+      "--dir",
+      targetDirectory,
+      "--yes"
+    ]);
 
     const manifest = await readManifestFile(targetDirectory);
     expect(manifest.source).toEqual({ kind: "recipe", code });
@@ -790,13 +886,70 @@ describe("createStackkitProgram", () => {
     );
   });
 
+  it("resumes an interrupted create from its persisted journal", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-resume-"));
+    tempDirectories.push(directory);
+    const configPath = join(directory, "stackkit.config.json");
+    const targetDirectory = join(directory, "created-project");
+    let attempts = 0;
+    const runCommand: RunCommand = async () => {
+      attempts += 1;
+      return attempts === 1
+        ? { exitCode: 1, stdout: "", stderr: "interrupted" }
+        : { exitCode: 0, stdout: "ok", stderr: "" };
+    };
+
+    await writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          projectName: "resume-app",
+          modules: ["workspace/pnpm-turbo", "web/nextjs", "ui/shadcn"],
+          ai: { skillTargets: ["codex"], skillMode: "skip" }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    await expect(
+      runProgram(["create", "--config", configPath, "--dir", targetDirectory, "--yes"], { runCommand })
+    ).rejects.toThrow("Native initializer failed: shadcn init");
+
+    await expect(runProgram(["create", "--resume", "--dir", targetDirectory], { runCommand })).rejects.toThrow(
+      "--retry-initializers"
+    );
+    const { output } = await runProgram(
+      ["create", "--resume", "--retry-initializers", "--dir", targetDirectory],
+      { runCommand }
+    );
+
+    expect(output).toBe(`Resumed Stackkit project at ${targetDirectory}\n`);
+    await expect(readFile(join(targetDirectory, ".stackkit", "project.json"), "utf8")).resolves.toContain(
+      '"planHash"'
+    );
+    expect(attempts).toBe(3);
+  });
+
   it("warns on stderr when create skips external-state initializers", async () => {
     const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
     tempDirectories.push(directory);
     const targetDirectory = join(directory, "created-project");
 
     const { errorOutput } = await runProgram(
-      ["create", "acme", "--web", "next", "--auth", "clerk", "--dir", targetDirectory, "--yes"],
+      [
+        "create",
+        "acme",
+        "--web",
+        "next",
+        "--auth",
+        "clerk",
+        "--include-preview",
+        "--dir",
+        targetDirectory,
+        "--yes"
+      ],
       {
         runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" })
       }
@@ -917,6 +1070,9 @@ describe("createStackkitProgram", () => {
     expect(output).toContain("Stackkit remove plan for acme-dashboard");
     expect(output).toContain("Modules to remove: web/nextjs");
     expect(output).toContain("Safe to remove: yes");
+    expect(output).toContain("Removal policy for web/nextjs: managed-files-only");
+    expect(output).toContain("Retained data:\n- none");
+    expect(output).toContain("Manual cleanup:\n- none");
 
     const manifest = await readManifestFile(projectDirectory);
     expect(manifest.modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo", "web/nextjs"]);
@@ -928,7 +1084,8 @@ describe("createStackkitProgram", () => {
     await expect(runProgram(["remove", "web/nextjs", "--dir", projectDirectory])).rejects.toThrow("without --yes");
 
     const { output } = await runProgram(["remove", "web/nextjs", "--yes", "--dir", projectDirectory]);
-    expect(output).toBe("Removed web/nextjs from acme-dashboard\n");
+    expect(output).toContain("Removal policy for web/nextjs: managed-files-only");
+    expect(output).toContain("Removed web/nextjs from acme-dashboard\n");
 
     const manifest = await readManifestFile(projectDirectory);
     expect(manifest.modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo"]);
@@ -999,19 +1156,40 @@ describe("createStackkitProgram", () => {
 
     expect(output).toContain("fastapi");
     expect(output).toContain("Next.js");
+    expect(output).not.toContain("Vite");
+
+    const preview = await runProgram(["module", "list", "--include-preview"]);
+    expect(preview.output).toContain("Vite");
+    expect(preview.output).not.toContain("Axum");
   });
 
   it("searches modules by query", async () => {
     const { output } = await runProgram(["module", "search", "rust", "--json"]);
     const modules = JSON.parse(output) as { id: string }[];
 
-    expect(modules.map((module) => module.id)).toContain("rust/axum");
+    expect(modules).toEqual([]);
   });
 
   it("inspects a module alias as JSON", async () => {
     const { output } = await runProgram(["module", "inspect", "fastapi", "--json"]);
 
     expect(JSON.parse(output)).toEqual(expect.objectContaining({ id: "api/fastapi" }));
+
+    const postgres = await runProgram(["module", "inspect", "postgres/local", "--json"]);
+    expect(JSON.parse(postgres.output)).toEqual(
+      expect.objectContaining({
+        removalPolicy: expect.objectContaining({
+          mode: "managed-files-only",
+          retainedData: expect.arrayContaining([expect.stringContaining("pgdata")]),
+          manualCleanup: expect.arrayContaining([expect.stringContaining("docker compose down --volumes")])
+        })
+      })
+    );
+
+    const planned = await runProgram(["module", "inspect", "axum", "--json"]);
+    expect(JSON.parse(planned.output)).toEqual(
+      expect.objectContaining({ id: "rust/axum", support: expect.objectContaining({ level: "planned" }) })
+    );
   });
 
   it("prints planned updates for update --dry-run without changing the manifest", async () => {

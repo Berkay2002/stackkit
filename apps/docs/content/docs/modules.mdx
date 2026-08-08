@@ -10,6 +10,7 @@ A module is the atomic unit of generated behavior. It is a typed declaration wit
 | Field | Purpose |
 | --- | --- |
 | `id`, `version`, `title`, `description` | Stable identity and human-facing metadata. |
+| `support` | Support level, reason, verification date, and verification profile. |
 | `aliases` | Friendly inputs accepted by the CLI, such as `next` for `web/nextjs`. |
 | `requires` | Capabilities that must already be provided by another module. |
 | `provides` | Capabilities this module makes available to later modules. |
@@ -23,6 +24,16 @@ A module is the atomic unit of generated behavior. It is a typed declaration wit
 | `migrations` | Versioned changes between module releases. |
 | `aiSkills` | Official, curated, local, or unresolved agent guidance. |
 | `validate` | File-exists or command-succeeds checks used by diagnostics. |
+
+## Support levels
+
+| Level | User-facing meaning | Selection behavior |
+| --- | --- | --- |
+| supported | Safe default | Listed and selectable by default. |
+| preview | Explicit opt-in | Requires `--include-preview`; limitations are exposed in registry metadata. |
+| planned | Documentation only | Hidden from normal selection and cannot be created. |
+
+Support is a lifecycle claim. A module is not supported merely because its capabilities resolve or its metadata validates.
 
 ## Capabilities and ordering
 
@@ -45,13 +56,13 @@ Stack-axis flags are a convenient way to choose modules:
 
 | Axis | Example | Result |
 | --- | --- | --- |
-| `--web` | `next`, `vite`, `tanstack-start` | Selects a web framework. |
+| `--web` | `next`; preview: `vite`, `tanstack-start` | Selects a web framework. |
 | `--ui` | `shadcn`, `tailwind`, `none` | Chooses the UI layer for a React web stack. |
-| `--api` | `fastapi`, `axum` | Selects an API service. |
+| `--api` | `fastapi` | Selects a supported API service. Axum is planned. |
 | `--db` | `postgres` | Selects a database family. |
 | `--db-client` | `drizzle`, `prisma`, `sqlalchemy`, `sqlx` | Selects the client that fits the selected language. |
 | `--db-provider` | `neon`, `supabase`, `postgres-local` | Selects a Postgres host or local setup. |
-| `--auth` | `clerk`, `auth0` | Selects a supported authentication provider. |
+| `--auth` | `auth0`; preview: `clerk` | Selects an authentication provider. |
 | `--with` | `docker`, `shadcn` | Adds modules to the resolved stack. |
 | `--deploy` | `vercel`, `k8s` | Adds deployment modules. Kubernetes includes Docker. |
 

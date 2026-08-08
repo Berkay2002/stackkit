@@ -29,6 +29,8 @@ export type {
   StackkitRegistry,
   StackkitRecipe,
   StackkitRecipeInput,
+  SupportLevel,
+  SupportMetadata,
   SkippedInitializer,
   TaskDefinition
 } from "@berkayorhan/stackkit-schemas";
@@ -94,6 +96,9 @@ export type {
   StackAxes,
   ValidateConfigResult
 } from "./module-graph.js";
+
+export type { AssertCreateSupportInput } from "./support.js";
+export { assertCreateSupport, isPubliclySelectable } from "./support.js";
 export {
   validateProjectSlug,
   resolveModuleAlias,
@@ -130,11 +135,19 @@ export type {
   CreatePlanInput,
   ApplyCreatePlanOptions,
   ApplyCreatePlanResult,
+  CreateApplyPhase,
+  CreateApplyState,
+  ResumeCreatePlanOptions,
   PlannedNativeInitializer
 } from "./create.js";
 export {
   createCreatePlan,
   applyCreatePlan,
+  resumeCreatePlan,
+  readCreateApplyState,
+  computeCreatePlanHash,
+  createApplyPhases,
+  buildCreateFilePlan,
   renderCreateFiles,
   planEnvExampleFiles,
   applyEnvExamples
@@ -172,13 +185,16 @@ export { createFileContentDiff, diffManagedFile } from "./diff.js";
 export type {
   StackkitInfo,
   ModuleDiscoveryEntry,
+  ModuleDiscoveryOptions
+} from "./discovery.js";
+export type {
   CustomizerCatalogChoice,
   CustomizerCatalog
-} from "./discovery.js";
+} from "./customizer.js";
 export {
   listStackkitModules,
   searchStackkitModules,
   inspectStackkitModule,
-  collectInfo,
-  buildCustomizerCatalog
+  collectInfo
 } from "./discovery.js";
+export { buildCustomizerCatalog } from "./customizer.js";

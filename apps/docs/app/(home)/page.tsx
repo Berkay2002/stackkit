@@ -70,7 +70,7 @@ export default function HomePage() {
               <pre className="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-relaxed">
                 <code>
                   <span className="text-fd-muted-foreground">$ </span>
-                  npx @berkayorhan/stackkit init
+                  npx @berkayorhan/stackkit@0.3.0 create my-app --yes
                   {'\n'}
                   <span className="text-brand">?</span> Preset{'  '}
                   <span className="text-fd-muted-foreground">

@@ -1,5 +1,19 @@
 # @berkayorhan/stackkit-registry
 
+## 0.3.0
+
+### Minor Changes
+
+- Add support tiers, supported-by-default discovery, preview opt-in, registry-owned tooling slots, and an honest CLI surface.
+- Make create plans exact and resumable with package and environment operations, plan hashes, pinned native initializers, and a durable phase journal.
+- Generate the supported Next.js, ShadCN, FastAPI, SQLAlchemy, Postgres, Auth0, and Docker Todo path with runtime tests and module validations.
+- Expand package lifecycle, recipe, skill, customizer, and documentation coverage added since 0.2.2.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @berkayorhan/stackkit-schemas@0.3.0
+
 ## 0.2.2
 
 ### Patch Changes

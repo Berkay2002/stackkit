@@ -156,9 +156,53 @@ describe("runDoctor", () => {
         expect.objectContaining({
           id: "initializers.skipped.clerk-init",
           status: "warning",
-          actions: ["stackkit create --allow-external-state"]
+          actions: []
         })
       ])
     );
+  });
+
+  it("runs command-succeeds module validations and reports failures", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-doctor-command-"));
+    tempDirectories.push(directory);
+    await mkdir(join(directory, ".stackkit"), { recursive: true });
+    await writeFile(
+      join(directory, ".stackkit", "project.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        stackkitVersion: "0.3.0",
+        projectName: "acme",
+        createdAt: "2026-08-08T00:00:00.000Z",
+        modules: [{
+          id: "api/example",
+          version: "1.0.0",
+          snapshot: {
+            id: "api/example",
+            version: "1.0.0",
+            title: "Example API",
+            description: "Example API",
+            validate: [{ kind: "command-succeeds", command: "pnpm", args: ["test"] }]
+          }
+        }],
+        files: [],
+        aiSkills: { targets: [], installed: [], unresolved: [] },
+        migrations: { applied: [] }
+      }),
+      "utf8"
+    );
+
+    const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
+    const result = await runDoctor(directory, {
+      runCommand: async (command, args, options) => {
+        calls.push({ command, args, cwd: options.cwd });
+        return { exitCode: 1, stdout: "", stderr: "failed" };
+      }
+    });
+
+    expect(calls).toEqual([{ command: "pnpm", args: ["test"], cwd: directory }]);
+    expect(result.ok).toBe(false);
+    expect(result.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "error", message: "Runtime validation failed for api/example: pnpm test" })
+    ]));
   });
 });

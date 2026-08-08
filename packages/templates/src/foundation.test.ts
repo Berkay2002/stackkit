@@ -63,6 +63,7 @@ describe("renderPnpmTurboFoundation", () => {
     expect(byPath.get("package.json")?.content).toContain('"typecheck": "turbo run typecheck"');
     expect(byPath.get("package.json")?.content).toContain('"lint": "turbo run lint"');
     expect(byPath.get("package.json")?.content).toContain('"format": "turbo run format"');
+    expect(byPath.get("package.json")?.content).toContain('"stackkit:doctor": "node .stackkit/doctor.cjs"');
     expect(byPath.get("package.json")?.content).toContain('"@types/node"');
     expect(byPath.get("package.json")?.content).toContain('"turbo"');
     expect(byPath.get("package.json")?.content).toContain('"typescript"');
@@ -76,6 +77,9 @@ describe("renderPnpmTurboFoundation", () => {
     expect(byPath.get("tsconfig.base.json")?.content).toContain('"moduleResolution": "Bundler"');
     expect(byPath.get("tsconfig.json")?.content).toContain('"extends": "./tsconfig.base.json"');
     expect(byPath.get(".gitignore")?.content).toContain("node_modules");
+    expect(byPath.get(".gitignore")?.content).toContain(".env.*");
+    expect(byPath.get(".stackkit/doctor.cjs")?.content).toContain("STACKKIT_DOCTOR_BIN");
+    expect(byPath.get(".stackkit/doctor.cjs")?.content).toContain("@berkayorhan/stackkit@0.3.0");
   });
 
   it("includes eslint/prettier/typescript-eslint root devDeps by default", () => {
