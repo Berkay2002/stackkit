@@ -1,0 +1,65 @@
+---
+title: AI Skills
+description: Configure Stackkit's project-local AI skill targets, trust levels, and update workflow.
+---
+
+Stackkit can install project-local guidance for the agents that work on a generated repository. Skill dependencies come from selected modules and are recorded so the stack and its guidance can be kept together.
+
+## Targets, modes, and link behavior
+
+| Setting | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `--ai` / `ai.skillTargets` | `codex`, `claude-code` | `codex` | Chooses the agent directories to manage. |
+| `--skills` / `ai.skillMode` | `install`, `plan`, `skip` | `install` | Installs skills, only plans them, or skips skill work. |
+| `--skill-link` / `ai.linkMode` | `copy`, `symlink` | `copy` | Chooses how installed skill files are placed. |
+
+Codex-compatible skills go to `.agents/skills`. Claude Code skills go to `.claude/skills` when that target is selected. The generated project can target both agents:
+
+```bash
+stackkit create my-app --web next --ai codex,claude-code
+```
+
+For a fast local smoke test, skip installation and prompts:
+
+```bash
+stackkit create my-app --web next --skills skip --yes
+```
+
+`plan` is useful when you want to see the requested skill work without running external install commands.
+
+## Trust levels
+
+Every dependency is classified as one of these trust levels:
+
+| Level | Meaning |
+| --- | --- |
+| `official` | Source owned by the vendor, framework, or platform. |
+| `curated` | Community source explicitly allowlisted by Stackkit. |
+| `local` | Guidance declared directly by a project or registry entry. |
+| `unresolved` | Desired guidance that was not installed or could not be trusted. |
+
+Stackkit does not silently add arbitrary remote skill sources to the built-in registry. Failed installs warn and continue, then record the result in the project state.
+
+## Recorded state
+
+The manifest stores target configuration and local guidance metadata. `skills-lock.json` records installed, planned, local, and unresolved entries, including the source, skill names, trust level, module that caused the dependency, and verification metadata when available.
+
+Inspect the current state with:
+
+```bash
+stackkit info --json
+stackkit doctor
+```
+
+## Sync and update
+
+Use `sync` to restore skills recorded in the lock file, and `update` to refresh installed official or curated content:
+
+```bash
+stackkit skills sync
+stackkit skills sync --apply
+stackkit skills update
+stackkit skills update --apply
+```
+
+Without `--apply`, the commands plan work. With `--apply`, they run the external `npx skills` commands and update the lock file. Unresolved entries remain visible until their source becomes available or the underlying module selection changes.

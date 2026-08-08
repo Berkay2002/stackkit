@@ -1,0 +1,61 @@
+---
+title: Contributing
+description: Develop Stackkit, keep package boundaries clear, and verify changes locally.
+---
+
+Stackkit is a pnpm TypeScript monorepo. Start from a clean understanding of the package that owns the behavior, then run the narrowest affected check before the full repository gate.
+
+## Development setup
+
+Requirements:
+
+- Node.js 22 or newer.
+- pnpm 10.
+- `uv` when running FastAPI generated-project checks.
+
+Install dependencies and run the repository checks:
+
+```bash
+pnpm install
+pnpm typecheck
+pnpm test
+pnpm smoke
+```
+
+Build the CLI and run its entrypoint directly:
+
+```bash
+pnpm build
+node packages/cli/dist/index.js --help
+```
+
+## Package ownership
+
+| Change | Package |
+| --- | --- |
+| Public Zod schemas and types | `packages/schemas` |
+| Pure generated file content | `packages/templates` |
+| Built-in modules, presets, and skill metadata | `packages/registry` |
+| Resolution, planning, manifests, diagnostics, and lifecycle | `packages/core` |
+| Commands, prompts, output, and exit codes | `packages/cli` |
+| Generated-project fixtures and integration helpers | `packages/test-utils` |
+| Local recipe customizer | `apps/customizer` |
+| Fumadocs website and MDX content | `apps/docs` |
+
+Keep the dependency direction predictable. Registry should describe modules, not write files. Templates should render typed inputs, not resolve CLI flags. CLI should delegate behavior to core rather than reimplementing planning.
+
+## Docs changes
+
+Docs live in `apps/docs/content/docs`. Every published page must be listed in `meta.json` and include frontmatter with a title and description. Verify content and rendering with:
+
+```bash
+pnpm --filter @berkayorhan/stackkit-docs test
+pnpm --filter @berkayorhan/stackkit-docs typecheck
+pnpm --filter @berkayorhan/stackkit-docs build
+```
+
+When documenting behavior, prefer verified CLI output, package tests, and `docs/status.md` over assumptions. Keep alpha limitations visible when a feature is only partially implemented.
+
+## Trust and security
+
+Do not add remote templates without a signing or trust model. Do not add untrusted AI skill sources to the default registry. Native initializers must declare their mutation policy and expected files so core can apply ownership and safety checks.

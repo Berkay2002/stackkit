@@ -1,3 +1,17 @@
 {
-  "pages": ["index", "getting-started", "cli-reference", "configuration"]
+  "pages": [
+    "index",
+    "getting-started",
+    "cli-reference",
+    "configuration",
+    "glossary",
+    "architecture",
+    "modules",
+    "managed-updates",
+    "skills",
+    "customizer",
+    "api",
+    "status",
+    "contributing"
+  ]
 }

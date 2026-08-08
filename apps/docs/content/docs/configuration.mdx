@@ -5,7 +5,7 @@ description: Reference for stackkit.config.json (the input config you edit) and 
 
 Stackkit uses two JSON files to manage your project. Understanding the role of each prevents confusion when inspecting or evolving a generated project.
 
-**`stackkit.config.json`** is the file you author. It describes the desired stack — which modules to include, which package manager to use, and any per-module options. Stackkit reads this file when you run `init`, `generate`, or `migrate`.
+**`stackkit.config.json`** is the file you author. It describes the desired stack - which modules to include, which package manager to use, and any per-module options. Stackkit reads this file when you run `create --config` or `config validate`.
 
 **`.stackkit/project.json`** is the manifest Stackkit writes and owns. It records exactly what was generated so commands like `info`, `doctor`, `diff`, and `migrate` can inspect and evolve the project over time. You should not hand-edit this file; keep it in sync by running Stackkit commands.
 
@@ -229,7 +229,7 @@ Records which managed-update migrations Stackkit has applied to this project. Us
 
 ## `stackkit.config.json`
 
-This is the file you create and maintain. Place it in your project root. Stackkit reads it during `init`, `generate`, and `migrate`.
+This is the file you create and maintain. Place it in your project root. Pass it to `stackkit create --config <path>` or validate it with `stackkit config validate <path>`.
 
 ### `projectName`
 
@@ -253,7 +253,7 @@ Array of module IDs to include. Stackkit installs and generates each listed modu
 
 ### `registries`
 
-A map of registry name to URL. Defaults to `{}`. Use this to point Stackkit at private or custom module registries.
+A map of registry namespace to a local JSON registry file. Defaults to `{}`. Remote `http` and `https` registries are rejected in the current alpha.
 
 ### `options`
 

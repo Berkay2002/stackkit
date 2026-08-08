@@ -1,0 +1,54 @@
+---
+title: Glossary
+description: Shared Stackkit terminology for modules, capabilities, tooling, presets, and native initialization.
+---
+
+These terms describe the contracts shared by the CLI, registry, core, templates, and customizer.
+
+## Module
+
+The atomic unit of generated behavior. A module has a canonical ID, can require or provide capabilities, can own files and package changes, and can participate in lifecycle operations. A module is not an npm package.
+
+## Capability
+
+A named string that a module provides or requires. Capabilities wire modules together and control ordering and validation. They are internal contracts, not user-facing tags.
+
+## Tooling slot
+
+A capability namespace for one developer-tooling responsibility in one language: lint, format, or typecheck. At most one selected module fills a slot. For example, `ts-lint` and `ts-format` are TypeScript slots.
+
+## Quality module
+
+A module that fills one or more tooling slots and owns the corresponding config files and package scripts. `quality/eslint`, `quality/prettier`, and `quality/biome` are examples.
+
+## Combined tool
+
+A quality module that fills more than one slot. Biome provides both TypeScript lint and format capabilities, so it replaces the single-slot ESLint and Prettier defaults when selected explicitly.
+
+## Stack axis
+
+A user-facing selection dimension exposed as a CLI flag and resolved to modules. Current axes include `--web`, `--ui`, `--api`, `--db`, `--db-client`, `--db-provider`, `--auth`, `--with`, and `--deploy`.
+
+## Preset
+
+A named, ordered list of canonical module IDs that expands into a starting selection. A preset is not a separate template format. Explicit modules and stack-axis choices are merged with it before validation.
+
+## Recipe
+
+An offline-encoded form of a stack selection. Recipe codes have an `sk_` prefix, do not require a hosted service, and do not include the destination project name.
+
+## Native CLI delegation
+
+Using an upstream framework, library, or platform `create`, `init`, `setup`, or migration CLI as the source of generated structure before applying Stackkit-specific composition and manifest tracking. Stackkit prefers this when the initializer is stable, non-interactive, and safe to own.
+
+## Native initializer
+
+A typed module declaration for a delegated CLI command. It records the tool, arguments, phase, working directory, conditions, mutation policy, expected files, and redacted files. Disabled initializers document researched integrations without claiming that Stackkit will execute them.
+
+## Manifest
+
+The generated `.stackkit/project.json` file. It is the durable record of module identity, source provenance, generated files, expected hashes, migrations, native initializer state, and AI skill state.
+
+## Skill lock
+
+The generated `skills-lock.json` file. It records installed, planned, local, and unresolved AI guidance so skill sync and update operations can be reproducible and auditable.

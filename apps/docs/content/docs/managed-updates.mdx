@@ -1,0 +1,81 @@
+---
+title: Managed Updates
+description: Understand file ownership, drift detection, lifecycle commands, and migrations in generated projects.
+---
+
+Stackkit treats a generated project as a managed workspace rather than a one-time scaffold. The project manifest records the selected modules and the files they own so later commands can plan changes safely.
+
+## Ownership in `.stackkit/project.json`
+
+Each managed file record includes:
+
+| Field | Meaning |
+| --- | --- |
+| `path` | Project-relative path. |
+| `owner` | Canonical module ID responsible for the file. |
+| `content` | Expected generated content retained for reproducible checks. |
+| `hash` | Hash of the expected content. |
+
+The manifest also records module versions, source provenance, environment metadata, native initializer results, migrations, and AI skill state. Keep `stackkit.config.json` as the desired input and `.stackkit/project.json` as generated state owned by Stackkit.
+
+## Inspect before changing
+
+Run these commands from a managed project:
+
+```bash
+stackkit info
+stackkit info --json
+stackkit doctor
+stackkit diff --file apps/web/package.json
+```
+
+`info` summarizes the config, manifest, selected modules, managed-file count, and skill-lock inventory. `doctor` checks the project state. `diff --file` compares a managed file with the expected generated content and gives a focused view of the change.
+
+## Lifecycle commands
+
+Lifecycle commands are available in the alpha, but review their plans and commit your project before applying them.
+
+### Add
+
+```bash
+stackkit add <module-id> --dry-run
+stackkit add <module-id> --dry-run --view apps/web/package.json
+stackkit add <module-id> --dry-run --diff
+```
+
+`add` resolves the requested module, checks requirements and conflicts, and plans new files, package changes, environment entries, hooks, and skills. Omit `--dry-run` only after reviewing the plan.
+
+### Remove
+
+```bash
+stackkit remove <module-id> --dry-run
+stackkit remove <module-id> --yes
+```
+
+Removal is ownership-aware. Stackkit can delete files owned only by the removed module, but it must not remove user-modified content or files still needed by another selected module.
+
+### Update
+
+```bash
+stackkit update --dry-run
+stackkit update <module-id> --dry-run
+stackkit update --apply
+```
+
+`update` compares installed module versions with registry versions and plans the associated file changes and automatic migrations.
+
+### Migrate
+
+```bash
+stackkit migrate --dry-run
+stackkit migrate <module-id> --dry-run
+stackkit migrate --apply
+```
+
+Migrations declare a source version, target version, operations, and safety level. Automatic migrations can be applied with `--apply`. Review-required and manual migrations remain visible for user action instead of being silently executed.
+
+## Drift and safety
+
+If a managed file's current hash differs from the manifest hash, Stackkit treats it as user-modified. Lifecycle operations refuse unsafe overwrites or mark the file for review. Do not edit `.stackkit/project.json` to bypass this check; restore the intended source file or explicitly resolve the change first.
+
+The current diff engine re-renders deterministic create-time files. Files whose expected content depends on metadata not retained in the manifest may need richer provenance before every historical variant can be reproduced exactly.

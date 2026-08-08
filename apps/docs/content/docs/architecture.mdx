@@ -1,0 +1,48 @@
+---
+title: Architecture
+description: How Stackkit resolves modules, renders files, and maintains generated projects.
+---
+
+Stackkit is a layered generator platform. The CLI owns user interaction, core owns planning and lifecycle behavior, registry owns declarations, templates own rendering, and schemas define the shared contracts.
+
+## Package boundaries
+
+| Package | Responsibility |
+| --- | --- |
+| `@berkayorhan/stackkit-schemas` | Zod schemas and TypeScript types for configs, modules, manifests, recipes, skills, and file operations. |
+| `@berkayorhan/stackkit-templates` | Deterministic rendering of generated files from typed inputs. |
+| `@berkayorhan/stackkit-registry` | Built-in modules, presets, aliases, capability declarations, and skill metadata. |
+| `@berkayorhan/stackkit-core` | Resolution, planning, file safety, manifests, diagnostics, recipes, skills, and lifecycle engines. |
+| `@berkayorhan/stackkit` | Commander command registration, prompts, output formatting, and process exit behavior. |
+
+The dependency direction is intentional: schemas are the contract base; templates and registry consume schemas; core consumes schemas, templates, and registry contracts; the CLI consumes core, registry, and schemas.
+
+## Create flow
+
+The `create` command follows one plan-first path:
+
+1. Load a config, preset, recipe, or stack-axis flags.
+2. Resolve aliases to canonical module IDs.
+3. Expand presets and fill default tooling slots.
+4. Order modules by their required capabilities and reject conflicts.
+5. Render file operations, package changes, environment entries, tasks, and skills.
+6. Check target-directory and file-ownership safety.
+7. Run approved native initializers and lifecycle hooks.
+8. Write generated files, `stackkit.config.json`, `.stackkit/project.json`, and skill state.
+9. Run diagnostics and print the next commands.
+
+Dry-run uses the same resolution and planning path but stops before writes. Use it to inspect the plan, view a single planned file, or emit a file-oriented diff.
+
+## Native CLI delegation
+
+When an upstream tool has a stable, non-interactive initializer that fits Stackkit's ownership model, Stackkit can delegate to it. ShadCN and Clerk are the currently enabled examples. The registry records the command, phase, mutation policy, expected files, and any redacted files. Core still records the resulting managed files in the manifest.
+
+Some initializers are researched and declared but disabled. A disabled initializer is documentation of a possible integration, not a promise that the CLI will run it.
+
+## Safety boundaries
+
+Stackkit does not silently overwrite user changes to managed files. File operations carry an ownership policy, and the manifest stores the expected content hash for generated files. Lifecycle commands use that information to refuse unsafe operations or require review.
+
+Remote registry URLs are also rejected in the current alpha. Project-local declarative registries are supported through `stackkit.registry.json` files and can be inspected without fetching remote code.
+
+See [Modules](/docs/modules) for the declaration model and [Managed Updates](/docs/managed-updates) for the lifecycle behavior built on top of it.

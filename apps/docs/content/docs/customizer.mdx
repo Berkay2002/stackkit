@@ -1,0 +1,38 @@
+---
+title: Visual Customizer
+description: Build offline Stackkit recipe commands with the local customizer app.
+---
+
+The Stackkit customizer is a local Next.js app for composing a project visually. It uses the same catalog, resolver, and recipe encoder as the CLI, so the UI does not maintain a second module-selection implementation.
+
+## Run it locally
+
+From the Stackkit repository:
+
+```bash
+pnpm --filter @berkayorhan/stackkit-customizer dev
+```
+
+The app is local-only. It does not require an account, a hosted recipe service, or backend storage.
+
+## What it can do
+
+- Choose a built-in preset or start from individual technology choices.
+- Select the package manager and AI skill options.
+- Choose web, API, database, auth, UI, and deployment options.
+- Preview the resolved canonical module IDs.
+- Encode the selection as an offline recipe code.
+- Copy a command in the form `stackkit create <name> --recipe <code>`.
+- View the decoded config behind the recipe.
+
+The command can be run on another machine without a hosted recipe ID:
+
+```bash
+stackkit create my-app --recipe sk_...
+```
+
+Recipe codes contain the validated stack selection. They do not embed the project name, so the recipient chooses the output directory when running the command.
+
+## Current boundaries
+
+The customizer intentionally does not provide accounts, persistence, telemetry, hosted recipe IDs, or remote registry fetching. Its deployment choices are limited by the generated templates currently backed by Stackkit. Docker and Kubernetes are supported for the containerizable Next.js and FastAPI paths; Vite, TanStack Start, and Rust API container templates are not implemented yet.

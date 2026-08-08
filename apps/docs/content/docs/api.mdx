@@ -1,0 +1,120 @@
+---
+title: Programmatic API
+description: Use Stackkit's published packages to resolve modules, encode recipes, and build generator tooling.
+---
+
+Stackkit's runtime packages expose the same contracts used by the CLI. Use the programmatic API when building a custom frontend, an internal generator, or tooling around Stackkit plans. The CLI remains the supported path for end users.
+
+## Package map
+
+| Package | Use it for |
+| --- | --- |
+| `@berkayorhan/stackkit-core` | Resolution, planning, manifests, diagnostics, recipes, skills, and lifecycle operations. |
+| `@berkayorhan/stackkit-registry` | Built-in modules, presets, registry data, and tooling catalog declarations. |
+| `@berkayorhan/stackkit-schemas` | Zod schemas and inferred TypeScript types for public data contracts. |
+| `@berkayorhan/stackkit-templates` | Deterministic generated-file rendering used by core. |
+
+The customizer-specific catalog is available from the `@berkayorhan/stackkit-core/customizer` export.
+
+## Resolve a stack
+
+`resolveStackAxes` turns friendly axis choices into canonical module IDs. `resolveModuleGraph` then expands presets, adds default tooling, orders requirements, and validates conflicts.
+
+```ts
+import {
+  resolveModuleGraph,
+  resolveStackAxes,
+} from '@berkayorhan/stackkit-core';
+import {
+  builtinModules,
+  builtinPresets,
+} from '@berkayorhan/stackkit-registry';
+
+const selectedIds = resolveStackAxes(
+  {
+    web: 'next',
+    api: 'fastapi',
+    db: 'postgres',
+    auth: 'auth0',
+  },
+  builtinModules,
+);
+
+const selectedModules = selectedIds.map((id) =>
+  builtinModules.find((module) => module.id === id)!,
+);
+
+const resolved = resolveModuleGraph(selectedModules, {
+  availableModules: builtinModules,
+  availablePresets: builtinPresets,
+});
+
+console.log(resolved.map((module) => module.id));
+```
+
+Prefer canonical module IDs in persisted data. Aliases are a user-facing input convenience and can be ambiguous when a custom registry adds a matching alias.
+
+## Encode and decode offline recipes
+
+Recipes are validated, URL-safe strings with an `sk_` prefix. They are portable and do not require a server:
+
+```ts
+import {
+  decodeRecipe,
+  encodeRecipe,
+} from '@berkayorhan/stackkit-core';
+
+const code = encodeRecipe({
+  schemaVersion: 1,
+  packageManager: 'pnpm',
+  modules: ['workspace/pnpm-turbo', 'web/nextjs'],
+  options: {},
+  ai: {
+    skillTargets: ['codex'],
+    skillMode: 'skip',
+    linkMode: 'copy',
+  },
+});
+
+const recipe = decodeRecipe(code);
+```
+
+`encodeRecipe` validates input with `stackkitRecipeSchema`. `decodeRecipe` rejects strings that do not start with `sk_` or do not contain a valid schema payload.
+
+## Define modules and presets
+
+Registry authors use the schema-backed helpers from `@berkayorhan/stackkit-schemas`:
+
+```ts
+import { defineModule, definePreset } from '@berkayorhan/stackkit-schemas';
+
+const module = defineModule({
+  id: 'acme/observability',
+  version: '1.0.0',
+  title: 'Acme Observability',
+  description: 'Adds the Acme observability starter files',
+  provides: ['observability'],
+  files: [
+    {
+      kind: 'write',
+      path: 'observability.config.ts',
+      owner: 'acme/observability',
+      content: 'export const observability = true;\n',
+      overwrite: 'if-owned',
+    },
+  ],
+});
+
+const preset = definePreset({
+  id: 'acme-default',
+  title: 'Acme default',
+  description: 'The default Acme stack',
+  modules: ['acme/observability'],
+});
+```
+
+Keep registry declarations free of disk writes and process execution. Core consumes the declarations and owns planning, conflict checks, and application.
+
+## Stability note
+
+The packages are published from the repository, but Stackkit is still an internal alpha. Treat lifecycle and native-initializer APIs as evolving. Pin package versions and validate generated output with `stackkit doctor` when building tooling around them.

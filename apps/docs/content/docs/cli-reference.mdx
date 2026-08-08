@@ -37,6 +37,7 @@ description: Complete reference for all Stackkit CLI commands, flags, and lifecy
 | `stackkit preset list` | List all available presets |
 | `stackkit preset inspect <id>` | Show the modules and flags a preset resolves to |
 | `stackkit recipe encode` | Encode a preset or stack as a portable offline recipe code |
+| `stackkit recipe decode <code>` | Decode a recipe code as JSON |
 | `stackkit recipe inspect <code>` | Decode and inspect a recipe code |
 | `stackkit module list` | List all available modules |
 | `stackkit module search <query>` | Search modules by name or keyword |
@@ -48,6 +49,8 @@ description: Complete reference for all Stackkit CLI commands, flags, and lifecy
 | `stackkit migrate` | Run versioned migrations for managed modules *(alpha)* |
 | `stackkit skills sync` | Sync AI skill targets for the current stack *(alpha)* |
 | `stackkit skills update` | Update AI skill content in the project *(alpha)* |
+| `stackkit config validate [path]` | Validate a Stackkit config file |
+| `stackkit init` | Adopt an existing repository into Stackkit management *(not implemented yet)* |
 
 ---
 
@@ -63,10 +66,16 @@ stackkit create <project-name> [flags]
 
 | Flag | Description |
 |---|---|
+| `-c, --config <path>` | Read a complete `stackkit.config.json` instead of composing stack-axis flags. |
+| `--pm <manager>` / `--package-manager <manager>` | Package manager: `pnpm`, `npm`, `yarn`, or `bun`. |
+| `--ai <targets>` | Comma-separated AI targets: `codex`, `claude-code`. |
+| `--skills <mode>` | AI skill mode: `install`, `plan`, or `skip`. |
+| `--skill-link <mode>` | AI skill link mode: `copy` or `symlink`. |
 | `--web <framework>` | Web app framework (e.g. `next`, `vite`, `tanstack`) |
 | `--ui <shadcn\|tailwind\|none>` | UI layer; defaults to ShadCN for React frameworks; `none` to opt out, `tailwind` to swap |
 | `--api <framework>` | API framework (e.g. `fastapi`) |
 | `--db <database>` | Database module (e.g. `postgres`) |
+| `--db-client <client>` | Database client, such as `drizzle`, `prisma`, `sqlalchemy`, or `sqlx`. |
 | `--db-provider <host>` | Postgres host/provider: `neon`, `supabase`, `supabase-local`, `postgres-local` (omit for bring-your-own `DATABASE_URL`) |
 | `--db-runtime <mode>` | Database client runtime: `node` (default) or `edge`. `edge` applies to Neon + Drizzle and emits the `@neondatabase/serverless` client |
 | `--auth <provider>` | Auth provider (e.g. `auth0`, `clerk`) |
@@ -76,8 +85,12 @@ stackkit create <project-name> [flags]
 | `--py-typecheck <mypy\|pyright>` | Python type checker (default `mypy`) |
 | `--preset <id>` | Use a named preset instead of individual flags |
 | `--recipe <code>` | Use an offline recipe code |
-| `--skills skip` | Skip AI skill installation |
-| `--yes` | Accept all prompts automatically |
+| `--dry-run` | Print the plan without writing files. |
+| `--allow-external-state` | Allow native initializers that can mutate external state. Use only when you understand the initializer. |
+| `--view <path>` | Print one planned file during `--dry-run`. |
+| `--diff` | Print file-oriented planned changes during `--dry-run`. |
+| `--dir <path>` | Write to a specific target project directory. |
+| `-y, --yes` | Skip confirmation prompts. |
 
 **Example**
 
@@ -130,6 +143,17 @@ stackkit create my-spa --web vite --deploy vercel
 ```
 
 `deploy/docker` and `deploy/kubernetes` currently render container files for Next.js and FastAPI. Vercel requires a web app. Vite, TanStack Start, and Rust API container templates are not implemented yet.
+
+**Config-backed create**
+
+Use a complete config when the stack should be reproducible from a file:
+
+```bash
+stackkit create --config ./stackkit.config.json --dir ./my-app
+stackkit create --config ./stackkit.config.json --dry-run
+```
+
+The `--config` path is the source of module selection. Stack-axis flags are for the scripted composition path and should not be mixed with a config or recipe that already carries its own module list.
 
 **Tooling slots**
 
@@ -195,6 +219,7 @@ Dry-run output includes extractable `STACKKIT_PLAN_JSON_START` and `STACKKIT_PLA
 
 ```bash
 stackkit create my-app --web next --dry-run --view apps/web/package.json
+stackkit create my-app --web next --dry-run --diff
 ```
 
 ---
@@ -225,6 +250,12 @@ stackkit recipe encode --preset next-fastapi-postgres-auth0
 
 ```bash
 stackkit recipe inspect sk_...
+```
+
+**Decode a recipe as JSON**
+
+```bash
+stackkit recipe decode sk_... --json
 ```
 
 **Create a project from a recipe**
@@ -269,7 +300,16 @@ stackkit module inspect fastapi --json
 
 ```bash
 stackkit registry list
+stackkit registry list --config ./stackkit.config.json
 ```
+
+**Validate configuration**
+
+```bash
+stackkit config validate ./stackkit.config.json
+```
+
+Use `--json` on commands that support it when another tool needs stable machine-readable output. Human-friendly module discovery may show aliases, while JSON output preserves canonical IDs.
 
 ---
 
@@ -282,35 +322,42 @@ These commands evolve a managed project over time. They are in early alpha. Alwa
 **Add a module to an existing project**
 
 ```bash
-stackkit add <module-id>
+stackkit add <module-id> --dry-run
+stackkit add <module-id> --dry-run --view apps/web/package.json
+stackkit add <module-id> --dry-run --diff
 ```
 
 **Remove a module**
 
 ```bash
-stackkit remove <module-id>
+stackkit remove <module-id> --dry-run
+stackkit remove <module-id> --yes
 ```
 
 **Update generated files for existing modules**
 
 ```bash
-stackkit update
+stackkit update [module-id] --dry-run
+stackkit update [module-id] --apply
 ```
 
 **Run versioned migrations**
 
 ```bash
-stackkit migrate
+stackkit migrate [module-id] --dry-run
+stackkit migrate [module-id] --apply
 ```
 
 **Sync AI skill targets for the current stack**
 
 ```bash
 stackkit skills sync
+stackkit skills sync --apply
 ```
 
 **Update AI skill content**
 
 ```bash
 stackkit skills update
+stackkit skills update --apply
 ```

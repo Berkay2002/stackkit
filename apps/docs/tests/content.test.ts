@@ -4,7 +4,21 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const docsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'content', 'docs');
-const expectedPages = ['index', 'getting-started', 'cli-reference', 'configuration'];
+const expectedPages = [
+  'index',
+  'getting-started',
+  'cli-reference',
+  'configuration',
+  'glossary',
+  'architecture',
+  'modules',
+  'managed-updates',
+  'skills',
+  'customizer',
+  'api',
+  'status',
+  'contributing',
+];
 
 describe('docs content', () => {
   it('ships an MDX file for every page declared in meta.json', () => {

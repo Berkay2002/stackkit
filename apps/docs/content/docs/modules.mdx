@@ -1,0 +1,99 @@
+---
+title: Modules
+description: Define, select, and reason about Stackkit modules, capabilities, presets, and tooling slots.
+---
+
+A module is the atomic unit of generated behavior. It is a typed declaration with a canonical ID such as `web/nextjs` or `quality/eslint`. The module ID is recorded in the generated manifest, so later commands can reproduce the same decision.
+
+## What a module can declare
+
+| Field | Purpose |
+| --- | --- |
+| `id`, `version`, `title`, `description` | Stable identity and human-facing metadata. |
+| `aliases` | Friendly inputs accepted by the CLI, such as `next` for `web/nextjs`. |
+| `requires` | Capabilities that must already be provided by another module. |
+| `provides` | Capabilities this module makes available to later modules. |
+| `conflicts` | Module IDs that cannot be selected with this module. |
+| `files` | Owned file writes and deletes with an overwrite policy. |
+| `packageChanges` | Dependencies, peer dependencies, optional dependencies, and scripts. |
+| `envVars` | Entries composed into generated `.env.example` files. |
+| `tasks` | Commands used by generated workspace scripts. |
+| `postCreate`, `postAdd` | Lifecycle hooks run after the relevant operation. |
+| `nativeInitializers` | Delegated upstream `create`, `init`, or `setup` commands. |
+| `migrations` | Versioned changes between module releases. |
+| `aiSkills` | Official, curated, local, or unresolved agent guidance. |
+| `validate` | File-exists or command-succeeds checks used by diagnostics. |
+
+## Capabilities and ordering
+
+Capabilities are internal wiring strings. For example, `web/nextjs` requires the workspace capability and provides `react`; `ui/shadcn` requires `react`. Core orders modules so requirements are provided before they are consumed, then rejects missing requirements and explicit conflicts.
+
+```text
+workspace/pnpm-turbo
+        |
+        v
+    web/nextjs ---- provides react ----> ui/shadcn
+        |
+        +---- provides web-app ----> deploy/vercel
+```
+
+Capabilities are not user-facing flags. Use aliases and stack axes in the CLI, then use canonical IDs in configs, manifests, and registry files.
+
+## Stack axes
+
+Stack-axis flags are a convenient way to choose modules:
+
+| Axis | Example | Result |
+| --- | --- | --- |
+| `--web` | `next`, `vite`, `tanstack-start` | Selects a web framework. |
+| `--ui` | `shadcn`, `tailwind`, `none` | Chooses the UI layer for a React web stack. |
+| `--api` | `fastapi`, `axum` | Selects an API service. |
+| `--db` | `postgres` | Selects a database family. |
+| `--db-client` | `drizzle`, `prisma`, `sqlalchemy`, `sqlx` | Selects the client that fits the selected language. |
+| `--db-provider` | `neon`, `supabase`, `postgres-local` | Selects a Postgres host or local setup. |
+| `--auth` | `clerk`, `auth0` | Selects a supported authentication provider. |
+| `--with` | `docker`, `shadcn` | Adds modules to the resolved stack. |
+| `--deploy` | `vercel`, `k8s` | Adds deployment modules. Kubernetes includes Docker. |
+
+The resolver adds the workspace and language foundations it needs. React frameworks default to ShadCN unless `--ui none` or another UI choice is supplied. Postgres defaults to Drizzle for a TypeScript-only stack, SQLAlchemy for FastAPI, and SQLx for Axum.
+
+## Quality modules and tooling slots
+
+Lint, format, and typecheck are modeled as per-language capabilities. A default quality module fills an empty slot. An explicit alternative suppresses the default it replaces.
+
+```bash
+stackkit create my-app --web next --ts-quality biome
+stackkit create my-api --api fastapi --py-typecheck pyright
+```
+
+`--ts-quality biome` replaces the TypeScript ESLint and Prettier slots while leaving `tsc` in place. `--py-typecheck pyright` replaces mypy. This keeps the selected tool identity in the manifest, which makes `diff` and lifecycle operations reproducible.
+
+## Presets and local registries
+
+A preset is an ordered list of canonical module IDs. It is a starting selection, not a separate template format. Explicit modules and stack-axis choices are merged with the preset before validation.
+
+Project-local registries use the same schema as the built-in registry:
+
+```json title="stackkit.registry.json"
+{
+  "schemaVersion": 1,
+  "namespace": "@acme",
+  "name": "Acme modules",
+  "modules": [],
+  "presets": []
+}
+```
+
+Reference a local file from `stackkit.config.json`:
+
+```json
+{
+  "projectName": "acme-dashboard",
+  "registries": {
+    "@acme": "./stackkit.registry.json"
+  },
+  "modules": []
+}
+```
+
+Use `stackkit registry list --config stackkit.config.json` to inspect the declarations. Remote registry fetching is not supported yet.

@@ -1,0 +1,42 @@
+---
+title: Status and Known Gaps
+description: Current alpha status, verified capabilities, and limitations of Stackkit.
+---
+
+Stackkit is usable locally as an internal alpha. The generate, inspect, validate, recipe, registry, and customizer paths are working, while generated application depth and lifecycle confidence are still expanding.
+
+## Verified capabilities
+
+- pnpm, npm, yarn, and bun project metadata.
+- Next.js, Vite, and TanStack Start web starters.
+- FastAPI service generation with a health endpoint and test path.
+- ShadCN, Tailwind, Postgres, Drizzle, Prisma, SQLAlchemy, Auth0 metadata, Docker, Kubernetes, and Vercel modules at their current support depth.
+- Default and selectable TypeScript and Python quality tooling.
+- Deterministic `README.md`, `.env.example`, root scripts, manifests, recipes, module discovery, presets, and local registry inspection.
+- Project-local Codex and Claude Code skill targets.
+- `stackkit doctor`, `stackkit diff --file`, and `stackkit info` diagnostics.
+
+Representative verification commands are part of the repository gate:
+
+```bash
+pnpm typecheck
+pnpm test
+pnpm smoke
+```
+
+## Known gaps
+
+<Callout title="Alpha boundary" type="warn">
+Generated projects are starter-level. Auth and database modules mostly provide metadata, environment examples, and skill guidance rather than complete application integrations.
+</Callout>
+
+- Rust services are declared, but Rust service templates are not deeply implemented.
+- Docker and Kubernetes templates currently cover Next.js and FastAPI. Vite, TanStack Start, and Rust API container templates are not implemented.
+- Vite and TanStack Start output is starter-depth; TanStack Start generates its route tree during the Vite dev or build path.
+- Remote registries are rejected instead of fetched.
+- The customizer is local-only and does not host or persist recipe IDs.
+- `init` is registered in the CLI but is not implemented yet.
+- Lifecycle commands are tested but need more representative generated-project verification before they should be treated as stable.
+- Managed diff may need richer manifest provenance for files whose expected content depends on metadata not retained in the manifest.
+
+Read [Getting Started](/docs/getting-started) for the supported generate-and-validate path, and [Managed Updates](/docs/managed-updates) before using alpha lifecycle commands.
