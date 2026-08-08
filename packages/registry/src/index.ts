@@ -5,7 +5,7 @@ import {
   type NativeInitializerInput
 } from "@berkayorhan/stackkit-schemas";
 
-import { buildQualityModules } from "./tooling.js";
+import { buildQualityModules } from "./tooling-catalog.js";
 
 // Public tooling-catalog surface. `core` consumes these via the documented `core → registry` arrow
 // (its `applyDefaultTooling` resolution logic + the browser customizer entry re-export them).
@@ -17,7 +17,7 @@ export {
   type ToolingLanguage,
   type ToolingSlot,
   type ToolingToolSpec
-} from "./tooling.js";
+} from "./tooling-catalog.js";
 
 export const curatedSkillSourceAllowlist = [
   "https://github.com/antfu/skills",
