@@ -54,7 +54,7 @@ describe("runDoctor", () => {
 
     const result = await runDoctor(directory);
 
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
     expect(result.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -104,11 +104,61 @@ describe("runDoctor", () => {
     const result = await runDoctor(directory);
     const check = result.checks.find((item) => item.id === "skills.unresolved");
 
+    expect(result.ok).toBe(true);
     expect(check).toEqual(
       expect.objectContaining({
         status: "warning",
         actions: ["stackkit skills sync --apply"]
       })
+    );
+  });
+
+  it("reports skipped native initializers as known gaps", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-doctor-skipped-init-"));
+    tempDirectories.push(directory);
+    await mkdir(join(directory, ".stackkit"), { recursive: true });
+    await writeFile(
+      join(directory, ".stackkit", "project.json"),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          stackkitVersion: "0.0.0",
+          projectName: "acme",
+          createdAt: "2026-06-02T00:00:00.000Z",
+          modules: [],
+          files: [],
+          skippedInitializers: [
+            {
+              name: "clerk init",
+              moduleId: "auth/clerk",
+              mutationPolicy: "external-state",
+              reason: "Requires --allow-external-state"
+            }
+          ],
+          aiSkills: {
+            targets: [],
+            installed: [],
+            unresolved: []
+          },
+          migrations: { applied: [] }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const result = await runDoctor(directory);
+
+    expect(result.ok).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "initializers.skipped.clerk-init",
+          status: "warning",
+          actions: ["stackkit create --allow-external-state"]
+        })
+      ])
     );
   });
 });

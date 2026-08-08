@@ -6,7 +6,7 @@ Before changing code, inspect the relevant package, docs, tests, and existing pa
 
 Keep work in the current checkout unless the user explicitly asks for a branch or worktree. For large Stackkit changes, work in reviewable chunks and verify each meaningful milestone before moving on.
 
-When there is a product, CLI UX, output-format, or lifecycle-contract uncertainty, surface it instead of guessing. Stackkit should be designed as a long-term generator platform, not a narrow frontend-only TypeScript MVP.
+When there is a product, CLI UX, output-format, or lifecycle-contract uncertainty, surface it instead of guessing. Stackkit should be designed as a long-term generator platform.
 
 Run the narrowest useful verification first. For package-scoped changes, start with that package's `pnpm --filter <package> test` and `pnpm --filter <package> typecheck` where applicable. For shared contracts, generated output, or CLI behavior, also run the relevant root checks: `pnpm test`, `pnpm typecheck`, `pnpm build`, or `pnpm smoke`.
 
@@ -67,17 +67,6 @@ Dependency direction should stay predictable: schemas are the contract base; tem
 `apps/customizer` is a local Next.js app for composing Stackkit projects visually and copying offline `stackkit create <name> --recipe <code>` commands. It should consume the shared customizer catalog, resolver, registry, and recipe APIs from `@berkayorhan/stackkit-core/customizer`, `@berkayorhan/stackkit-core`, and `@berkayorhan/stackkit-registry`. Do not duplicate module resolution, preset expansion, recipe encoding, or registry policy in UI code. Keep it offline unless the product contract changes: no accounts, hosted recipe IDs, persistence, telemetry, or backend storage.
 
 `apps/docs` is the Fumadocs/Next.js documentation app for Stackkit. Keep docs content and docs routing inside the app's Fumadocs conventions, and keep package behavior aligned with the workspace contracts rather than hand-copying CLI, registry, or generated-project truth into isolated app logic. When documenting current behavior, prefer verified CLI output, package tests, and `docs/status.md` over stale assumptions.
-
-## Autonomous build runs (the `ship` workflow)
-
-When a build is driven end-to-end with no human gate (the `ship` skill — user AFK), these overrides hold for that run:
-
-- **Reviewer approval is the only gate.** Never block on the human to approve a spec or plan; proceed the moment reviewers approve.
-- **No git worktrees, ever.** No feature branch until explicitly told to make one.
-- **AFK is not default → you may commits.**
-- **Review per milestone, not per task** — code/spec review runs after each chunk, never after every individual task (too slow/costly).
-- **Done = whole plan implemented *and* a live end-to-end test passes** — not unit tests + typecheck alone.
-- Pipeline: (brainstorm to diverge → grill to converge) → spec → (spec review ∥ plan draft) → revise → (spec ∥ plan review) → implement (subagent-driven + TDD) → milestone review → E2E. Invoke with `/ship`.
 
 ## Reference Repos
 

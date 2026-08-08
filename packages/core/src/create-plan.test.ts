@@ -108,6 +108,55 @@ describe("createCreatePlan", () => {
     expect(JSON.parse(JSON.stringify(plan))).not.toHaveProperty("selectedModules");
   });
 
+  it("marks external-state native initializers as gated unless explicitly allowed", () => {
+    const input = {
+      config: {
+        projectName: "native-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["auth/clerk"],
+        ai: { skillTargets: ["codex"], skillMode: "skip" }
+      },
+      availableModules: [
+        defineModule({
+          id: "auth/clerk",
+          version: "1.0.0",
+          title: "Clerk",
+          description: "Clerk auth",
+          nativeInitializers: [
+            {
+              name: "clerk init",
+              phase: "integration",
+              tool: { execution: "package-manager-dlx", package: "@clerk/cli@latest" },
+              args: ["init"],
+              cwd: ".",
+              mutationPolicy: "external-state",
+              expectedFiles: ["apps/web/.env.local"]
+            }
+          ]
+        })
+      ]
+    } as const;
+
+    const gatedPlan = createCreatePlan(input);
+    const allowedPlan = createCreatePlan({ ...input, allowExternalState: true });
+
+    expect(gatedPlan.nativeInitializers).toEqual([
+      expect.objectContaining({
+        name: "clerk init",
+        gated: true,
+        skipReason: "Requires --allow-external-state"
+      })
+    ]);
+    expect(allowedPlan.nativeInitializers).toEqual([
+      expect.objectContaining({
+        name: "clerk init",
+        gated: false,
+        skipReason: undefined
+      })
+    ]);
+  });
+
   it("builds a dry-run create plan from parsed config and available modules", () => {
     const plan = createCreatePlan({
       config: {

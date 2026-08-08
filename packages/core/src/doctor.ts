@@ -68,8 +68,17 @@ export async function runDoctor(projectDirectory: string): Promise<DoctorResult>
     }));
   }
 
+  for (const initializer of manifest.skippedInitializers) {
+    checks.push(createDoctorCheck({
+      id: `initializers.skipped.${slugifyCheckId(initializer.name)}`,
+      status: "warning",
+      message: `Native initializer was skipped: ${initializer.name} (${initializer.mutationPolicy})`,
+      actions: ["stackkit create --allow-external-state"]
+    }));
+  }
+
   return {
-    ok: checks.every((check) => check.status === "ok"),
+    ok: checks.every((check) => check.status !== "error"),
     checks
   };
 }
@@ -79,4 +88,8 @@ function createDoctorCheck(check: Omit<DoctorCheck, "actions"> & { actions?: str
     ...check,
     actions: check.actions ?? []
   };
+}
+
+function slugifyCheckId(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }

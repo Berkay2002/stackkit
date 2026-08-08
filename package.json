@@ -14,7 +14,7 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "smoke": "turbo run build --force && pnpm --filter @berkayorhan/stackkit-test-utils test -- e2e-smoke",
+    "smoke": "turbo run build --force && pnpm --filter @berkayorhan/stackkit-test-utils test -- e2e-",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish"

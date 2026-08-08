@@ -31,6 +31,7 @@ import {
   type NativeInitializerArg,
   type NativeInitializerMutationPolicy,
   type NativeInitializerPhase,
+  type SkippedInitializer,
   type StackkitConfig,
   type StackkitManifest,
   type StackkitManifestSource,
@@ -80,6 +81,7 @@ import {
 import { runDoctor } from "./doctor.js";
 import { defineModule } from "./registry.js";
 import { runLifecycleHooks } from "./lifecycle.js";
+import { expandExpectedFiles, matchGlob } from "./glob-match.js";
 
 export type CreatePlan = {
   schemaVersion: 1;
@@ -119,6 +121,8 @@ export type PlannedNativeInitializer = {
   mutationPolicy: NativeInitializerMutationPolicy;
   expectedFiles: string[];
   redactExpectedFiles: string[];
+  gated: boolean;
+  skipReason?: string;
 };
 
 export type CreatePlanInput = {
@@ -127,6 +131,7 @@ export type CreatePlanInput = {
   availableModules: readonly StackkitModule[];
   availablePresets?: readonly StackkitPreset[];
   curatedSkillSourceAllowlist?: readonly string[];
+  allowExternalState?: boolean;
 };
 
 export type ApplyCreatePlanOptions = {
@@ -136,6 +141,7 @@ export type ApplyCreatePlanOptions = {
   now?: () => Date;
   installSkills?: boolean;
   runCommand?: RunCommand;
+  allowExternalState?: boolean;
 };
 
 export type ApplyCreatePlanResult = {
@@ -172,7 +178,8 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
     config: input.config,
     modules,
     projectName,
-    targetDirectoryName: normalizeTargetDirectoryName(projectName)
+    targetDirectoryName: normalizeTargetDirectoryName(projectName),
+    allowExternalState: input.allowExternalState ?? false
   });
 
   const plan: Omit<CreatePlan, "selectedModules"> = {
@@ -439,17 +446,20 @@ export async function applyCreatePlan(
     ownedFiles: [],
     conflictLabel: "Create target"
   });
+  let skippedInitializers: SkippedInitializer[] = [];
   if (options.runCommand) {
     await runLifecycleHooks(
       plan.selectedModules.flatMap((module) => module.postCreate ?? []),
       { projectDirectory, runCommand: options.runCommand }
     );
-    const initializerFiles = await runNativeInitializers(plan.nativeInitializers, {
+    const initializerResult = await runNativeInitializers(plan.nativeInitializers, {
       projectDirectory,
-      runCommand: options.runCommand
+      runCommand: options.runCommand,
+      allowExternalState: options.allowExternalState ?? false
     });
     files = await refreshManagedFileHashes(projectDirectory, files);
-    files = mergeManifestFiles(files, initializerFiles);
+    files = mergeManifestFiles(files, initializerResult.files);
+    skippedInitializers = initializerResult.skipped;
   }
 
   const skillInstallResult = await resolveSkillInstallResult(plan, projectDirectory, options);
@@ -470,6 +480,7 @@ export async function applyCreatePlan(
     })),
     files,
     expectedFiles,
+    skippedInitializers,
     aiSkills: {
       mode: plan.aiSkills.mode,
       linkMode: plan.aiSkills.linkMode,
@@ -511,10 +522,10 @@ async function readManagedExpectedFiles(
   nativeInitializers: readonly PlannedNativeInitializer[] = []
 ): Promise<ManifestExpectedFile[]> {
   const expectedFiles: ManifestExpectedFile[] = [];
-  const redactedPaths = new Set(nativeInitializers.flatMap((initializer) => initializer.redactExpectedFiles));
+  const redactedPatterns = nativeInitializers.flatMap((initializer) => initializer.redactExpectedFiles);
 
   for (const file of files) {
-    if (redactedPaths.has(file.path)) {
+    if (redactedPatterns.some((pattern) => matchGlob(file.path, pattern))) {
       continue;
     }
 
@@ -562,6 +573,7 @@ type PlanNativeInitializersInput = {
   modules: readonly StackkitModule[];
   projectName: string;
   targetDirectoryName: string;
+  allowExternalState: boolean;
 };
 
 function planNativeInitializers(input: PlanNativeInitializersInput): PlannedNativeInitializer[] {
@@ -591,6 +603,8 @@ function planNativeInitializers(input: PlanNativeInitializersInput): PlannedNati
           ? adapter.dlxCommand(initializer.tool.package, resolvedArgs)
           : [initializer.tool.command, ...resolvedArgs];
 
+      const gating = nativeInitializerGating(initializer.mutationPolicy, input.allowExternalState);
+
       planned.push({
         moduleId: module.id,
         name: initializer.name,
@@ -600,12 +614,25 @@ function planNativeInitializers(input: PlanNativeInitializersInput): PlannedNati
         cwd: normalizeNativeInitializerCwd(initializer.cwd),
         mutationPolicy: initializer.mutationPolicy,
         expectedFiles: initializer.expectedFiles.map(normalizeProjectPath),
-        redactExpectedFiles: initializer.redactExpectedFiles.map(normalizeProjectPath)
+        redactExpectedFiles: initializer.redactExpectedFiles.map(normalizeProjectPath),
+        gated: gating.gated,
+        skipReason: gating.reason
       });
     }
   }
 
   return planned;
+}
+
+function nativeInitializerGating(
+  mutationPolicy: NativeInitializerMutationPolicy,
+  allowExternalState: boolean
+): { gated: boolean; reason?: string } {
+  if (mutationPolicy === "external-state" && !allowExternalState) {
+    return { gated: true, reason: "Requires --allow-external-state" };
+  }
+
+  return { gated: false };
 }
 
 function normalizeNativeInitializerCwd(cwd: string): string {
@@ -765,11 +792,24 @@ async function runNativeInitializers(
   options: {
     projectDirectory: string;
     runCommand: RunCommand;
+    allowExternalState: boolean;
   }
-): Promise<ManifestFileRecord[]> {
-  const records: ManifestFileRecord[] = [];
+): Promise<{ files: ManifestFileRecord[]; skipped: SkippedInitializer[] }> {
+  const files: ManifestFileRecord[] = [];
+  const skipped: SkippedInitializer[] = [];
 
   for (const initializer of initializers) {
+    const gating = nativeInitializerGating(initializer.mutationPolicy, options.allowExternalState);
+    if (initializer.gated || gating.gated) {
+      skipped.push({
+        name: initializer.name,
+        moduleId: initializer.moduleId,
+        mutationPolicy: initializer.mutationPolicy,
+        reason: initializer.skipReason ?? gating.reason ?? "Skipped"
+      });
+      continue;
+    }
+
     const before = await captureProjectFileSnapshot(options.projectDirectory);
     const cwd = join(options.projectDirectory, initializer.cwd);
     const result = await options.runCommand(initializer.command, initializer.args, { cwd });
@@ -779,18 +819,18 @@ async function runNativeInitializers(
     }
 
     const after = await captureProjectFileSnapshot(options.projectDirectory);
-    const redacted = new Set(initializer.redactExpectedFiles.map((filePath) => normalizeProjectPath(filePath)));
+    const redacted = expandExpectedFiles(initializer.redactExpectedFiles, after.keys());
 
     for (const [path, hash] of after) {
-      if (before.has(path) || redacted.has(path)) {
+      if (before.has(path) || redacted.includes(path)) {
         continue;
       }
 
-      records.push({ path, owner: initializer.moduleId, hash });
+      files.push({ path, owner: initializer.moduleId, hash });
     }
   }
 
-  return records;
+  return { files, skipped };
 }
 
 async function assertCreateTargetIsSafe(projectDirectory: string): Promise<void> {

@@ -92,10 +92,10 @@ Preview a preset:
 stackkit create my-app --preset next-postgres-clerk --dry-run
 ```
 
-Preview explicit stack choices as JSON:
+Preview explicit stack choices. Dry-run output includes extractable JSON markers:
 
 ```bash
-stackkit create my-app --web next --api fastapi --db postgres --auth auth0 --dry-run --json
+stackkit create my-app --web next --api fastapi --db postgres --auth auth0 --dry-run
 ```
 
 View a planned file:

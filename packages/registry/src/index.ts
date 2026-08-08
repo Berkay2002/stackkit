@@ -1,5 +1,23 @@
-import { buildQualityModules, defineModule, definePreset } from "@berkayorhan/stackkit-core/customizer";
-import { stackkitRegistrySchema, type NativeInitializerInput } from "@berkayorhan/stackkit-schemas";
+import {
+  defineModule,
+  definePreset,
+  stackkitRegistrySchema,
+  type NativeInitializerInput
+} from "@berkayorhan/stackkit-schemas";
+
+import { buildQualityModules } from "./tooling.js";
+
+// Public tooling-catalog surface. `core` consumes these via the documented `core → registry` arrow
+// (its `applyDefaultTooling` resolution logic + the browser customizer entry re-export them).
+export {
+  buildQualityModules,
+  toolingCatalog,
+  slotCapability,
+  languageCapability,
+  type ToolingLanguage,
+  type ToolingSlot,
+  type ToolingToolSpec
+} from "./tooling.js";
 
 export const curatedSkillSourceAllowlist = [
   "https://github.com/antfu/skills",

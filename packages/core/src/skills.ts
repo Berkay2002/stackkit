@@ -27,6 +27,7 @@ export type AiSkillInstallCommand = {
 export type InstallAiSkillsOptions = {
   cwd?: string;
   runCommand: RunCommand;
+  now?: () => Date;
 };
 
 export type InstallAiSkillsResult = {
@@ -229,6 +230,46 @@ export async function applySkillSync(lock: SkillsLock, options: InstallAiSkillsO
   };
 }
 
+export function planSkillUpdateCommands(lock: SkillsLock): AiSkillInstallCommand[] {
+  const parsed = skillsLockSchema.parse(lock);
+  const target = parsed.targets.find((candidate) => candidate.enabled);
+
+  if (!target) {
+    return [];
+  }
+
+  return parsed.installed.filter(isUpdatableExternalSkill).map((skill) => ({
+    command: "npx",
+    args: ["-y", "skills", "update", ...skill.skills, "--project", "-y"],
+    target,
+    skill
+  }));
+}
+
+export async function applySkillUpdate(lock: SkillsLock, options: InstallAiSkillsOptions): Promise<SkillsLock> {
+  const parsed = skillsLockSchema.parse(lock);
+  const result = await installAiSkills(planSkillUpdateCommands(parsed), options);
+  const refreshedAt = (options.now ?? (() => new Date()))().toISOString();
+  const updatedKeys = new Set(result.installed.map(skillDependencyKey));
+  const installed = parsed.installed.map((skill) =>
+    updatedKeys.has(skillDependencyKey(skill)) ? { ...skill, verifiedAt: refreshedAt } : skill
+  );
+
+  return {
+    schemaVersion: 1,
+    mode: parsed.mode,
+    linkMode: parsed.linkMode,
+    targets: parsed.targets,
+    installed,
+    planned: parsed.planned,
+    local: parsed.local,
+    unresolved: mergeSkillDependencies(
+      parsed.unresolved.filter((skill) => !updatedKeys.has(skillDependencyKey(skill))),
+      result.unresolved
+    )
+  };
+}
+
 export function mergeSkillDependencies(
   left: readonly AiSkillDependency[],
   right: readonly AiSkillDependency[]
@@ -307,6 +348,10 @@ function isRetriableUnresolvedSkill(skill: AiSkillDependency): skill is AiSkillD
 
 function inferExternalSkillTrust(source: string): Exclude<AiSkillTrust, "local" | "unresolved"> {
   return defaultOfficialSkillSources.some((officialSource) => officialSource === source) ? "official" : "curated";
+}
+
+function isUpdatableExternalSkill(skill: AiSkillDependency): boolean {
+  return !!skill.source && (skill.trust === "official" || skill.trust === "curated");
 }
 
 function markUnresolved(dependency: AiSkillDependency): AiSkillDependency {

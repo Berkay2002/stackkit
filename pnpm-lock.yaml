@@ -136,6 +136,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@berkayorhan/stackkit-registry':
+        specifier: workspace:*
+        version: link:../registry
       '@berkayorhan/stackkit-schemas':
         specifier: workspace:*
         version: link:../schemas
@@ -145,9 +148,6 @@ importers:
 
   packages/registry:
     dependencies:
-      '@berkayorhan/stackkit-core':
-        specifier: workspace:*
-        version: link:../core
       '@berkayorhan/stackkit-schemas':
         specifier: workspace:*
         version: link:../schemas

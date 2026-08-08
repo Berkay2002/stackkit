@@ -29,6 +29,7 @@ export type {
   StackkitRegistry,
   StackkitRecipe,
   StackkitRecipeInput,
+  SkippedInitializer,
   TaskDefinition
 } from "@berkayorhan/stackkit-schemas";
 
@@ -44,6 +45,11 @@ export type {
 export { getPackageManagerAdapter, resolveSpawnCommand } from "./package-manager.js";
 
 export { encodeRecipe, decodeRecipe } from "./recipe.js";
+export type {
+  InspectRecipeOptions,
+  RecipeInspectView
+} from "./recipe.js";
+export { inspectRecipe } from "./recipe.js";
 
 export { defineModule, definePreset, loadProjectRegistries } from "./registry.js";
 
@@ -77,6 +83,8 @@ export {
   installAiSkills,
   planSkillSyncCommands,
   applySkillSync,
+  planSkillUpdateCommands,
+  applySkillUpdate,
   mergeSkillDependencies,
   writeLocalAiGuidance
 } from "./skills.js";
@@ -121,7 +129,8 @@ export type {
   CreatePlan,
   CreatePlanInput,
   ApplyCreatePlanOptions,
-  ApplyCreatePlanResult
+  ApplyCreatePlanResult,
+  PlannedNativeInitializer
 } from "./create.js";
 export {
   createCreatePlan,

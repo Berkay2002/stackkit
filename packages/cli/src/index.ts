@@ -22,12 +22,15 @@ import {
   planRemoveModules,
   planSkillSyncCommands,
   applySkillSync,
+  planSkillUpdateCommands,
+  applySkillUpdate,
   collectInfo,
   createFileContentDiff,
   diffManagedFile,
   readCurrentManagedFileHashes,
   readManifest,
   readSkillsLock,
+  inspectRecipe,
   inspectStackkitModule,
   listStackkitModules,
   loadProjectRegistries,
@@ -52,6 +55,7 @@ import {
   type RunCommand,
   type StackkitManifest,
   type StackkitInfo,
+  type RecipeInspectView,
   type StackkitModule,
   type StackkitRegistry,
   type StackkitRecipe
@@ -114,6 +118,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--deploy <aliases>", "Deployment target aliases. Comma-separated")
     .option("--recipe <code>", "Offline Stackkit recipe code")
     .option("--dry-run", "Print the create plan without writing files")
+    .option("--allow-external-state", "Allow native initializers that mutate external state")
     .option("--view <path>", "Print one planned file during --dry-run")
     .option("--diff", "Print file-oriented planned changes during --dry-run")
     .option("--dir <path>", "Target project directory")
@@ -141,7 +146,8 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
           deploy: parseCommaList(options.deploy)
         },
         dbRuntime: options.dbRuntime,
-        recipeCode: options.recipe
+        recipeCode: options.recipe,
+        allowExternalState: options.allowExternalState
       });
       const targetDirectory = options.dir ? resolve(options.dir) : undefined;
 
@@ -166,8 +172,15 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
       const result = await applyCreatePlan(plan, {
         parentDirectory: process.cwd(),
         targetDirectory,
-        runCommand
+        runCommand,
+        allowExternalState: options.allowExternalState
       });
+      for (const initializer of result.manifest.skippedInitializers) {
+        writeProgramError(
+          program,
+          `Skipped ${initializer.name} (${initializer.mutationPolicy}). Re-run with --allow-external-state to enable.\n`
+        );
+      }
       writeProgramOutput(program, `Created Stackkit project at ${result.projectDirectory}\n`);
     });
 
@@ -255,7 +268,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
       const availableModules = scopeModules(builtinModules, moduleId);
       const manifestModules = scopeManifestModules(manifest.modules, moduleId);
 
-      if (!options.apply) {
+      if (resolveLifecyclePlanMode(options) === "plan") {
         const updatePlan = planModuleUpdates({ manifestModules, availableModules });
         const migrationPlan = planModuleMigrations({ manifest, modules: availableModules });
         writeProgramOutput(program, formatUpdatePlan(manifest, updatePlan, migrationPlan));
@@ -303,7 +316,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
       const availableModules = scopeModules(builtinModules, moduleId);
       const migrationPlan = planModuleMigrations({ manifest, modules: availableModules });
 
-      if (!options.apply) {
+      if (resolveLifecyclePlanMode(options) === "plan") {
         writeProgramOutput(program, formatMigratePlan(manifest, migrationPlan));
         return;
       }
@@ -436,14 +449,14 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .action(async (options: { apply?: boolean; dir?: string }) => {
       const projectDirectory = options.dir ? resolve(options.dir) : process.cwd();
       const lock = await readSkillsLock(projectDirectory);
-      const commands = planSkillSyncCommands(lock);
+      const commands = planSkillUpdateCommands(lock);
 
       if (!options.apply) {
         writeProgramOutput(program, formatSkillCommands("Stackkit skills update plan", commands));
         return;
       }
 
-      const updated = await applySkillSync(lock, { cwd: projectDirectory, runCommand });
+      const updated = await applySkillUpdate(lock, { cwd: projectDirectory, runCommand });
       await writeSkillsLock(projectDirectory, updated);
       writeProgramOutput(program, "Stackkit skills update complete\n");
     });
@@ -477,7 +490,16 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .description("Inspect a Stackkit recipe")
     .option("--json", "Output JSON")
     .action((code: string, options: { json?: boolean }) => {
-      writeProgramOutput(program, formatRecipe(decodeRecipe(code), options.json));
+      writeProgramOutput(
+        program,
+        formatRecipeInspect(
+          inspectRecipe(decodeRecipe(code), {
+            availableModules: builtinModules,
+            availablePresets: builtinPresets
+          }),
+          options.json
+        )
+      );
     });
 
   const preset = program.command("preset").description("Inspect Stackkit presets");
@@ -559,6 +581,7 @@ export type CreatePlanOptions = {
   axes?: CreateAxisOptions;
   dbRuntime?: string;
   recipeCode?: string;
+  allowExternalState?: boolean;
 };
 
 type CreateCommandOptions = {
@@ -583,6 +606,7 @@ type CreateCommandOptions = {
   deploy?: string;
   recipe?: string;
   dryRun?: boolean;
+  allowExternalState?: boolean;
   view?: string;
   diff?: boolean;
   dir?: string;
@@ -675,7 +699,8 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
       source: { kind: "interactive" },
       availableModules: builtinModules,
       availablePresets: builtinPresets,
-      curatedSkillSourceAllowlist
+      curatedSkillSourceAllowlist,
+      allowExternalState: planOptions.allowExternalState ?? false
     });
   }
 
@@ -697,7 +722,8 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
       source: { kind: "recipe", code: planOptions.recipeCode },
       availableModules: builtinModules,
       availablePresets: builtinPresets,
-      curatedSkillSourceAllowlist
+      curatedSkillSourceAllowlist,
+      allowExternalState: planOptions.allowExternalState ?? false
     });
   }
 
@@ -721,7 +747,8 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
       source: { kind: "scripted" },
       availableModules: builtinModules,
       availablePresets: builtinPresets,
-      curatedSkillSourceAllowlist
+      curatedSkillSourceAllowlist,
+      allowExternalState: planOptions.allowExternalState ?? false
     });
   }
 
@@ -748,7 +775,8 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
     source: { kind: "config", path: "stackkit.config.json" },
     availableModules: builtinModules,
     availablePresets: builtinPresets,
-    curatedSkillSourceAllowlist
+    curatedSkillSourceAllowlist,
+    allowExternalState: planOptions.allowExternalState ?? false
   });
 }
 
@@ -897,6 +925,14 @@ export function formatCreateDryRunPlan(plan: CreatePlan): string {
   const installCommands = plan.skillInstallCommands.map((installCommand) => `- ${installCommand.command} ${installCommand.args.join(" ")}`);
   const localGuidance = plan.aiSkills.local.map((skill) => `- ${skill.causedBy}: ${skill.skills.join(", ")}`);
   const unresolved = plan.aiSkills.unresolved.map((skill) => `- ${skill.causedBy}: ${skill.skills.join(", ")}`);
+  const nativeInitializers = plan.nativeInitializers.map((initializer) => {
+    const command = `${initializer.command} ${initializer.args.join(" ")}`.trim();
+    const state = initializer.gated ? " - GATED (needs --allow-external-state)" : "";
+    const expected =
+      initializer.expectedFiles.length > 0 ? `; expected (advisory): ${initializer.expectedFiles.join(", ")}` : "";
+
+    return `- ${initializer.name}: ${command} (cwd: ${initializer.cwd}, policy: ${initializer.mutationPolicy}${expected})${state}`;
+  });
 
   return [
     `Stackkit create plan for ${plan.projectName}`,
@@ -913,6 +949,8 @@ export function formatCreateDryRunPlan(plan: CreatePlan): string {
     ...(localGuidance.length > 0 ? localGuidance : ["- none"]),
     "Unresolved AI skills:",
     ...(unresolved.length > 0 ? unresolved : ["- none"]),
+    "Native initializers:",
+    ...(nativeInitializers.length > 0 ? nativeInitializers : ["- none"]),
     "STACKKIT_PLAN_JSON_START",
     JSON.stringify(plan, null, 2),
     "STACKKIT_PLAN_JSON_END",
@@ -1077,6 +1115,14 @@ function projectDirectoryFromOptions(options: { cwd?: string; dir?: string }): s
   return resolve(options.cwd ?? options.dir ?? process.cwd());
 }
 
+export function resolveLifecyclePlanMode(options: { dryRun?: boolean; apply?: boolean }): "plan" | "apply" {
+  if (options.dryRun && options.apply) {
+    throw new Error("Cannot combine --dry-run and --apply");
+  }
+
+  return options.apply ? "apply" : "plan";
+}
+
 function formatRecipe(recipe: StackkitRecipe, json = false): string {
   if (json) {
     return `${JSON.stringify(recipe, null, 2)}\n`;
@@ -1088,6 +1134,36 @@ function formatRecipe(recipe: StackkitRecipe, json = false): string {
     `Package manager: ${recipe.packageManager}`,
     `Modules: ${recipe.modules.length > 0 ? recipe.modules.join(", ") : "none"}`,
     `AI skill targets: ${recipe.ai.skillTargets.join(", ")}`,
+    ""
+  ].join("\n");
+}
+
+function formatRecipeInspect(view: RecipeInspectView, json = false): string {
+  if (json) {
+    return `${JSON.stringify(view, null, 2)}\n`;
+  }
+
+  return [
+    "Stackkit recipe inspect",
+    `Preset: ${view.recipe.preset ?? "none"}`,
+    `Package manager: ${view.recipe.packageManager}`,
+    `Modules: ${view.recipe.modules.length > 0 ? view.recipe.modules.join(", ") : "none"}`,
+    "Expanded presets:",
+    ...(view.expandedPresets.length > 0
+      ? view.expandedPresets.map((preset) => `- ${preset.id}: ${preset.modules.join(", ")}`)
+      : ["- none"]),
+    "Resolved modules:",
+    ...(view.resolvedModules.length > 0
+      ? view.resolvedModules.map((module) => `- ${module.id}: ${module.title}`)
+      : ["- none"]),
+    "Capabilities:",
+    ...(view.capabilities.length > 0 ? view.capabilities.map((capability) => `- ${capability}`) : ["- none"]),
+    "Conflicts:",
+    ...(view.conflicts.length > 0
+      ? view.conflicts.map((conflict) => `- ${conflict.moduleId} conflicts with ${conflict.conflictsWith}`)
+      : ["- none"]),
+    "Warnings:",
+    ...(view.warnings.length > 0 ? view.warnings.map((warning) => `- ${warning}`) : ["- none"]),
     ""
   ].join("\n");
 }
@@ -1407,6 +1483,17 @@ export function isDirectCliExecution(moduleUrl: string, argvEntry = process.argv
   }
 
   return resolve(modulePath) === resolve(argvEntry);
+}
+
+function writeProgramError(program: Command, output: string): void {
+  const writeErr = program.configureOutput().writeErr;
+
+  if (writeErr) {
+    writeErr(output);
+    return;
+  }
+
+  process.stderr.write(output);
 }
 
 function isWindowsCliEntryPath(filePath: string): boolean {

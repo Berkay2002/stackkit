@@ -1,5 +1,7 @@
 import type { FileOperation } from "@berkayorhan/stackkit-schemas";
 
+import { writeFile } from "./file-operations.js";
+
 /**
  * Which TypeScript lint/format tooling a project uses. Derived from selected module ids by the
  * renderer dispatch (`quality/biome` selected → `"biome"`, otherwise the default eslint + prettier
@@ -9,16 +11,6 @@ export type TsToolingChoice = "eslint-prettier" | "biome";
 
 /** Which Python type checker a project uses. Default `mypy`; `quality/pyright` selects `"pyright"`. */
 export type PyTypecheckChoice = "mypy" | "pyright";
-
-function writeFile(path: string, owner: FileOperation["owner"], content: string): FileOperation {
-  return {
-    kind: "write",
-    path,
-    owner,
-    content,
-    overwrite: "if-owned"
-  };
-}
 
 const ESLINT_CONFIG =
   'import js from "@eslint/js";\nimport tseslint from "typescript-eslint";\n\nexport default tseslint.config(js.configs.recommended, ...tseslint.configs.recommended);\n';

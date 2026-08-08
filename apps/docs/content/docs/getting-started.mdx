@@ -114,15 +114,17 @@ Stackkit supports dry-run previews so you can inspect the planned output before 
 stackkit create my-app --preset next-fastapi-postgres-auth0 --dry-run
 ```
 
-**Preview an explicit stack as JSON**
+**Preview an explicit stack**
 
 ```bash
-stackkit create my-app --web next --api fastapi --db postgres --auth auth0 --dry-run --json
+stackkit create my-app --web next --api fastapi --db postgres --auth auth0 --dry-run
 ```
 
 ```bash
-stackkit create my-app --preset next-postgres-clerk --dry-run --json
+stackkit create my-app --preset next-postgres-clerk --dry-run
 ```
+
+Dry-run output includes extractable `STACKKIT_PLAN_JSON_START` and `STACKKIT_PLAN_JSON_END` markers.
 
 **Inspect a single planned file**
 

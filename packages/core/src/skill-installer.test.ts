@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applySkillUpdate,
   applySkillSync,
   installAiSkills,
+  planSkillUpdateCommands,
   planSkillSyncCommands,
   type AiSkillInstallCommand,
   type RunCommand
@@ -248,5 +250,53 @@ describe("skill sync", () => {
 
     expect(result.installed).toEqual([skill]);
     expect(result.unresolved).toEqual([unresolvedSkill]);
+  });
+});
+
+describe("skill update", () => {
+  const skill = installCommand.skill;
+
+  it("plans update commands with skills update semantics instead of sync restore commands", () => {
+    const lock = {
+      schemaVersion: 1 as const,
+      targets: [{ agent: "codex" as const, directory: ".agents" as const, enabled: true }],
+      installed: [skill],
+      local: [],
+      unresolved: []
+    };
+
+    const syncCommands = planSkillSyncCommands(lock);
+    const updateCommands = planSkillUpdateCommands(lock);
+
+    expect(updateCommands).not.toEqual(syncCommands);
+    expect(updateCommands).toEqual([
+      expect.objectContaining({
+        command: "npx",
+        args: ["-y", "skills", "update", "vercel-react-best-practices", "--project", "-y"],
+        skill
+      })
+    ]);
+  });
+
+  it("refreshes installed skill metadata after a successful update", async () => {
+    const lock = {
+      schemaVersion: 1 as const,
+      targets: [{ agent: "codex" as const, directory: ".agents" as const, enabled: true }],
+      installed: [skill],
+      local: [],
+      unresolved: []
+    };
+    const calls: { command: string; args: string[] }[] = [];
+
+    const result = await applySkillUpdate(lock, {
+      runCommand: async (command, args) => {
+        calls.push({ command, args: [...args] });
+        return { exitCode: 0, stdout: "updated", stderr: "" };
+      },
+      now: () => new Date("2026-06-09T00:00:00.000Z")
+    });
+
+    expect(calls).toEqual([{ command: "npx", args: ["-y", "skills", "update", "vercel-react-best-practices", "--project", "-y"] }]);
+    expect(result.installed).toEqual([{ ...skill, verifiedAt: "2026-06-09T00:00:00.000Z" }]);
   });
 });

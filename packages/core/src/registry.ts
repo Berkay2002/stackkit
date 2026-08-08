@@ -2,25 +2,15 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
-  stackkitModuleSchema,
-  stackkitPresetSchema,
   stackkitRegistrySchema,
-  type StackkitModule,
-  type StackkitModuleInput,
-  type StackkitPreset,
-  type StackkitPresetInput,
   type StackkitRegistry
 } from "@berkayorhan/stackkit-schemas";
 
 import { normalizeProjectPath } from "./fs-utils.js";
 
-export function defineModule(module: StackkitModuleInput): StackkitModule {
-  return stackkitModuleSchema.parse(module);
-}
-
-export function definePreset(preset: StackkitPresetInput): StackkitPreset {
-  return stackkitPresetSchema.parse(preset);
-}
+// Canonical home is `@berkayorhan/stackkit-schemas`; re-exported here for back-compat so the many
+// `from "./registry.js"` / `./index.js` consumers keep working.
+export { defineModule, definePreset } from "@berkayorhan/stackkit-schemas";
 
 export async function loadProjectRegistries(
   projectDirectory: string,

@@ -320,6 +320,124 @@ describe("create execution helpers", () => {
       expect.arrayContaining([expect.objectContaining({ path: "secret.env" })])
     );
   });
+
+  it("skips external-state initializers by default and records the manifest gap", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-native-gated-"));
+    tempDirectories.push(parentDirectory);
+    const seen: string[] = [];
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "native-gated",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["custom/native"],
+        ai: { skillTargets: ["codex"], skillMode: "skip" }
+      },
+      availableModules: [
+        defineModule({
+          id: "custom/native",
+          version: "1.0.0",
+          title: "Native",
+          description: "Native initializer",
+          nativeInitializers: [
+            {
+              name: "shadcn init",
+              phase: "integration",
+              tool: { execution: "package-manager-dlx", package: "shadcn@latest" },
+              args: ["init"],
+              cwd: ".",
+              mutationPolicy: "merge-owned",
+              expectedFiles: ["components.json"]
+            },
+            {
+              name: "clerk init",
+              phase: "integration",
+              tool: { execution: "package-manager-dlx", package: "@clerk/cli@latest" },
+              args: ["init"],
+              cwd: ".",
+              mutationPolicy: "external-state",
+              expectedFiles: [".env.local"]
+            }
+          ]
+        })
+      ]
+    });
+
+    const result = await applyCreatePlan(plan, {
+      parentDirectory,
+      runCommand: async (command, args, options) => {
+        seen.push(`${command} ${args.join(" ")}`);
+        await writeFile(join(options.cwd ?? resultlessProjectDirectory(parentDirectory, "native-gated"), "components.json"), "{}\n", "utf8");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+    });
+
+    expect(seen).toEqual(["pnpm dlx shadcn@latest init"]);
+    expect(result.manifest.files).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "components.json", owner: "custom/native" })])
+    );
+    expect(result.manifest.skippedInitializers).toEqual([
+      expect.objectContaining({
+        name: "clerk init",
+        moduleId: "custom/native",
+        mutationPolicy: "external-state",
+        reason: "Requires --allow-external-state"
+      })
+    ]);
+  });
+
+  it("runs external-state initializers when explicitly allowed", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-native-allowed-"));
+    tempDirectories.push(parentDirectory);
+    const seen: string[] = [];
+
+    const plan = createCreatePlan({
+      config: {
+        projectName: "native-allowed",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["custom/native"],
+        ai: { skillTargets: ["codex"], skillMode: "skip" }
+      },
+      allowExternalState: true,
+      availableModules: [
+        defineModule({
+          id: "custom/native",
+          version: "1.0.0",
+          title: "Native",
+          description: "Native initializer",
+          nativeInitializers: [
+            {
+              name: "clerk init",
+              phase: "integration",
+              tool: { execution: "package-manager-dlx", package: "@clerk/cli@latest" },
+              args: ["init"],
+              cwd: ".",
+              mutationPolicy: "external-state",
+              expectedFiles: [".env.local"]
+            }
+          ]
+        })
+      ]
+    });
+
+    const result = await applyCreatePlan(plan, {
+      parentDirectory,
+      allowExternalState: true,
+      runCommand: async (command, args, options) => {
+        seen.push(`${command} ${args.join(" ")}`);
+        await writeFile(join(options.cwd ?? resultlessProjectDirectory(parentDirectory, "native-allowed"), ".env.local"), "CLERK_KEY=test\n", "utf8");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+    });
+
+    expect(seen).toEqual(["pnpm dlx @clerk/cli@latest init"]);
+    expect(result.manifest.skippedInitializers).toEqual([]);
+    expect(result.manifest.files).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: ".env.local", owner: "custom/native" })])
+    );
+  });
 });
 
 function resultlessProjectDirectory(parentDirectory: string, projectName: string): string {

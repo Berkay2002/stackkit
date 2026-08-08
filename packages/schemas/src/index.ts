@@ -135,7 +135,9 @@ export const nativeInitializerSchema = z.object({
   cwd: z.string().min(1).default("."),
   when: nativeInitializerWhenSchema.optional(),
   mutationPolicy: nativeInitializerMutationPolicySchema,
+  // Advisory reporting metadata for initializer output. May contain glob patterns.
   expectedFiles: z.array(z.string().min(1)).default([]),
+  // Advisory redaction metadata for initializer output. May contain glob patterns.
   redactExpectedFiles: z.array(z.string().min(1)).default([])
 });
 
@@ -201,6 +203,13 @@ export const manifestExpectedFileSchema = z.object({
   owner: moduleIdSchema,
   content: z.string(),
   hash: z.string().min(1)
+});
+
+export const skippedInitializerSchema = z.object({
+  name: z.string().min(1),
+  moduleId: moduleIdSchema,
+  mutationPolicy: nativeInitializerMutationPolicySchema,
+  reason: z.string().min(1)
 });
 
 export const stackkitPresetSchema = z.object({
@@ -292,6 +301,7 @@ export const stackkitManifestSchema = z.object({
     })
   ),
   expectedFiles: z.array(manifestExpectedFileSchema).default([]),
+  skippedInitializers: z.array(skippedInitializerSchema).default([]),
   aiSkills: z.object({
     mode: aiSkillModeSchema.default("install"),
     linkMode: aiSkillLinkModeSchema.default("copy"),
@@ -358,6 +368,7 @@ export type StackkitModuleInput = z.input<typeof stackkitModuleSchema>;
 export type StackkitPresetInput = z.input<typeof stackkitPresetSchema>;
 export type StackkitModule = z.infer<typeof stackkitModuleSchema>;
 export type ManifestExpectedFile = z.infer<typeof manifestExpectedFileSchema>;
+export type SkippedInitializer = z.infer<typeof skippedInitializerSchema>;
 export type StackkitPreset = z.infer<typeof stackkitPresetSchema>;
 export type StackkitRegistry = z.infer<typeof stackkitRegistrySchema>;
 export type StackkitConfig = z.infer<typeof stackkitConfigSchema>;
@@ -368,3 +379,17 @@ export type StackkitManifest = z.infer<typeof stackkitManifestSchema>;
 export type SkillsLock = z.infer<typeof skillsLockSchema>;
 export type DoctorCheck = z.infer<typeof doctorCheckSchema>;
 export type DoctorResult = z.infer<typeof doctorResultSchema>;
+
+/**
+ * Canonical constructor for a validated {@link StackkitModule}. A thin `schema.parse` wrapper that
+ * lives here (the contract base) so every package — schemas, registry, core — shares one
+ * implementation instead of re-deriving it. Re-exported from core for back-compat.
+ */
+export function defineModule(module: StackkitModuleInput): StackkitModule {
+  return stackkitModuleSchema.parse(module);
+}
+
+/** Canonical constructor for a validated {@link StackkitPreset}. See {@link defineModule}. */
+export function definePreset(preset: StackkitPresetInput): StackkitPreset {
+  return stackkitPresetSchema.parse(preset);
+}

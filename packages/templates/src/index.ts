@@ -1,5 +1,6 @@
 import type { FileOperation } from "@berkayorhan/stackkit-schemas";
 
+import { writeFile } from "./file-operations.js";
 import type { PyTypecheckChoice, TsToolingChoice } from "./tooling-configs.js";
 
 export type { PyTypecheckChoice, TsToolingChoice } from "./tooling-configs.js";
@@ -42,16 +43,6 @@ type DockerFilesOptions = {
 
 const workspaceOwner = "workspace/pnpm-turbo";
 type DockerServiceTarget = "web" | "api";
-
-function writeFile(path: string, owner: FileOperation["owner"], content: string): FileOperation {
-  return {
-    kind: "write",
-    path,
-    owner,
-    content,
-    overwrite: "if-owned"
-  };
-}
 
 export function renderPnpmTurboFoundation({
   projectName,

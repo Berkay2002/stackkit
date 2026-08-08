@@ -1,14 +1,14 @@
 import {
-  stackkitModuleSchema,
-  stackkitPresetSchema,
   stackkitRecipeSchema,
   type StackkitModule,
-  type StackkitModuleInput,
   type StackkitPreset,
-  type StackkitPresetInput,
   type StackkitRecipe,
   type StackkitRecipeInput
 } from "@berkayorhan/stackkit-schemas";
+
+// `defineModule`/`definePreset` live canonically in schemas; re-exported here for back-compat so the
+// browser customizer entry and `@berkayorhan/stackkit-core/customizer` consumers keep working.
+export { defineModule, definePreset } from "@berkayorhan/stackkit-schemas";
 
 export {
   resolveModuleAlias,
@@ -47,14 +47,6 @@ export type CustomizerCatalog = {
   }[];
   categories: Record<string, CustomizerCatalogChoice[]>;
 };
-
-export function defineModule(module: StackkitModuleInput): StackkitModule {
-  return stackkitModuleSchema.parse(module);
-}
-
-export function definePreset(preset: StackkitPresetInput): StackkitPreset {
-  return stackkitPresetSchema.parse(preset);
-}
 
 export function buildCustomizerCatalog(input: {
   modules: readonly StackkitModule[];

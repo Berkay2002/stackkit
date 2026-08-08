@@ -152,6 +152,22 @@ describe("createStackkitProgram", () => {
     expect(output).toContain("STACKKIT_PLAN_JSON_START");
   });
 
+  it("renders native initializer commands and gated state in create dry-run", async () => {
+    const { output } = await runProgram(["create", "acme", "--web", "next", "--auth", "clerk", "--dry-run"]);
+    const plan = readCreatePlan(output);
+
+    expect(output).toContain("Native initializers:");
+    expect(output).toContain("- shadcn init: pnpm dlx shadcn@latest init");
+    expect(output).toContain("- clerk init: pnpm dlx clerk@latest init");
+    expect(output).toContain("GATED (needs --allow-external-state)");
+    expect(plan.nativeInitializers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "shadcn init", gated: false }),
+        expect.objectContaining({ name: "clerk init", gated: true })
+      ])
+    );
+  });
+
   it("accepts comma-separated AI targets", async () => {
     const { output } = await runProgram(["create", "acme", "--dry-run", "--ai", "codex,claude-code"]);
 
@@ -570,6 +586,35 @@ describe("createStackkitProgram", () => {
     expect(JSON.parse(decoded.output)).toEqual(expect.objectContaining({ preset: "next" }));
   });
 
+  it("inspects recipes with resolved modules, capabilities, and conflicts", async () => {
+    const encoded = await runProgram(["recipe", "encode", "--preset", "next"]);
+    const code = encoded.output.trim();
+
+    const decoded = await runProgram(["recipe", "decode", code]);
+    const inspected = await runProgram(["recipe", "inspect", code]);
+    const inspectedJson = await runProgram(["recipe", "inspect", code, "--json"]);
+    const view = JSON.parse(inspectedJson.output) as {
+      resolvedModules: { id: string; title: string }[];
+      capabilities: string[];
+      conflicts: unknown[];
+      expandedPresets: { id: string; modules: string[] }[];
+    };
+
+    expect(decoded.output).not.toContain("Resolved modules:");
+    expect(inspected.output).toContain("Resolved modules:");
+    expect(inspected.output).toContain("- workspace/pnpm-turbo: pnpm and Turborepo");
+    expect(inspected.output).toContain("Expanded presets:");
+    expect(inspected.output).toContain("- next: workspace/pnpm-turbo, workspace/typescript, web/nextjs, ui/shadcn");
+    expect(inspected.output).toContain("Capabilities:");
+    expect(inspected.output).toContain("Conflicts:");
+    expect(view.resolvedModules.map((module) => module.id)).toEqual(
+      expect.arrayContaining(["workspace/pnpm-turbo", "workspace/typescript", "web/nextjs", "ui/shadcn"])
+    );
+    expect(view.capabilities).toContain("react");
+    expect(view.conflicts).toEqual(expect.any(Array));
+    expect(view.expandedPresets[0]).toEqual(expect.objectContaining({ id: "next" }));
+  });
+
   it("encodes config recipes without project names", async () => {
     const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
     tempDirectories.push(directory);
@@ -743,6 +788,22 @@ describe("createStackkitProgram", () => {
     await expect(readFile(join(targetDirectory, ".stackkit", "project.json"), "utf8")).resolves.toContain(
       "\"projectName\": \"acme-dashboard\""
     );
+  });
+
+  it("warns on stderr when create skips external-state initializers", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
+    tempDirectories.push(directory);
+    const targetDirectory = join(directory, "created-project");
+
+    const { errorOutput } = await runProgram(
+      ["create", "acme", "--web", "next", "--auth", "clerk", "--dir", targetDirectory, "--yes"],
+      {
+        runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" })
+      }
+    );
+
+    expect(errorOutput).toContain("Skipped clerk init (external-state)");
+    expect(errorOutput).toContain("--allow-external-state");
   });
 
   it("prints an add dry-run summary without modifying the manifest", async () => {
@@ -968,6 +1029,25 @@ describe("createStackkitProgram", () => {
     });
   });
 
+  it("rejects update when --dry-run and --apply are combined", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    await expect(runProgram(["update", "--dry-run", "--apply", "--dir", projectDirectory])).rejects.toThrow(
+      "Cannot combine --dry-run and --apply"
+    );
+  });
+
+  it("keeps bare update in plan mode for back-compat", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    const { output } = await runProgram(["update", "--dir", projectDirectory]);
+
+    expect(output).toContain("Stackkit update plan for acme-dashboard");
+    await expect(stat(join(projectDirectory, "apps", "web", "instrumentation.ts"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
   it("prints pending migrations for migrate --dry-run without writing files", async () => {
     const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
 
@@ -980,6 +1060,14 @@ describe("createStackkitProgram", () => {
     await expect(stat(join(projectDirectory, "apps", "web", "instrumentation.ts"))).rejects.toMatchObject({
       code: "ENOENT"
     });
+  });
+
+  it("rejects migrate when --dry-run and --apply are combined", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    await expect(runProgram(["migrate", "--dry-run", "--apply", "--dir", projectDirectory])).rejects.toThrow(
+      "Cannot combine --dry-run and --apply"
+    );
   });
 
   it("applies automatic migrations with migrate --apply", async () => {
@@ -1021,6 +1109,17 @@ describe("createStackkitProgram", () => {
     expect(output).toContain("https://github.com/vercel-labs/agent-skills");
   });
 
+  it("plans skill update commands differently from sync", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    const sync = await runProgram(["skills", "sync", "--dir", projectDirectory]);
+    const update = await runProgram(["skills", "update", "--dir", projectDirectory]);
+
+    expect(update.output).toContain("Stackkit skills update plan");
+    expect(update.output).toContain("npx -y skills update vercel-react-best-practices --project -y");
+    expect(update.output).not.toBe(sync.output.replace("Stackkit skills sync plan", "Stackkit skills update plan"));
+  });
+
   it("applies skill sync and reports completion", async () => {
     const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
 
@@ -1028,25 +1127,41 @@ describe("createStackkitProgram", () => {
 
     expect(output).toBe("Stackkit skills sync complete\n");
   });
+
+  it("applies skill update and rewrites skills-lock.json", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+    const before = JSON.parse(await readFile(join(projectDirectory, "skills-lock.json"), "utf8"));
+
+    const { output } = await runProgram(["skills", "update", "--apply", "--dir", projectDirectory]);
+    const after = JSON.parse(await readFile(join(projectDirectory, "skills-lock.json"), "utf8"));
+
+    expect(output).toBe("Stackkit skills update complete\n");
+    expect(after).not.toEqual(before);
+    expect(after.installed[0]).toEqual(expect.objectContaining({ verifiedAt: expect.any(String) }));
+  });
 });
 
 async function runProgram(
   argv: string[],
   options: { runCommand?: RunCommand } = {}
-): Promise<{ output: string }> {
+): Promise<{ output: string; errorOutput: string }> {
   let output = "";
+  let errorOutput = "";
   const program = createStackkitProgram({
     runCommand: options.runCommand ?? (async () => ({ exitCode: 0, stdout: "", stderr: "" }))
   });
   program.configureOutput({
     writeOut: (value) => {
       output += value;
+    },
+    writeErr: (value) => {
+      errorOutput += value;
     }
   });
 
   await program.parseAsync(argv, { from: "user" });
 
-  return { output };
+  return { output, errorOutput };
 }
 
 function readCreatePlan(output: string): {
@@ -1054,6 +1169,7 @@ function readCreatePlan(output: string): {
   packageManager: string;
   modules: { id: string; version: string }[];
   filePlan: { files: { path: string; content: string }[] };
+  nativeInitializers: { name: string; gated: boolean }[];
   aiSkills: {
     mode: string;
     linkMode: string;

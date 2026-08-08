@@ -1,224 +1,33 @@
+import type { StackkitModule } from "@berkayorhan/stackkit-schemas";
+
 import {
-  stackkitModuleSchema,
-  type AiSkillDependency,
-  type NativeInitializerInput,
-  type StackkitModule,
-  type StackkitModuleInput
-} from "@berkayorhan/stackkit-schemas";
+  buildQualityModules,
+  languageCapability,
+  slotCapability,
+  toolingCatalog,
+  type ToolingLanguage,
+  type ToolingSlot,
+  type ToolingToolSpec
+} from "@berkayorhan/stackkit-registry";
 
 /**
- * Parse a module input into a validated {@link StackkitModule}. Defined locally (rather than imported
- * from `./registry.js`) so this module stays browser-safe and node-free — `resolveModuleGraph` pulls
- * it in via the `@berkayorhan/stackkit-core/customizer` entry that the customizer app runs in the
- * browser.
+ * The tooling catalog + Quality Module builders live in `@berkayorhan/stackkit-registry` (the package
+ * that owns "what modules exist"). This module keeps the catalog-driven *injection into resolution*
+ * (`applyDefaultTooling`, used by `resolveModuleGraph`) in core and re-exports the registry pieces so
+ * the browser-safe `@berkayorhan/stackkit-core/customizer` entry keeps a stable import surface.
+ *
+ * `core → registry` is the documented dependency arrow; registry imports only schemas, so it stays
+ * node-free and this module stays browser-safe.
  */
-function defineModule(module: StackkitModuleInput): StackkitModule {
-  return stackkitModuleSchema.parse(module);
-}
-
-export type ToolingLanguage = "ts" | "py" | "rust";
-export type ToolingSlot = "lint" | "format" | "typecheck";
-
-export type ToolingToolSpec = {
-  moduleId: string;
-  title: string;
-  description: string;
-  icon?: string;
-  language: ToolingLanguage;
-  slots: ToolingSlot[];
-  isDefault: boolean;
-  aliases?: string[];
-  aiSkills?: AiSkillDependency[];
-  nativeInitializers?: NativeInitializerInput[];
+export {
+  buildQualityModules,
+  toolingCatalog,
+  slotCapability,
+  languageCapability,
+  type ToolingLanguage,
+  type ToolingSlot,
+  type ToolingToolSpec
 };
-
-/** Capability a Quality Module requires to gate it to a language. */
-export const languageCapability: Record<ToolingLanguage, string> = {
-  ts: "typescript",
-  py: "python",
-  rust: "rust"
-};
-
-/** Slot capability a Quality Module provides, e.g. `ts-lint`, `py-typecheck`. */
-export function slotCapability(language: ToolingLanguage, slot: ToolingSlot): string {
-  return `${language}-${slot}`;
-}
-
-function curatedGuidance(moduleId: string, source: string, skills: string[], reason: string): AiSkillDependency[] {
-  return [{ source, skills, trust: "curated", causedBy: moduleId, reason }];
-}
-
-/**
- * The single source of truth for developer-tooling choices. Each entry is a tool that fills one or
- * more Tooling Slots for a language. Exactly one tool is the default per (language, slot). Combined
- * tools (Biome, Ruff) fill more than one slot and therefore conflict with the single-slot tools they
- * replace — conflicts are derived in {@link buildQualityModules}, not hand-maintained.
- */
-export const toolingCatalog: ToolingToolSpec[] = [
-  {
-    moduleId: "quality/eslint",
-    title: "ESLint",
-    description: "JavaScript and TypeScript linting",
-    icon: "eslint",
-    language: "ts",
-    slots: ["lint"],
-    isDefault: true,
-    aliases: ["eslint"]
-  },
-  {
-    moduleId: "quality/prettier",
-    title: "Prettier",
-    description: "Shared code formatting",
-    icon: "prettier",
-    language: "ts",
-    slots: ["format"],
-    isDefault: true,
-    aliases: ["prettier"]
-  },
-  {
-    moduleId: "quality/biome",
-    title: "Biome",
-    description: "Combined linter and formatter for JavaScript and TypeScript",
-    icon: "biome",
-    language: "ts",
-    slots: ["lint", "format"],
-    isDefault: false,
-    aliases: ["biome"],
-    nativeInitializers: [
-      {
-        name: "biome init",
-        enabled: false,
-        disabledReason:
-          "Researched and mapped, but not enabled until Stackkit replaces the matching deterministic template path.",
-        phase: "tool-config",
-        tool: { execution: "package-manager-dlx", package: "@biomejs/biome@latest" },
-        args: ["init"],
-        cwd: ".",
-        mutationPolicy: "known-files",
-        expectedFiles: ["biome.json"]
-      }
-    ],
-    aiSkills: curatedGuidance(
-      "quality/biome",
-      "https://github.com/paulrberg/agent-skills",
-      ["biome-js"],
-      "Biome lint and format configuration guidance"
-    )
-  },
-  {
-    moduleId: "quality/tsc",
-    title: "TypeScript type checking",
-    description: "Static type checking via tsc --noEmit",
-    icon: "typescript",
-    language: "ts",
-    slots: ["typecheck"],
-    isDefault: true,
-    aliases: ["tsc"]
-  },
-  {
-    moduleId: "quality/ruff",
-    title: "Ruff",
-    description: "Python linting and formatting",
-    icon: "ruff",
-    language: "py",
-    slots: ["lint", "format"],
-    isDefault: true,
-    aliases: ["ruff"]
-  },
-  {
-    moduleId: "quality/mypy",
-    title: "mypy",
-    description: "Python static type checker",
-    icon: "python",
-    language: "py",
-    slots: ["typecheck"],
-    isDefault: true,
-    aliases: ["mypy"],
-    aiSkills: curatedGuidance(
-      "quality/mypy",
-      "https://github.com/bobmatnyc/claude-mpm-skills",
-      ["mypy"],
-      "mypy configuration and type-annotation guidance"
-    )
-  },
-  {
-    moduleId: "quality/pyright",
-    title: "Pyright",
-    description: "Python static type checker",
-    icon: "pyright",
-    language: "py",
-    slots: ["typecheck"],
-    isDefault: false,
-    aliases: ["pyright"]
-  },
-  {
-    moduleId: "quality/clippy",
-    title: "Clippy",
-    description: "Rust linting",
-    icon: "rust",
-    language: "rust",
-    slots: ["lint"],
-    isDefault: true,
-    aliases: ["clippy"]
-  },
-  {
-    moduleId: "quality/rustfmt",
-    title: "rustfmt",
-    description: "Rust formatting",
-    icon: "rust",
-    language: "rust",
-    slots: ["format"],
-    isDefault: true,
-    aliases: ["rustfmt"]
-  },
-  {
-    moduleId: "quality/cargo-check",
-    title: "cargo check",
-    description: "Rust type and compile checking",
-    icon: "rust",
-    language: "rust",
-    slots: ["typecheck"],
-    isDefault: true,
-    aliases: ["cargo-check"]
-  }
-];
-
-/** Module ids that conflict with `spec` because they share a slot in the same language. */
-function conflictingModuleIds(spec: ToolingToolSpec, catalog: readonly ToolingToolSpec[]): string[] {
-  return catalog
-    .filter(
-      (other) =>
-        other.moduleId !== spec.moduleId &&
-        other.language === spec.language &&
-        other.slots.some((slot) => spec.slots.includes(slot))
-    )
-    .map((other) => other.moduleId);
-}
-
-/**
- * Expand the tooling catalog into Quality Modules with derived `provides` (slot capabilities),
- * `requires` (language capability), and `conflicts` (other same-language tools sharing a slot).
- */
-export function buildQualityModules(catalog: readonly ToolingToolSpec[] = toolingCatalog): StackkitModule[] {
-  return catalog.map((spec) => {
-    const conflicts = conflictingModuleIds(spec, catalog);
-
-    return defineModule({
-      id: spec.moduleId,
-      version: "1.0.0",
-      title: spec.title,
-      description: spec.description,
-      icon: spec.icon,
-      aliases: spec.aliases ?? [],
-      category: "quality",
-      requires: [languageCapability[spec.language]],
-      provides: spec.slots.map((slot) => slotCapability(spec.language, slot)),
-      conflicts: conflicts.length > 0 ? conflicts : undefined,
-      nativeInitializers: spec.nativeInitializers,
-      aiSkills: spec.aiSkills
-    });
-  });
-}
 
 const TOOLING_LANGUAGES: ToolingLanguage[] = ["ts", "py", "rust"];
 const TOOLING_SLOTS: ToolingSlot[] = ["lint", "format", "typecheck"];
