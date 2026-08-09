@@ -334,6 +334,15 @@ describe("create integration", () => {
     expect(calls.some((call) => call.command === "pnpm" && call.args.length === 1)).toBe(false);
     expect(calls.some((call) => call.args.includes("apps/api"))).toBe(false);
   });
+
+  it("treats missing optional commands as allowed failures", async () => {
+    const result = await runCommand("stackkit-command-that-does-not-exist", ["--version"], process.cwd(), {
+      allowFailure: true
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("spawn stackkit-command-that-does-not-exist ENOENT");
+  });
 });
 
 async function pathExists(path: string): Promise<boolean> {
@@ -489,6 +498,11 @@ async function runCommand(
     });
     child.on("error", (error) => {
       clearTimeout(timer);
+      if (options.allowFailure) {
+        resolve({ exitCode: 1, stdout, stderr: error.message });
+        return;
+      }
+
       reject(error);
     });
     child.on("close", (code) => {
@@ -505,4 +519,3 @@ async function runCommand(
 
   return result;
 }
-
