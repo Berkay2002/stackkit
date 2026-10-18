@@ -246,6 +246,21 @@ describe("runDoctor", () => {
     expect(tampered.ok).toBe(true);
   });
 
+  it("skips runtime validations without warning when asked to (right after create)", async () => {
+    const directory = await writeCommandManifest([{ kind: "command-succeeds", command: "pnpm", args: ["test"] }]);
+    const calls: string[] = [];
+    const runCommand = async (command: string) => {
+      calls.push(command);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    for (const modules of [[trustedExample], []]) {
+      const result = await runDoctor(directory, { runCommand, modules, skipRuntimeValidations: true });
+      expect(result.checks.filter((check) => check.id.includes(".command-"))).toEqual([]);
+    }
+    expect(calls).toEqual([]);
+  });
+
   it("treats manifest paths that escape the project as missing", async () => {
     const directory = await writeCommandManifest([{ kind: "file-exists", path: "../outside.txt" }]);
     await writeFile(join(directory, "..", "outside.txt"), "x", "utf8");

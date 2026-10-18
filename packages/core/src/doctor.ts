@@ -85,14 +85,14 @@ export async function runDoctor(projectDirectory: string, options: RunDoctorOpti
     }));
   }
 
-  const trustedModules = new Map(
-    (options.skipRuntimeValidations ? [] : options.modules ?? []).map((module) => [module.id, module])
-  );
+  const trustedModules = new Map((options.modules ?? []).map((module) => [module.id, module]));
+  const runtimeValidations = (module: StackkitModule | undefined) =>
+    options.skipRuntimeValidations ? [] : (module?.validate ?? []);
 
   for (const module of manifest.modules) {
     const trusted = trustedModules.get(module.id);
 
-    for (const validation of trusted?.validate ?? []) {
+    for (const validation of runtimeValidations(trusted)) {
       if (validation.kind !== "command-succeeds") {
         continue;
       }
@@ -123,7 +123,7 @@ export async function runDoctor(projectDirectory: string, options: RunDoctorOpti
 
     for (const validation of module.snapshot?.validate ?? []) {
       if (validation.kind === "command-succeeds") {
-        if (!trusted) {
+        if (!trusted && !options.skipRuntimeValidations) {
           checks.push(createDoctorCheck({
             id: `modules.${module.id}.command-${slugifyCheckId([validation.command, ...validation.args].join("-"))}`,
             status: "warning",
