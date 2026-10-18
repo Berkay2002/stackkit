@@ -23,13 +23,6 @@ const docFiles = [
   ...listFiles('apps/docs/content/docs', '.mdx'),
 ];
 
-// The golden-path `--preset ... --db-provider postgres-local` command needs the create-cluster CLI
-// fix (preset modules must count for the --db-provider guard). Remove this entry once it lands.
-const pendingCliFix = new Set([
-  'create my-app --preset next-fastapi-postgres-auth0 --db-provider postgres-local --skills skip --yes',
-  'create my-app --preset next-fastapi-postgres-auth0 --db-provider postgres-local',
-]);
-
 function listFiles(dir: string, extension: string): string[] {
   return readdirSync(join(repoRoot, dir))
     .filter((name) => name.endsWith(extension))
@@ -82,9 +75,7 @@ describe('documented stackkit create commands', () => {
   });
 
   for (const { file, command } of uniqueCommands) {
-    const test = pendingCliFix.has(command) ? it.skip : it;
-
-    test(`${file}: stackkit ${command}`, () => {
+    it(`${file}: stackkit ${command}`, () => {
       const args = command.split(/\s+/);
       const result = runCli(args.includes('--dry-run') ? args : [...args, '--dry-run']);
 
