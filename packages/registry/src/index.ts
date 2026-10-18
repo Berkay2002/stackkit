@@ -892,7 +892,7 @@ export const builtinModules: StackkitModule[] = [
       },
       {
         name: "AUTH0_ALLOW_INSECURE_REQUESTS",
-        description: "Set to true only to allow plain-HTTP Auth0 endpoints (local mock issuers).",
+        description: "Set to true only to allow plain-HTTP Auth0 endpoints (local mock issuers); AUTH0_DOMAIN must then be an http:// URL.",
         required: false,
         example: "",
         target: "web"
