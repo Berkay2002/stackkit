@@ -136,7 +136,7 @@ export const toolingCatalog: ToolingToolSpec[] = [
     aliases: ["mypy"],
     aiSkills: curatedGuidance(
       "quality/mypy",
-      "https://github.com/bobmatnyc/claude-mpm-skills",
+      "https://github.com/bobmatnyc/claude-mpm-skills/tree/v1.0.9",
       ["mypy"],
       "mypy configuration and type-annotation guidance"
     )

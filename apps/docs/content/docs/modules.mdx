@@ -57,11 +57,11 @@ Stack-axis flags are a convenient way to choose modules:
 | Axis | Example | Result |
 | --- | --- | --- |
 | `--web` | `next`; preview: `vite`, `tanstack-start` | Selects a web framework. |
-| `--ui` | `shadcn`, `tailwind`, `none` | Chooses the UI layer for a React web stack. |
+| `--ui` | `shadcn`, `none`; planned: `tailwind` | Chooses the UI layer for a React web stack. |
 | `--api` | `fastapi` | Selects a supported API service. Axum is planned. |
 | `--db` | `postgres` | Selects a database family. |
-| `--db-client` | `drizzle`, `prisma`, `sqlalchemy`, `sqlx` | Selects the client that fits the selected language. |
-| `--db-provider` | `neon`, `supabase`, `postgres-local` | Selects a Postgres host or local setup. |
+| `--db-client` | `sqlalchemy`; preview: `drizzle`; planned: `prisma`, `sqlx` | Selects the client that fits the selected language. |
+| `--db-provider` | `postgres-local`; preview: `neon`, `supabase`, `supabase-local` | Selects a Postgres host or local setup. |
 | `--auth` | `auth0`; preview: `clerk` | Selects an authentication provider. |
 | `--with` | `docker`, `shadcn` | Adds modules to the resolved stack. |
 | `--deploy` | `vercel`, `k8s` | Adds deployment modules. Kubernetes includes Docker. |
@@ -73,11 +73,12 @@ The resolver adds the workspace and language foundations it needs. React framewo
 Lint, format, and typecheck are modeled as per-language capabilities. A default quality module fills an empty slot. An explicit alternative suppresses the default it replaces.
 
 ```bash
-stackkit create my-app --web next --ts-quality biome
-stackkit create my-api --api fastapi --py-typecheck pyright
+stackkit create my-app --web next --ts-quality biome --include-preview
+stackkit create my-api --api fastapi --py-typecheck pyright --include-preview
+stackkit create my-app --preset next-fastapi-postgres-auth0 --ts-quality biome --include-preview
 ```
 
-`--ts-quality biome` replaces the TypeScript ESLint and Prettier slots while leaving `tsc` in place. `--py-typecheck pyright` replaces mypy. This keeps the selected tool identity in the manifest, which makes `diff` and lifecycle operations reproducible.
+Biome and Pyright are preview modules, so they need `--include-preview`. Presets list only the modules you choose; default quality modules are gap-filled, so an alternative also works on top of a preset. `--ts-quality biome` replaces the TypeScript ESLint and Prettier slots while leaving `tsc` in place. `--py-typecheck pyright` replaces mypy. This keeps the selected tool identity in the manifest, which makes `diff` and lifecycle operations reproducible.
 
 ## Presets and local registries
 

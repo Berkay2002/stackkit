@@ -136,7 +136,7 @@ describe("Stackkit customizer state", () => {
     expect(result.ok && result.recipe.modules).not.toContain("ui/shadcn");
   });
 
-  it("swaps to ui/tailwind when ui is tailwind", () => {
+  it("rejects ui tailwind because ui/tailwind is declaration-only", () => {
     const state = {
       ...createInitialCustomizerState(),
       includePreview: true,
@@ -145,8 +145,8 @@ describe("Stackkit customizer state", () => {
       preset: "custom"
     };
     const result = buildCustomizerState(state);
-    expect(result.ok && result.recipe.modules).toContain("ui/tailwind");
-    expect(result.ok && result.recipe.modules).not.toContain("ui/shadcn");
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toMatch(/ui\/tailwind is planned/);
   });
 
   it("expands Auth0 for every selected supported framework", () => {

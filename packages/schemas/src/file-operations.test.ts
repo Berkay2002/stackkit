@@ -74,7 +74,7 @@ describe("packageChangeSchema", () => {
 });
 
 describe("stackkitModuleSchema", () => {
-  it("accepts concrete operation, package, env var, task, hook, and validation shapes", () => {
+  it("accepts concrete operation, package, env var, hook, and validation shapes", () => {
     expect(
       stackkitModuleSchema.parse({
         id: "web",
@@ -105,14 +105,6 @@ describe("stackkitModuleSchema", () => {
             name: "DATABASE_URL",
             description: "Postgres connection string",
             example: "postgres://user:pass@localhost:5432/app"
-          }
-        ],
-        tasks: [
-          {
-            name: "install",
-            command: "pnpm",
-            args: ["install"],
-            cwd: "apps/web"
           }
         ],
         postCreate: [

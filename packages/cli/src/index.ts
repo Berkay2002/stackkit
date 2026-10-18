@@ -114,7 +114,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--skills <mode>", "AI skill mode. (install, plan, skip)")
     .option("--skill-link <mode>", "AI skill link mode. (copy, symlink)")
     .option("--web <alias>", "Web framework alias")
-    .option("--ui <alias>", "UI layer alias. (shadcn, tailwind, none)")
+    .option("--ui <alias>", "UI layer alias. (shadcn, none)")
     .option("--api <alias>", "API framework alias")
     .option("--db <alias>", "Database alias")
     .option("--db-client <alias>", "Database client alias")
@@ -780,7 +780,7 @@ export async function createDryRunPlanFromConfig(options: string | CreatePlanOpt
   }
 
   if (planOptions.recipeCode) {
-    const recipe = decodeRecipe(planOptions.recipeCode);
+    const { schemaVersion: _recipeSchemaVersion, ...recipe } = decodeRecipe(planOptions.recipeCode);
     const config = stackkitConfigSchema.parse({
       ...recipe,
       projectName,
@@ -1602,9 +1602,23 @@ export async function runStackkitCli(argv: readonly string[] = process.argv): Pr
   try {
     await createStackkitProgram().parseAsync(argv);
   } catch (error) {
-    process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`Error: ${formatCliError(error)}\n`);
     process.exitCode = 1;
   }
+}
+
+/** Render schema validation failures (Zod issues) as one readable line per issue. */
+export function formatCliError(error: unknown): string {
+  const issues = (error as { issues?: unknown } | undefined)?.issues;
+  if (error instanceof Error && Array.isArray(issues)) {
+    return [
+      "Invalid Stackkit input:",
+      ...issues.map((issue: { path?: PropertyKey[]; message: string }) =>
+        `  - ${issue.path?.length ? `${issue.path.map(String).join(".")}: ` : ""}${issue.message}`
+      )
+    ].join("\n");
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function isDirectCliExecution(

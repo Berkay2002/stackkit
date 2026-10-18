@@ -117,7 +117,6 @@ const webChoices: Choice<WebChoice>[] = [
 
 const uiChoices: Choice<UiChoice>[] = [
   { value: "shadcn", label: "ShadCN", description: "shadcn/ui components", icon: siShadcnui },
-  { value: "tailwind", label: "Tailwind", description: "Tailwind CSS only", icon: siTailwindcss, preview: true },
   { value: "none", label: "No UI kit", description: "Plain framework", iconLabel: "None" }
 ];
 

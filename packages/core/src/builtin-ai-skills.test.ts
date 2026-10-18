@@ -82,7 +82,7 @@ describe("builtin AI skill registry", () => {
           causedBy: "quality/biome"
         }),
         expect.objectContaining({
-          source: "https://github.com/bobmatnyc/claude-mpm-skills",
+          source: "https://github.com/bobmatnyc/claude-mpm-skills/tree/v1.0.9",
           skills: ["mypy"],
           causedBy: "quality/mypy"
         }),

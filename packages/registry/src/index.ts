@@ -1,8 +1,11 @@
 import {
   defineModule,
   definePreset,
-  stackkitRegistrySchema,
+  type ModuleRemovalPolicy,
   type NativeInitializerInput,
+  type StackkitModule,
+  type StackkitPreset,
+  type StackkitRegistry,
   type SupportMetadata
 } from "@berkayorhan/stackkit-schemas";
 
@@ -27,7 +30,7 @@ export const curatedSkillSourceAllowlist = [
   "https://github.com/affaan-m/everything-claude-code",
   "https://github.com/vintasoftware/django-ai-plugins",
   "https://github.com/mindrally/skills",
-  "https://github.com/bobmatnyc/claude-mpm-skills",
+  "https://github.com/bobmatnyc/claude-mpm-skills/tree/v1.0.9",
   "https://github.com/apollographql/skills",
   "https://github.com/wshobson/agents",
   "https://github.com/actionbook/rust-skills",
@@ -37,93 +40,58 @@ export const curatedSkillSourceAllowlist = [
 const researchedInitializerDisabledReason =
   "Researched and mapped, but not enabled until Stackkit replaces the matching deterministic template path.";
 
-const supportedModuleIds = new Set([
-  "workspace/pnpm-turbo",
-  "workspace/typescript",
-  "web/nextjs",
-  "ui/shadcn",
-  "api/fastapi",
-  "quality/eslint",
-  "quality/prettier",
-  "quality/tsc",
-  "quality/ruff",
-  "quality/mypy",
-  "quality/pytest",
-  "db/postgres",
-  "db/sqlalchemy",
-  "postgres/local",
-  "auth/auth0-nextjs",
-  "auth/auth0-fastapi",
-  "deploy/docker"
-]);
-const previewModuleIds = new Set([
-  "web/vite",
-  "web/tanstack-start",
-  "ui/tailwind",
-  "quality/biome",
-  "quality/pyright",
-  "quality/vitest",
-  "db/drizzle",
-  "postgres/neon",
-  "postgres/supabase",
-  "postgres/supabase-local",
-  "auth/clerk",
-  "auth/none",
-  "deploy/vercel",
-  "workspace/docker-compose",
-  "workspace/github-actions",
-  "deploy/kubernetes",
-  "docs/local-dev",
-  "docs/readme",
-  "docs/architecture",
-  "docs/env",
-  "ai/skills"
-]);
-const previewPresetIds = new Set([
-  "next",
-  "vite",
-  "tanstack-start",
-  "next-postgres-clerk",
-  "containerized",
-  "next-neon-drizzle",
-  "next-supabase-drizzle"
-]);
-
-function moduleSupport(moduleId: string): SupportMetadata {
-  if (supportedModuleIds.has(moduleId)) {
-    return { level: "supported" };
-  }
-
-  if (previewModuleIds.has(moduleId)) {
-    return {
-      level: "preview",
-      reason: "Generated output exists, but this module has not passed the golden-path release profile."
-    };
-  }
-
-  return {
+// Support tiers are declared inline on each module and preset (Quality Modules take theirs from the
+// tooling catalog), so promoting an entry is a one-line change next to its declaration.
+const support = {
+  supported: { level: "supported" },
+  preview: {
+    level: "preview",
+    reason: "Generated output exists, but this module has not passed the golden-path release profile."
+  },
+  markerPreview: {
+    level: "preview",
+    reason: "Marker module: it records an explicit choice in the manifest and generates no files."
+  },
+  declarationOnly: {
+    level: "planned",
+    reason: "Declaration only: Stackkit does not generate any files for this module yet."
+  },
+  planned: {
     level: "planned",
     reason: "The registry declaration is not backed by a supported generated integration."
-  };
-}
-
-function presetSupport(presetId: string): SupportMetadata {
-  if (presetId === "next-fastapi-postgres-auth0") {
-    return { level: "supported" };
-  }
-
-  if (previewPresetIds.has(presetId)) {
-    return {
-      level: "preview",
-      reason: "The preset generates a starter, but it has not passed the golden-path release profile."
-    };
-  }
-
-  return {
+  },
+  previewPreset: {
+    level: "preview",
+    reason: "The preset generates a starter, but it has not passed the golden-path release profile."
+  },
+  plannedPreset: {
     level: "planned",
     reason: "One or more preset integrations are declaration-only and cannot be created."
-  };
-}
+  }
+} as const satisfies Record<string, SupportMetadata>;
+
+const removalPolicies = {
+  postgresLocal: {
+    mode: "managed-files-only",
+    retainedData: ["The Docker pgdata volume and its PostgreSQL data are retained."],
+    manualCleanup: ["Run docker compose down --volumes only when the database data is no longer needed."]
+  },
+  sqlalchemy: {
+    mode: "managed-files-only",
+    retainedData: ["Applied database schema and application rows are retained."],
+    manualCleanup: ["Use a reviewed Alembic downgrade or a manual migration before dropping application tables."]
+  },
+  docker: {
+    mode: "managed-files-only",
+    retainedData: ["Docker images, containers, and named volumes are retained."],
+    manualCleanup: ["Remove runtime resources explicitly with Docker after confirming retained data is disposable."]
+  },
+  auth0: {
+    mode: "managed-files-only",
+    retainedData: ["Auth0 tenant applications, APIs, users, and secrets are retained."],
+    manualCleanup: ["Remove Auth0 tenant resources separately after verifying no other deployment uses them."]
+  }
+} as const satisfies Record<string, ModuleRemovalPolicy>;
 
 const packageManagerFlag = {
   token: "package-manager",
@@ -344,10 +312,11 @@ const nativeInitializers = {
   }
 } satisfies Record<string, NativeInitializerInput>;
 
-const builtinModuleDefinitions = [
+export const builtinModules: StackkitModule[] = [
   defineModule({
     id: "workspace/pnpm-turbo",
     version: "1.0.0",
+    support: support.supported,
     title: "pnpm and Turborepo",
     description: "pnpm workspace with Turborepo task orchestration",
     aliases: ["workspace"],
@@ -367,6 +336,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "workspace/typescript",
     version: "1.0.0",
+    support: support.supported,
     title: "TypeScript",
     description: "Shared TypeScript configuration",
     aliases: ["typescript"],
@@ -381,6 +351,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "web/nextjs",
     version: "1.0.0",
+    support: support.supported,
     title: "Next.js",
     description: "Next.js web application",
     aliases: ["next", "nextjs"],
@@ -422,6 +393,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "web/vite",
     version: "1.0.0",
+    support: support.preview,
     title: "Vite",
     description: "Vite React web application",
     aliases: ["vite"],
@@ -448,6 +420,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "web/tanstack-start",
     version: "1.0.0",
+    support: support.preview,
     title: "TanStack Start",
     description: "TanStack Start full-stack React application",
     aliases: ["tanstack", "tanstack-start"],
@@ -474,6 +447,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "ui/shadcn",
     version: "1.0.0",
+    support: support.supported,
     title: "ShadCN",
     description: "ShadCN UI components",
     aliases: ["shadcn"],
@@ -502,6 +476,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "ui/tailwind",
     version: "1.0.0",
+    support: support.declarationOnly,
     title: "Tailwind CSS",
     description: "Tailwind CSS styling system",
     aliases: ["tailwind"],
@@ -512,6 +487,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "api/fastapi",
     version: "1.0.0",
+    support: support.supported,
     title: "FastAPI",
     description: "FastAPI API service",
     aliases: ["fastapi"],
@@ -543,6 +519,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "api/flask",
     version: "1.0.0",
+    support: support.planned,
     title: "Flask",
     description: "Flask API service",
     aliases: ["flask"],
@@ -552,6 +529,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "api/litestar",
     version: "1.0.0",
+    support: support.planned,
     title: "Litestar",
     description: "Litestar API service",
     provides: ["api", "python"]
@@ -560,6 +538,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "quality/pytest",
     version: "1.0.0",
+    support: support.supported,
     title: "pytest",
     description: "Python test runner",
     requires: ["python"],
@@ -568,6 +547,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "db/postgres",
     version: "1.0.0",
+    support: support.supported,
     title: "Postgres",
     description: "Postgres database family",
     aliases: ["postgres"],
@@ -590,6 +570,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "db/drizzle",
     version: "1.0.0",
+    support: support.preview,
     title: "Drizzle",
     description: "TypeScript database toolkit for Postgres",
     aliases: ["drizzle"],
@@ -613,6 +594,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "db/prisma",
     version: "1.0.0",
+    support: support.planned,
     title: "Prisma",
     description: "TypeScript ORM for Postgres",
     requires: ["postgres", "typescript"],
@@ -622,6 +604,8 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "db/sqlalchemy",
     version: "1.0.0",
+    support: support.supported,
+    removalPolicy: removalPolicies.sqlalchemy,
     title: "SQLAlchemy",
     description: "Python database toolkit for Postgres",
     aliases: ["sqlalchemy"],
@@ -659,6 +643,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "db/sqlx",
     version: "1.0.0",
+    support: support.planned,
     title: "SQLx",
     description: "SQLx database access for Postgres",
     aliases: ["sqlx"],
@@ -670,6 +655,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "db/diesel",
     version: "1.0.0",
+    support: support.planned,
     title: "Diesel",
     description: "Diesel ORM for Postgres",
     requires: ["postgres"],
@@ -678,6 +664,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "postgres/neon",
     version: "1.0.0",
+    support: support.preview,
     title: "Neon Postgres",
     description: "Neon hosted Postgres provider",
     aliases: ["neon"],
@@ -697,6 +684,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "postgres/supabase",
     version: "1.0.0",
+    support: support.preview,
     title: "Supabase Postgres",
     description: "Supabase hosted Postgres provider (database host only)",
     aliases: ["supabase"],
@@ -730,6 +718,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "postgres/supabase-local",
     version: "1.0.0",
+    support: support.preview,
     title: "Local Supabase (CLI)",
     description: "Local Supabase stack via the Supabase CLI (requires the CLI installed)",
     aliases: ["supabase-local"],
@@ -771,6 +760,8 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "postgres/local",
     version: "1.0.0",
+    support: support.supported,
+    removalPolicy: removalPolicies.postgresLocal,
     title: "Local Postgres (Docker)",
     description: "Local Postgres via a Docker Compose service",
     aliases: ["postgres-local"],
@@ -795,6 +786,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "auth/clerk",
     version: "1.0.0",
+    support: support.preview,
     title: "Clerk",
     description: "Clerk hosted auth",
     aliases: ["clerk"],
@@ -816,6 +808,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "auth/better-auth",
     version: "1.0.0",
+    support: support.planned,
     title: "Better Auth",
     description: "Self-hosted TypeScript auth",
     aliases: ["better-auth"],
@@ -836,6 +829,8 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "auth/auth0-nextjs",
     version: "1.0.0",
+    support: support.supported,
+    removalPolicy: removalPolicies.auth0,
     title: "Auth0 for Next.js",
     description: "Auth0 Next.js integration",
     aliases: ["auth0-nextjs"],
@@ -924,6 +919,8 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "auth/auth0-fastapi",
     version: "1.0.0",
+    support: support.supported,
+    removalPolicy: removalPolicies.auth0,
     title: "Auth0 for FastAPI",
     description: "Auth0 FastAPI API protection",
     aliases: ["auth0-fastapi"],
@@ -964,6 +961,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "auth/auth0-flask",
     version: "1.0.0",
+    support: support.planned,
     title: "Auth0 for Flask",
     description: "Auth0 Flask integration",
     aliases: ["auth0-flask"],
@@ -984,6 +982,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "auth/none",
     version: "1.0.0",
+    support: support.markerPreview,
     title: "No auth",
     description: "Explicitly skip application authentication",
     conflicts: ["auth/clerk", "auth/auth0-nextjs", "auth/auth0-fastapi", "auth/auth0-flask", "auth/better-auth"],
@@ -992,6 +991,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "deploy/vercel",
     version: "1.0.0",
+    support: support.preview,
     title: "Vercel",
     description: "Vercel deployment",
     aliases: ["vercel"],
@@ -1015,6 +1015,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "web/django",
     version: "1.0.0",
+    support: support.planned,
     title: "Django",
     description: "Django web application",
     aliases: ["django"],
@@ -1035,6 +1036,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "rust/tokio",
     version: "1.0.0",
+    support: support.planned,
     title: "Tokio",
     description: "Tokio async Rust runtime",
     aliases: ["tokio"],
@@ -1054,6 +1056,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "rust/axum",
     version: "1.0.0",
+    support: support.planned,
     title: "Axum",
     description: "Rust web API service",
     aliases: ["axum", "rust"],
@@ -1066,6 +1069,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "rust/actix",
     version: "1.0.0",
+    support: support.planned,
     title: "Actix Web",
     description: "Actix Web API service",
     provides: ["api", "rust"]
@@ -1073,6 +1077,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "rust/rocket",
     version: "1.0.0",
+    support: support.planned,
     title: "Rocket",
     description: "Rocket web API service",
     provides: ["api", "rust"]
@@ -1080,6 +1085,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "rust/sqlx",
     version: "1.0.0",
+    support: support.planned,
     title: "sqlx",
     description: "Rust SQL toolkit for Postgres",
     aliases: ["rust-sqlx"],
@@ -1091,6 +1097,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "rust/diesel",
     version: "1.0.0",
+    support: support.planned,
     title: "Diesel for Rust",
     description: "Rust Diesel ORM integration for Postgres",
     requires: ["postgres", "rust"],
@@ -1099,6 +1106,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "desktop/tauri",
     version: "1.0.0",
+    support: support.planned,
     title: "Tauri",
     description: "Tauri desktop application",
     provides: ["desktop"],
@@ -1116,6 +1124,8 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "deploy/docker",
     version: "1.0.0",
+    support: support.supported,
+    removalPolicy: removalPolicies.docker,
     title: "Docker",
     description: "Container build configuration",
     aliases: ["docker"],
@@ -1137,6 +1147,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "workspace/docker-compose",
     version: "1.0.0",
+    support: support.declarationOnly,
     title: "Docker Compose",
     description: "Local multi-service Docker Compose setup",
     requires: ["container"],
@@ -1145,6 +1156,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "workspace/github-actions",
     version: "1.0.0",
+    support: support.declarationOnly,
     title: "GitHub Actions",
     description: "Baseline CI workflow",
     provides: ["ci"]
@@ -1152,6 +1164,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "deploy/kubernetes",
     version: "1.0.0",
+    support: support.preview,
     title: "Kubernetes",
     description: "Baseline Kubernetes deployment",
     aliases: ["kubernetes", "k8s"],
@@ -1163,6 +1176,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "docs/local-dev",
     version: "1.0.0",
+    support: support.declarationOnly,
     title: "Local development docs",
     description: "Local development documentation",
     provides: ["docs"]
@@ -1170,6 +1184,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "docs/readme",
     version: "1.0.0",
+    support: support.preview,
     title: "README",
     description: "Project README documentation",
     provides: ["docs"]
@@ -1177,6 +1192,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "docs/architecture",
     version: "1.0.0",
+    support: support.declarationOnly,
     title: "Architecture docs",
     description: "Architecture documentation",
     provides: ["docs"]
@@ -1184,6 +1200,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "docs/env",
     version: "1.0.0",
+    support: support.preview,
     title: "Environment docs",
     description: "Environment variable documentation",
     provides: ["docs"]
@@ -1191,6 +1208,7 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "ai/skills",
     version: "1.0.0",
+    support: support.declarationOnly,
     title: "AI skills",
     description: "Local AI skill guidance setup",
     provides: ["ai-guidance"]
@@ -1198,72 +1216,59 @@ const builtinModuleDefinitions = [
   defineModule({
     id: "quality/vitest",
     version: "1.0.0",
+    support: support.declarationOnly,
     title: "Vitest",
     description: "JavaScript and TypeScript test runner",
     requires: ["typescript"],
     provides: ["javascript-test"]
   })
-] as const;
+];
 
-export const builtinModules = builtinModuleDefinitions.map((module) =>
-  defineModule({ ...module, support: moduleSupport(module.id), removalPolicy: moduleRemovalPolicy(module.id) })
-);
-
-function moduleRemovalPolicy(moduleId: string) {
-  if (moduleId === "postgres/local") {
-    return {
-      mode: "managed-files-only" as const,
-      retainedData: ["The Docker pgdata volume and its PostgreSQL data are retained."],
-      manualCleanup: ["Run docker compose down --volumes only when the database data is no longer needed."]
-    };
-  }
-  if (moduleId === "db/sqlalchemy") {
-    return {
-      mode: "managed-files-only" as const,
-      retainedData: ["Applied database schema and application rows are retained."],
-      manualCleanup: ["Use a reviewed Alembic downgrade or a manual migration before dropping application tables."]
-    };
-  }
-  if (moduleId === "deploy/docker") {
-    return {
-      mode: "managed-files-only" as const,
-      retainedData: ["Docker images, containers, and named volumes are retained."],
-      manualCleanup: ["Remove runtime resources explicitly with Docker after confirming retained data is disposable."]
-    };
-  }
-  if (moduleId === "auth/auth0-nextjs" || moduleId === "auth/auth0-fastapi") {
-    return {
-      mode: "managed-files-only" as const,
-      retainedData: ["Auth0 tenant applications, APIs, users, and secrets are retained."],
-      manualCleanup: ["Remove Auth0 tenant resources separately after verifying no other deployment uses them."]
-    };
-  }
-  return { mode: "managed-files-only" as const, retainedData: [], manualCleanup: [] };
-}
-
-const builtinPresetDefinitions = [
+// Presets list only the modules a user would choose. Default developer tooling (ESLint, Prettier, tsc,
+// Ruff, mypy, ...) is gap-filled from the tooling catalog during resolution, so an explicit
+// alternative such as `--ts-quality biome` replaces the default instead of conflicting with it.
+export const builtinPresets: StackkitPreset[] = [
   definePreset({
     id: "next",
     title: "Next.js",
     description: "A pnpm and Turborepo workspace with a Next.js app and ShadCN UI",
-    modules: ["workspace/pnpm-turbo", "workspace/typescript", "web/nextjs", "ui/shadcn", "quality/eslint", "quality/prettier", "quality/tsc"]
+    support: support.previewPreset,
+    modules: [
+      "workspace/pnpm-turbo",
+      "workspace/typescript",
+      "web/nextjs",
+      "ui/shadcn"
+    ]
   }),
   definePreset({
     id: "vite",
     title: "Vite",
     description: "A pnpm and Turborepo workspace with a Vite React app and ShadCN UI",
-    modules: ["workspace/pnpm-turbo", "workspace/typescript", "web/vite", "ui/shadcn", "quality/eslint", "quality/prettier"]
+    support: support.previewPreset,
+    modules: [
+      "workspace/pnpm-turbo",
+      "workspace/typescript",
+      "web/vite",
+      "ui/shadcn"
+    ]
   }),
   definePreset({
     id: "tanstack-start",
     title: "TanStack Start",
     description: "A pnpm and Turborepo workspace with a TanStack Start app and ShadCN UI",
-    modules: ["workspace/pnpm-turbo", "workspace/typescript", "web/tanstack-start", "ui/shadcn", "quality/eslint", "quality/prettier"]
+    support: support.previewPreset,
+    modules: [
+      "workspace/pnpm-turbo",
+      "workspace/typescript",
+      "web/tanstack-start",
+      "ui/shadcn"
+    ]
   }),
   definePreset({
     id: "next-postgres-clerk",
     title: "Next.js, Postgres, and Clerk",
     description: "A Next.js app with ShadCN, Postgres, Drizzle, and Clerk",
+    support: support.previewPreset,
     modules: [
       "workspace/pnpm-turbo",
       "workspace/typescript",
@@ -1272,16 +1277,14 @@ const builtinPresetDefinitions = [
       "db/postgres",
       "db/drizzle",
       "auth/clerk",
-      "deploy/vercel",
-      "quality/eslint",
-      "quality/prettier",
-      "quality/tsc"
+      "deploy/vercel"
     ]
   }),
   definePreset({
     id: "next-postgres-better-auth",
     title: "Next.js, Postgres, and Better Auth",
     description: "A Next.js app with ShadCN, Postgres, Drizzle, and self-hosted Better Auth",
+    support: support.plannedPreset,
     modules: [
       "workspace/pnpm-turbo",
       "workspace/typescript",
@@ -1290,16 +1293,14 @@ const builtinPresetDefinitions = [
       "db/postgres",
       "db/drizzle",
       "auth/better-auth",
-      "deploy/vercel",
-      "quality/eslint",
-      "quality/prettier",
-      "quality/tsc"
+      "deploy/vercel"
     ]
   }),
   definePreset({
     id: "next-fastapi-postgres-auth0",
     title: "Next.js, FastAPI, Postgres, and Auth0",
     description: "A multi-language app with Next.js, FastAPI, Postgres, SQLAlchemy, and Auth0",
+    support: support.supported,
     modules: [
       "workspace/pnpm-turbo",
       "workspace/typescript",
@@ -1312,11 +1313,6 @@ const builtinPresetDefinitions = [
       "auth/auth0-nextjs",
       "auth/auth0-fastapi",
       "deploy/docker",
-      "quality/eslint",
-      "quality/prettier",
-      "quality/tsc",
-      "quality/ruff",
-      "quality/mypy",
       "quality/pytest"
     ]
   }),
@@ -1324,6 +1320,7 @@ const builtinPresetDefinitions = [
     id: "next-axum-postgres-auth0",
     title: "Next.js, Axum, Postgres, and Auth0",
     description: "A Next.js app with an Axum service, Postgres, Rust SQLx, and Auth0 where supported",
+    support: support.plannedPreset,
     modules: [
       "workspace/pnpm-turbo",
       "workspace/typescript",
@@ -1335,38 +1332,31 @@ const builtinPresetDefinitions = [
       "rust/sqlx",
       "auth/auth0-nextjs",
       "deploy/vercel",
-      "deploy/docker",
-      "quality/eslint",
-      "quality/prettier",
-      "quality/tsc",
-      "quality/clippy",
-      "quality/rustfmt",
-      "quality/cargo-check"
+      "deploy/docker"
     ]
   }),
   definePreset({
     id: "containerized",
     title: "Containerized Next.js and FastAPI",
-    description: "A Docker-ready Next.js and FastAPI workspace with local Compose support",
+    description: "A Docker-ready Next.js and FastAPI workspace with a local Postgres Compose service",
+    support: support.previewPreset,
     modules: [
       "workspace/pnpm-turbo",
       "workspace/typescript",
-      "workspace/docker-compose",
       "web/nextjs",
       "ui/shadcn",
       "api/fastapi",
       "db/postgres",
       "db/sqlalchemy",
-      "deploy/docker",
-      "docs/local-dev",
-      "quality/tsc",
-      "quality/mypy"
+      "postgres/local",
+      "deploy/docker"
     ]
   }),
   definePreset({
     id: "next-neon-drizzle",
     title: "Next.js, Neon, and Drizzle",
     description: "A Next.js app with ShadCN, Neon Postgres, and Drizzle",
+    support: support.previewPreset,
     modules: [
       "workspace/pnpm-turbo",
       "workspace/typescript",
@@ -1375,16 +1365,14 @@ const builtinPresetDefinitions = [
       "db/postgres",
       "db/drizzle",
       "postgres/neon",
-      "deploy/vercel",
-      "quality/eslint",
-      "quality/prettier",
-      "quality/tsc"
+      "deploy/vercel"
     ]
   }),
   definePreset({
     id: "next-supabase-drizzle",
     title: "Next.js, Supabase, and Drizzle",
     description: "A Next.js app with ShadCN, Supabase Postgres, and Drizzle",
+    support: support.previewPreset,
     modules: [
       "workspace/pnpm-turbo",
       "workspace/typescript",
@@ -1393,22 +1381,17 @@ const builtinPresetDefinitions = [
       "db/postgres",
       "db/drizzle",
       "postgres/supabase",
-      "deploy/vercel",
-      "quality/eslint",
-      "quality/prettier",
-      "quality/tsc"
+      "deploy/vercel"
     ]
   })
-] as const;
+];
 
-export const builtinPresets = builtinPresetDefinitions.map((preset) =>
-  definePreset({ ...preset, support: presetSupport(preset.id) })
-);
-
-export const builtinRegistry = stackkitRegistrySchema.parse({
+// Modules and presets are validated once by defineModule/definePreset; the registry is assembled from
+// those parsed values. Registry-level invariants (unique ids) are checked by the registry tests.
+export const builtinRegistry: StackkitRegistry = {
   schemaVersion: 1,
   namespace: "@stackkit",
   name: "Stackkit built-in registry",
   modules: builtinModules,
   presets: builtinPresets
-});
+};

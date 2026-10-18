@@ -113,10 +113,18 @@ describe("deploy templates", () => {
   });
 
   it("renders the golden web, API, and Postgres topology", () => {
-    const files = renderDockerFiles({ serviceTargets: ["web", "api"], withPostgres: true, withSqlAlchemy: true });
+    const files = renderDockerFiles({
+      serviceTargets: ["web", "api"],
+      withPostgres: true,
+      withSqlAlchemy: true,
+      withAuth0Web: true,
+      withAuth0Api: true
+    });
     const compose = files.find((file) => file.path === "docker-compose.yml")?.content ?? "";
     const apiDockerfile = files.find((file) => file.path === "apps/api/Dockerfile")?.content ?? "";
 
+    expect(compose).toContain("AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET}");
+    expect(compose).toContain("AUTH0_JWKS_URL=${AUTH0_JWKS_URL:-}");
     expect(compose).toContain("image: postgres:17-alpine");
     expect(compose).toContain("DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/app");
     expect(compose).toContain("API_BASE_URL=http://api:8000");
@@ -124,5 +132,16 @@ describe("deploy templates", () => {
     expect(compose).toContain("db:\n        condition: service_healthy");
     expect(files.find((file) => file.path === ".dockerignore")?.content).toContain(".env.*");
     expect(apiDockerfile).toContain("uv run alembic upgrade head");
+  });
+
+  it("omits Auth0 variables when no Auth0 module is selected", () => {
+    const compose =
+      renderDockerFiles({ serviceTargets: ["web", "api"], withPostgres: true, withSqlAlchemy: true }).find(
+        (file) => file.path === "docker-compose.yml"
+      )?.content ?? "";
+
+    expect(compose).not.toContain("AUTH0_");
+    expect(compose).toContain("DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/app");
+    expect(compose).toContain("API_BASE_URL=http://api:8000");
   });
 });
