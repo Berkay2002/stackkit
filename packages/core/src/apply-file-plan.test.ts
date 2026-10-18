@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +13,26 @@ afterEach(async () => {
 });
 
 describe("applyFilePlan", () => {
+  it("refuses to write through a symlink or junction that leaves the project", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stackkit-apply-file-plan-link-"));
+    tempDirectories.push(root);
+    const projectDirectory = join(root, "project");
+    const outside = join(root, "outside");
+    await mkdir(projectDirectory);
+    await mkdir(outside);
+    await symlink(outside, join(projectDirectory, "apps"), "junction");
+    await mkdir(join(projectDirectory, "inside"));
+    await symlink(join(projectDirectory, "inside"), join(projectDirectory, "linked-inside"), "junction");
+
+    await expect(
+      applyFilePlan(projectDirectory, buildFilePlan([{ kind: "write", path: "apps/web/pwned.txt", owner: "web/nextjs", content: "x" }]))
+    ).rejects.toThrow("escapes project directory through a symlink");
+    expect(await readdir(outside)).toEqual([]);
+
+    await applyFilePlan(projectDirectory, buildFilePlan([{ kind: "write", path: "linked-inside/ok.txt", owner: "web/nextjs", content: "ok" }]));
+    await expect(readFile(join(projectDirectory, "inside", "ok.txt"), "utf8")).resolves.toBe("ok");
+  });
+
   it("writes files and returns manifest file records", async () => {
     const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-apply-file-plan-"));
     tempDirectories.push(projectDirectory);

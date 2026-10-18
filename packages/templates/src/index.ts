@@ -176,9 +176,14 @@ export function renderPnpmTurboFoundation({
       [
         'const { spawnSync } = require("node:child_process");',
         'const directBinary = process.env.STACKKIT_DOCTOR_BIN;',
-        'const command = directBinary || (process.platform === "win32" ? "npx.cmd" : "npx");',
+        'const command = directBinary || "npx";',
         'const args = directBinary ? ["doctor"] : ["--yes", "@berkayorhan/stackkit@0.3.0", "doctor"];',
-        'const result = spawnSync(command, args, { stdio: "inherit" });',
+        "// Windows needs a shell to start .cmd shims such as npx.cmd; the arguments are constant.",
+        'const shell = process.platform === "win32";',
+        'const result = spawnSync(shell && directBinary ? `"${directBinary}"` : command, args, { stdio: "inherit", shell });',
+        "if (result.error) {",
+        '  console.error(`stackkit:doctor could not start ${command}: ${result.error.message}`);',
+        "}",
         'process.exit(result.status ?? 1);',
         ""
       ].join("\n")

@@ -825,15 +825,7 @@ describe("applyCreatePlan", () => {
     tempDirectories.push(parentDirectory);
     const projectDirectory = join(parentDirectory, "resume-app");
     let attempts = 0;
-    const plan = createCreatePlan({
-      config: {
-        projectName: "resume-app",
-        packageManager: "pnpm",
-        workspace: "pnpm-turbo",
-        modules: ["workspace/pnpm-turbo"],
-        ai: { skillTargets: ["codex"], skillMode: "skip" }
-      },
-      availableModules: [
+    const availableModules = [
         defineModule({
           id: "workspace/pnpm-turbo",
           version: "1.0.0",
@@ -861,10 +853,23 @@ describe("applyCreatePlan", () => {
             }
           ]
         })
-      ]
+    ];
+    const plan = createCreatePlan({
+      config: {
+        projectName: "resume-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo"],
+        ai: { skillTargets: ["codex"], skillMode: "skip" }
+      },
+      availableModules
     });
-    const runCommand = vi.fn(async () => {
+    const runCommand = vi.fn(async (_command: string, args: readonly string[], options: { cwd?: string }) => {
       attempts += 1;
+      if (attempts === 2) {
+        // The failing initializer leaves partial output behind before it dies.
+        await writeFile(join(options.cwd!, "partial-output.txt"), "partial\n", "utf8");
+      }
       return attempts === 2
         ? { exitCode: 1, stdout: "", stderr: "interrupted" }
         : { exitCode: 0, stdout: "ok", stderr: "" };
@@ -880,7 +885,8 @@ describe("applyCreatePlan", () => {
       (stepId) => interruptedState.initializerProgress[stepId]?.status === "failed"
     );
     expect(failedStepId).toBeDefined();
-    interruptedState.initializerProgress[failedStepId!] = { status: "running" };
+    // Simulate a crash while the step was running (the pre-run baseline is already journaled).
+    interruptedState.initializerProgress[failedStepId!] = { status: "running", before: interruptedState.initializerProgress[failedStepId!]!.before };
     await writeFile(
       join(projectDirectory, ".stackkit", "apply-state.json"),
       `${JSON.stringify(interruptedState, null, 2)}\n`,
@@ -888,11 +894,24 @@ describe("applyCreatePlan", () => {
     );
 
     await writeFile(join(projectDirectory, "README.md"), "# preserved during resume\n", "utf8");
-    await expect(resumeCreatePlan({ projectDirectory, runCommand })).rejects.toThrow("--retry-initializers");
-    const result = await resumeCreatePlan({ projectDirectory, runCommand, retryInitializers: true });
+    await expect(resumeCreatePlan({ projectDirectory, runCommand, availableModules })).rejects.toThrow("--retry-initializers");
+    const tamperedModules = [defineModule({ ...availableModules[0]!, postCreate: [{ name: "evil", command: "node", args: ["-e", "1"] }] })];
+    await expect(resumeCreatePlan({ projectDirectory, runCommand, availableModules: tamperedModules, retryInitializers: true }))
+      .rejects.toThrow("journal modules do not match the installed Stackkit registry: workspace/pnpm-turbo");
+    const resumeDirectory = process.platform === "win32" ? projectDirectory.toUpperCase() : projectDirectory;
+    const result = await resumeCreatePlan({ projectDirectory: resumeDirectory, runCommand, availableModules, retryInitializers: true });
 
     await expect(readFile(join(projectDirectory, "README.md"), "utf8")).resolves.toBe("# preserved during resume\n");
     expect(result.manifest.planHash).toBe(plan.planHash);
+    // The edit made between failure and resume is drift, not generated content.
+    expect(result.doctor.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "files.README.md", status: "warning" })
+    ]));
+    expect(result.manifest.expectedFiles?.find((file) => file.path === "README.md")?.content).not.toContain("preserved during resume");
+    // Output the failed attempt left behind is still owned by the initializer.
+    expect(result.manifest.files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "partial-output.txt", owner: "workspace/pnpm-turbo" })
+    ]));
     expect(runCommand).toHaveBeenCalledTimes(3);
     expect(runCommand.mock.calls.filter(([, args]) => args.includes("fixture-success@1.0.0"))).toHaveLength(1);
     const completedState = await readCreateApplyState(projectDirectory);

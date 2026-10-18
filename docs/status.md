@@ -32,7 +32,7 @@ The golden path generates a pnpm/Turborepo workspace with:
 
 Create plans are hashed together with selected module snapshots. Deterministic files are applied from the reviewed plan. Lifecycle hooks and native initializers are checkpointed individually so resume does not repeat completed steps.
 
-`stackkit doctor` checks managed-file integrity, declared files, and runnable `command-succeeds` validations when invoked through the CLI. The generated `pnpm stackkit:doctor` script pins Stackkit 0.3.0.
+`stackkit doctor` checks managed-file integrity, declared files, and runnable `command-succeeds` validations when invoked through the CLI. Those commands come only from the installed Stackkit registry for the recorded module ids; commands written into `.stackkit/project.json` are never executed. The generated `pnpm stackkit:doctor` script pins Stackkit 0.3.0.
 
 ## Verification gates
 

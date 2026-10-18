@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname } from "node:path";
 
 import {
   aiSkillRegistryEntrySchema,
@@ -14,7 +14,9 @@ import {
   type SkillsLock,
   type StackkitModule
 } from "@berkayorhan/stackkit-schemas";
+import { curatedSkillSourceAllowlist } from "@berkayorhan/stackkit-registry";
 
+import { resolveContainedProjectPath } from "./fs-utils.js";
 import { type CommandResult, type RunCommand } from "./package-manager.js";
 
 export type AiSkillInstallCommand = {
@@ -28,6 +30,19 @@ export type InstallAiSkillsOptions = {
   cwd?: string;
   runCommand: RunCommand;
   now?: () => Date;
+};
+
+export type SkillSourceAllowlistOptions = {
+  /** Curated sources accepted from skills-lock.json; defaults to the registry's curated allowlist. */
+  curatedAllowlist?: readonly string[];
+};
+
+export type ApplySkillLockOptions = InstallAiSkillsOptions & SkillSourceAllowlistOptions;
+
+export type ApplySkillLockResult = {
+  lock: SkillsLock;
+  /** Skills whose install or update command failed during this run. */
+  failed: AiSkillDependency[];
 };
 
 export type InstallAiSkillsResult = {
@@ -196,41 +211,46 @@ export async function installAiSkills(
   };
 }
 
-export function planSkillSyncCommands(lock: SkillsLock): AiSkillInstallCommand[] {
+export function planSkillSyncCommands(lock: SkillsLock, options: SkillSourceAllowlistOptions = {}): AiSkillInstallCommand[] {
   const parsed = skillsLockSchema.parse(lock);
   const retriableUnresolved = parsed.unresolved.flatMap((skill) => {
     const retriableSkill = restoreRetriableSkill(skill);
 
     return retriableSkill ? [retriableSkill] : [];
   });
+  const skills = [...parsed.installed, ...parsed.planned, ...retriableUnresolved];
+  assertAllowlistedSkillSources(skills, options);
 
-  return planAiSkillInstallCommands([...parsed.installed, ...parsed.planned, ...retriableUnresolved], parsed.targets, parsed.linkMode);
+  return planAiSkillInstallCommands(skills, parsed.targets, parsed.linkMode);
 }
 
-export async function applySkillSync(lock: SkillsLock, options: InstallAiSkillsOptions): Promise<SkillsLock> {
+export async function applySkillSync(lock: SkillsLock, options: ApplySkillLockOptions): Promise<ApplySkillLockResult> {
   const parsed = skillsLockSchema.parse(lock);
-  const result = await installAiSkills(planSkillSyncCommands(parsed), options);
+  const result = await installAiSkills(planSkillSyncCommands(parsed, options), options);
   const installed = mergeSkillDependencies(parsed.installed, result.installed);
   const installedKeys = new Set(installed.map(skillDependencyKey));
 
   return {
-    schemaVersion: 1,
-    mode: parsed.mode,
-    linkMode: parsed.linkMode,
-    targets: parsed.targets,
-    installed,
-    planned: parsed.planned.filter((skill) => !installedKeys.has(skillDependencyKey(skill))),
-    local: parsed.local,
-    // Retain previously-unresolved skills that were not (and could not be) retried,
-    // dropping only those that just installed successfully.
-    unresolved: mergeSkillDependencies(
-      parsed.unresolved.filter((skill) => !installedKeys.has(skillDependencyKey(skill))),
-      result.unresolved
-    )
+    lock: {
+      schemaVersion: 1,
+      mode: parsed.mode,
+      linkMode: parsed.linkMode,
+      targets: parsed.targets,
+      installed,
+      planned: parsed.planned.filter((skill) => !installedKeys.has(skillDependencyKey(skill))),
+      local: parsed.local,
+      // Retain previously-unresolved skills that were not (and could not be) retried,
+      // dropping only those that just installed successfully.
+      unresolved: mergeSkillDependencies(
+        parsed.unresolved.filter((skill) => !installedKeys.has(skillDependencyKey(skill))),
+        result.unresolved
+      )
+    },
+    failed: result.unresolved
   };
 }
 
-export function planSkillUpdateCommands(lock: SkillsLock): AiSkillInstallCommand[] {
+export function planSkillUpdateCommands(lock: SkillsLock, options: SkillSourceAllowlistOptions = {}): AiSkillInstallCommand[] {
   const parsed = skillsLockSchema.parse(lock);
   const target = parsed.targets.find((candidate) => candidate.enabled);
 
@@ -238,7 +258,10 @@ export function planSkillUpdateCommands(lock: SkillsLock): AiSkillInstallCommand
     return [];
   }
 
-  return parsed.installed.filter(isUpdatableExternalSkill).map((skill) => ({
+  const skills = parsed.installed.filter(isUpdatableExternalSkill);
+  assertAllowlistedSkillSources(skills, options);
+
+  return skills.map((skill) => ({
     command: "npx",
     args: ["-y", "skills", "update", ...skill.skills, "--project", "-y"],
     target,
@@ -246,9 +269,9 @@ export function planSkillUpdateCommands(lock: SkillsLock): AiSkillInstallCommand
   }));
 }
 
-export async function applySkillUpdate(lock: SkillsLock, options: InstallAiSkillsOptions): Promise<SkillsLock> {
+export async function applySkillUpdate(lock: SkillsLock, options: ApplySkillLockOptions): Promise<ApplySkillLockResult> {
   const parsed = skillsLockSchema.parse(lock);
-  const result = await installAiSkills(planSkillUpdateCommands(parsed), options);
+  const result = await installAiSkills(planSkillUpdateCommands(parsed, options), options);
   const refreshedAt = (options.now ?? (() => new Date()))().toISOString();
   const updatedKeys = new Set(result.installed.map(skillDependencyKey));
   const installed = parsed.installed.map((skill) =>
@@ -256,18 +279,39 @@ export async function applySkillUpdate(lock: SkillsLock, options: InstallAiSkill
   );
 
   return {
-    schemaVersion: 1,
-    mode: parsed.mode,
-    linkMode: parsed.linkMode,
-    targets: parsed.targets,
-    installed,
-    planned: parsed.planned,
-    local: parsed.local,
-    unresolved: mergeSkillDependencies(
-      parsed.unresolved.filter((skill) => !updatedKeys.has(skillDependencyKey(skill))),
-      result.unresolved
-    )
+    lock: {
+      schemaVersion: 1,
+      mode: parsed.mode,
+      linkMode: parsed.linkMode,
+      targets: parsed.targets,
+      installed,
+      planned: parsed.planned,
+      local: parsed.local,
+      unresolved: mergeSkillDependencies(
+        parsed.unresolved.filter((skill) => !updatedKeys.has(skillDependencyKey(skill))),
+        result.unresolved
+      )
+    },
+    failed: result.unresolved
   };
+}
+
+/** skills-lock.json is project data: only install sources Stackkit itself would have accepted. */
+function assertAllowlistedSkillSources(skills: readonly AiSkillDependency[], options: SkillSourceAllowlistOptions): void {
+  const allowed = new Set<string>([
+    ...defaultOfficialSkillSources,
+    ...(options.curatedAllowlist ?? curatedSkillSourceAllowlist)
+  ]);
+  const rejected = [
+    ...new Set(skills.filter(isInstallableSkill).map((skill) => skill.source!).filter((source) => !allowed.has(source)))
+  ];
+
+  if (rejected.length > 0) {
+    throw new Error(
+      `skills-lock.json lists skill sources that are not on Stackkit's official or curated allowlist: ${rejected.join(", ")}. ` +
+      "Remove them from skills-lock.json, or install them yourself with npx skills."
+    );
+  }
 }
 
 export function mergeSkillDependencies(
@@ -299,9 +343,9 @@ export async function writeLocalAiGuidance(
   for (const skill of input.local) {
     for (const skillName of skill.skills) {
       for (const target of enabledTargets) {
-        const skillDirectory = join(projectDirectory, target.directory, "skills", skillName);
-        await mkdir(skillDirectory, { recursive: true });
-        await writeFile(join(skillDirectory, "SKILL.md"), renderLocalAiGuidance(skillName, skill), "utf8");
+        const skillPath = await resolveContainedProjectPath(projectDirectory, `${target.directory}/skills/${skillName}/SKILL.md`);
+        await mkdir(dirname(skillPath), { recursive: true });
+        await writeFile(skillPath, renderLocalAiGuidance(skillName, skill), "utf8");
       }
     }
   }
@@ -342,7 +386,7 @@ function restoreRetriableSkill(skill: AiSkillDependency): AiSkillDependency | un
   };
 }
 
-function isRetriableUnresolvedSkill(skill: AiSkillDependency): skill is AiSkillDependency & { source: string } {
+export function isRetriableUnresolvedSkill(skill: AiSkillDependency): skill is AiSkillDependency & { source: string } {
   return !!skill.source && skill.trust === "unresolved" && skill.reason.startsWith("Skill install failed:");
 }
 

@@ -157,7 +157,7 @@ describe("skill sync", () => {
       }
     );
 
-    expect(result.installed).toEqual([
+    expect(result.lock.installed).toEqual([
       expect.objectContaining({
         source: "https://github.com/vercel-labs/agent-skills",
         skills: ["vercel-react-best-practices"],
@@ -165,7 +165,7 @@ describe("skill sync", () => {
         causedBy: "web/nextjs"
       })
     ]);
-    expect(result.unresolved).toEqual([]);
+    expect(result.lock.unresolved).toEqual([]);
   });
 
   it("plans retry commands for unresolved failed installs with source and skill names", () => {
@@ -216,7 +216,7 @@ describe("skill sync", () => {
       }
     );
 
-    expect(result.installed).toEqual([
+    expect(result.lock.installed).toEqual([
       expect.objectContaining({
         source: "https://github.com/vercel-labs/agent-skills",
         skills: ["vercel-react-best-practices"],
@@ -224,7 +224,7 @@ describe("skill sync", () => {
         causedBy: "web/nextjs"
       })
     ]);
-    expect(result.unresolved).toEqual([]);
+    expect(result.lock.unresolved).toEqual([]);
   });
 
   it("retains previously-unresolved skills that cannot be retried during sync", async () => {
@@ -248,8 +248,8 @@ describe("skill sync", () => {
       }
     );
 
-    expect(result.installed).toEqual([skill]);
-    expect(result.unresolved).toEqual([unresolvedSkill]);
+    expect(result.lock.installed).toEqual([skill]);
+    expect(result.lock.unresolved).toEqual([unresolvedSkill]);
   });
 });
 
@@ -297,6 +297,35 @@ describe("skill update", () => {
     });
 
     expect(calls).toEqual([{ command: "npx", args: ["-y", "skills", "update", "vercel-react-best-practices", "--project", "-y"] }]);
-    expect(result.installed).toEqual([{ ...skill, verifiedAt: "2026-06-09T00:00:00.000Z" }]);
+    expect(result.lock.installed).toEqual([{ ...skill, verifiedAt: "2026-06-09T00:00:00.000Z" }]);
+  });
+});
+
+describe("skills-lock trust", () => {
+  const lockWith = (source: string) => ({
+    schemaVersion: 1 as const,
+    targets: [{ agent: "codex" as const, directory: ".agents" as const, enabled: true }],
+    installed: [{ source, skills: ["thing"], trust: "curated" as const, causedBy: "web/nextjs", reason: "r" }],
+    local: [],
+    unresolved: []
+  });
+
+  it("refuses to plan sync or update for sources outside the official and curated allowlists", () => {
+    const lock = lockWith("https://example.com/evil-skills");
+
+    expect(() => planSkillSyncCommands(lock)).toThrow("https://example.com/evil-skills");
+    expect(() => planSkillUpdateCommands(lock)).toThrow("not on Stackkit's official or curated allowlist");
+    expect(planSkillSyncCommands(lock, { curatedAllowlist: ["https://example.com/evil-skills"] })).toHaveLength(1);
+  });
+
+  it("reports failed installs from sync and update", async () => {
+    const lock = lockWith("https://github.com/antfu/skills");
+    const runCommand = async () => ({ exitCode: 1, stdout: "", stderr: "network down" });
+
+    const sync = await applySkillSync(lock, { runCommand });
+    const update = await applySkillUpdate(lock, { runCommand });
+
+    expect(sync.failed).toEqual([expect.objectContaining({ trust: "unresolved", reason: "Skill install failed: network down" })]);
+    expect(update.failed).toEqual([expect.objectContaining({ trust: "unresolved", reason: "Skill install failed: network down" })]);
   });
 });
