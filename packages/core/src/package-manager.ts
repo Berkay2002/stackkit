@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { win32 } from "node:path";
+import { join } from "node:path";
 
 import { type PackageManager } from "@berkayorhan/stackkit-schemas";
 
@@ -120,7 +120,7 @@ function findWindowsCommand(command: string, env: NodeJS.ProcessEnv, cwd: string
 
   for (const directory of directories) {
     for (const candidate of candidates) {
-      const path = directory ? win32.join(directory, candidate) : candidate;
+      const path = directory ? join(directory, candidate) : candidate;
 
       if (existsSync(path)) {
         return path;
