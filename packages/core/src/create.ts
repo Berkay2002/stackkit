@@ -365,7 +365,9 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
         ...toDockerTemplateOptions(packageManager),
         serviceTargets: selectedDockerServiceTargets(selectedModuleIds),
         withPostgres: selectedModuleIds.has("postgres/local"),
-        withSqlAlchemy: hasSqlAlchemy
+        withSqlAlchemy: hasSqlAlchemy,
+        withAuth0Web: hasAuth0Nextjs,
+        withAuth0Api: hasAuth0FastApi
       }),
       selectedModuleIds
     );

@@ -96,6 +96,11 @@ describe("resolveModuleGraph", () => {
     expect(() => resolveModuleGraph([workspace, next, django])).toThrow("Module web/django conflicts with web/nextjs");
   });
 
+  it("treats a conflict declared on one side as symmetric regardless of selection order", () => {
+    // next declares no conflicts; the registry relies on one-sided declarations being enough.
+    expect(() => resolveModuleGraph([django, workspace, next])).toThrow("Module web/django conflicts with web/nextjs");
+  });
+
   it("fails when concrete auth modules select different providers", () => {
     expect(() => resolveModuleGraph([workspace, next, clerk, auth0Nextjs])).toThrow(
       "Conflicting auth providers: clerk, auth0"

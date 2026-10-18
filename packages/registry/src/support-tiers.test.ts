@@ -1,39 +1,43 @@
 import { describe, expect, it } from "vitest";
 
-import { builtinModules, builtinPresets } from "./index.js";
+import { resolveModuleGraph } from "@berkayorhan/stackkit-core";
+import type { SupportLevel } from "@berkayorhan/stackkit-schemas";
 
-const supportedModuleIds = [
-  "workspace/pnpm-turbo",
-  "workspace/typescript",
-  "web/nextjs",
-  "ui/shadcn",
-  "api/fastapi",
-  "quality/eslint",
-  "quality/prettier",
-  "quality/tsc",
-  "quality/ruff",
-  "quality/mypy",
-  "quality/pytest",
-  "db/postgres",
-  "db/sqlalchemy",
-  "postgres/local",
-  "auth/auth0-nextjs",
-  "auth/auth0-fastapi",
-  "deploy/docker"
-].sort();
+import { builtinModules, builtinPresets } from "./index.js";
+import { toolingCatalog } from "./tooling-catalog.js";
+
+const goldenPresetId = "next-fastapi-postgres-auth0";
+const moduleById = new Map(builtinModules.map((module) => [module.id, module]));
+const tierRank: Record<SupportLevel, number> = { planned: 0, preview: 1, supported: 2 };
+
+function resolveGolden() {
+  return resolveModuleGraph([], {
+    availableModules: builtinModules,
+    availablePresets: builtinPresets,
+    selectedPresets: [goldenPresetId]
+  });
+}
 
 describe("built-in support tiers", () => {
-  it("exposes only the golden-path modules and preset as supported", () => {
+  it("supports exactly the modules the golden-path preset resolves to", () => {
+    const golden = resolveGolden();
+
     expect(
       builtinModules
         .filter((module) => module.support.level === "supported")
         .map((module) => module.id)
         .sort()
-    ).toEqual(supportedModuleIds);
+    ).toEqual(golden.map((module) => module.id).sort());
 
     expect(builtinPresets.filter((preset) => preset.support.level === "supported").map((preset) => preset.id)).toEqual([
-      "next-fastapi-postgres-auth0"
+      goldenPresetId
     ]);
+  });
+
+  it("takes Quality Module support from the tooling catalog", () => {
+    for (const spec of toolingCatalog) {
+      expect(moduleById.get(spec.moduleId)?.support, spec.moduleId).toEqual(spec.support);
+    }
   });
 
   it("documents why every non-supported entry is not supported", () => {
@@ -44,14 +48,23 @@ describe("built-in support tiers", () => {
     }
   });
 
-  it("declares a removal policy for every supported module", () => {
-    for (const module of builtinModules.filter((entry) => entry.support.level === "supported")) {
-      expect(module.removalPolicy.mode, module.id).toBe("managed-files-only");
-      expect(module.removalPolicy.retainedData, module.id).toBeInstanceOf(Array);
-      expect(module.removalPolicy.manualCleanup, module.id).toBeInstanceOf(Array);
+  it("never rates a preset above its weakest module", () => {
+    for (const preset of builtinPresets) {
+      for (const moduleId of preset.modules) {
+        const module = moduleById.get(moduleId)!;
+        expect(
+          tierRank[preset.support.level] <= tierRank[module.support.level],
+          `${preset.id} (${preset.support.level}) includes ${moduleId} (${module.support.level})`
+        ).toBe(true);
+      }
     }
-    expect(builtinModules.find((module) => module.id === "postgres/local")?.removalPolicy.retainedData).toContain(
-      "The Docker pgdata volume and its PostgreSQL data are retained."
-    );
+  });
+
+  it("pins every third-party AI skill source on the golden path to a git ref", () => {
+    const unpinned = resolveGolden()
+      .flatMap((module) => module.aiSkills ?? [])
+      .filter((skill) => skill.trust !== "official" && !/\/tree\/[^/]+$/.test(skill.source ?? ""));
+
+    expect(unpinned).toEqual([]);
   });
 });

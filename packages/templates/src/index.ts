@@ -51,6 +51,10 @@ type DockerFilesOptions = {
   serviceTargets?: readonly DockerServiceTarget[];
   withPostgres?: boolean;
   withSqlAlchemy?: boolean;
+  /** Pass AUTH0_* variables to the web service (auth/auth0-nextjs selected). */
+  withAuth0Web?: boolean;
+  /** Pass AUTH0_* variables to the API service (auth/auth0-fastapi selected). */
+  withAuth0Api?: boolean;
 };
 
 const workspaceOwner = "workspace/pnpm-turbo";
@@ -645,12 +649,18 @@ export function renderDockerFiles({
   runStartCommand = ["pnpm", "start"],
   serviceTargets = ["web"],
   withPostgres = false,
-  withSqlAlchemy = false
+  withSqlAlchemy = false,
+  withAuth0Web = false,
+  withAuth0Api = false
 }: DockerFilesOptions = {}): FileOperation[] {
   const baseImage = packageManagerName === "bun" ? "oven/bun:1-alpine" : "node:22-alpine";
   const targets = uniqueServiceTargets(serviceTargets);
   const files: FileOperation[] = [
-    writeFile("docker-compose.yml", "deploy/docker", renderDockerCompose(targets, withPostgres)),
+    writeFile(
+      "docker-compose.yml",
+      "deploy/docker",
+      renderDockerCompose(targets, { withPostgres, withAuth0Web, withAuth0Api })
+    ),
     writeFile(
       ".dockerignore",
       "deploy/docker",
@@ -695,7 +705,10 @@ function uniqueServiceTargets(serviceTargets: readonly DockerServiceTarget[]): D
   return [...new Set(serviceTargets)];
 }
 
-function renderDockerCompose(serviceTargets: readonly DockerServiceTarget[], withPostgres: boolean): string {
+function renderDockerCompose(
+  serviceTargets: readonly DockerServiceTarget[],
+  { withPostgres, withAuth0Web, withAuth0Api }: { withPostgres: boolean; withAuth0Web: boolean; withAuth0Api: boolean }
+): string {
   const services: string[] = [];
 
   // Build from the repository root so workspace packages (referenced via workspace:* deps) are
@@ -710,12 +723,16 @@ function renderDockerCompose(serviceTargets: readonly DockerServiceTarget[], wit
           ? [
               "API_BASE_URL=http://api:8000",
               "APP_BASE_URL=http://localhost:3000",
-              "AUTH0_DOMAIN=${AUTH0_DOMAIN}",
-              "AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}",
-              "AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET}",
-              "AUTH0_SECRET=${AUTH0_SECRET}",
-              "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
-              "AUTH0_ALLOW_INSECURE_REQUESTS=${AUTH0_ALLOW_INSECURE_REQUESTS:-false}"
+              ...(withAuth0Web
+                ? [
+                    "AUTH0_DOMAIN=${AUTH0_DOMAIN}",
+                    "AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}",
+                    "AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET}",
+                    "AUTH0_SECRET=${AUTH0_SECRET}",
+                    "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
+                    "AUTH0_ALLOW_INSECURE_REQUESTS=${AUTH0_ALLOW_INSECURE_REQUESTS:-false}"
+                  ]
+                : [])
             ]
           : [],
         dependsOn: serviceTargets.includes("api") ? { api: "service_started" } : {}
@@ -729,15 +746,17 @@ function renderDockerCompose(serviceTargets: readonly DockerServiceTarget[], wit
         name: "api",
         dockerfile: "apps/api/Dockerfile",
         port: 8000,
-        environment: withPostgres
-          ? [
-              "DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/app",
-              "AUTH0_DOMAIN=${AUTH0_DOMAIN}",
-              "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
-              "AUTH0_ISSUER=${AUTH0_ISSUER:-}",
-              "AUTH0_JWKS_URL=${AUTH0_JWKS_URL:-}"
-            ]
-          : [],
+        environment: [
+          ...(withPostgres ? ["DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/app"] : []),
+          ...(withAuth0Api
+            ? [
+                "AUTH0_DOMAIN=${AUTH0_DOMAIN}",
+                "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
+                "AUTH0_ISSUER=${AUTH0_ISSUER:-}",
+                "AUTH0_JWKS_URL=${AUTH0_JWKS_URL:-}"
+              ]
+            : [])
+        ],
         dependsOn: withPostgres ? { db: "service_healthy" } : {}
       })
     );

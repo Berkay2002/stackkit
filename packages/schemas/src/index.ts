@@ -1,7 +1,12 @@
 import { z } from "zod";
 
-export const moduleIdSchema = z.string().min(1);
-export const semverSchema = z.string().min(1);
+export const moduleIdSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*$/, "Use a lowercase module ID such as web/nextjs");
+// x.y.z with an optional pre-release/build suffix. Core's migration ordering compares the x.y.z part.
+export const semverSchema = z
+  .string()
+  .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/, "Use a semantic version such as 1.0.0");
 export const projectSlugSchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9-]*$/, "Use a lowercase slug such as acme-dashboard");
@@ -175,7 +180,7 @@ export const migrationOperationSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const moduleMigrationSchema = z.object({
-  from: z.string().min(1),
+  from: semverSchema,
   to: semverSchema,
   title: z.string().min(1),
   operations: z.array(migrationOperationSchema).default([]),
@@ -205,12 +210,10 @@ export const stackkitModuleSchema = z.object({
   requires: z.array(z.string().min(1)).optional(),
   provides: z.array(z.string().min(1)).optional(),
   conflicts: z.array(moduleIdSchema).optional(),
-  prompts: z.array(z.unknown()).optional(),
   files: z.array(fileOperationSchema).optional(),
   packageChanges: z.array(packageChangeSchema).optional(),
   envVars: z.array(envVarDefinitionSchema).optional(),
   readme: readmeMetadataSchema.optional(),
-  tasks: z.array(taskDefinitionSchema).optional(),
   postCreate: z.array(lifecycleHookSchema).optional(),
   postAdd: z.array(lifecycleHookSchema).optional(),
   nativeInitializers: z.array(nativeInitializerSchema).optional(),
@@ -238,23 +241,45 @@ export const stackkitPresetSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
   support: supportMetadataSchema,
-  modules: z.array(moduleIdSchema).min(1)
+  modules: z
+    .array(moduleIdSchema)
+    .min(1)
+    .refine((modules) => new Set(modules).size === modules.length, "Preset modules must not repeat a module ID")
 });
 
-export const stackkitRegistrySchema = z.object({
-  schemaVersion: z.literal(1),
-  namespace: z.string().min(1),
-  name: z.string().min(1),
-  modules: z.array(stackkitModuleSchema).default([]),
-  presets: z.array(stackkitPresetSchema).default([])
-});
+export const stackkitRegistrySchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    namespace: z.string().min(1),
+    name: z.string().min(1),
+    modules: z.array(stackkitModuleSchema).default([]),
+    presets: z.array(stackkitPresetSchema).default([])
+  })
+  .superRefine((registry, context) => {
+    reportDuplicates(registry.modules.map((module) => module.id), "module ID", "modules", context);
+    reportDuplicates(registry.presets.map((preset) => preset.id), "preset ID", "presets", context);
+    reportDuplicates(registry.modules.flatMap((module) => module.aliases), "module alias", "modules", context);
+  });
+
+function reportDuplicates(values: readonly string[], label: string, path: string, context: z.RefinementCtx): void {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) {
+      context.addIssue({ code: "custom", path: [path], message: `Duplicate ${label}: ${value}` });
+    }
+    seen.add(value);
+  }
+}
 
 export const aiSkillRegistryEntrySchema = z.object({
   module: moduleIdSchema,
   aiSkills: z.array(aiSkillDependencySchema).min(1)
 });
 
-export const stackkitConfigSchema = z.object({
+// User-authored config and recipes reject unknown keys, so a typo such as `modlues` fails loudly
+// instead of being stripped into an empty module selection.
+export const stackkitConfigSchema = z.strictObject({
+  $schema: z.string().optional(),
   projectName: projectSlugSchema,
   preset: z.string().min(1).optional(),
   packageManager: packageManagerSchema.default("pnpm"),
@@ -263,7 +288,7 @@ export const stackkitConfigSchema = z.object({
   registries: z.record(z.string(), z.string()).default({}),
   options: z.record(moduleIdSchema, z.record(z.string(), z.unknown())).optional(),
   ai: z
-    .object({
+    .strictObject({
       skillTargets: z.array(aiSkillAgentSchema).default(["codex"]),
       skillMode: aiSkillModeSchema.default("install"),
       linkMode: aiSkillLinkModeSchema.default("copy")
@@ -273,7 +298,7 @@ export const stackkitConfigSchema = z.object({
 
 export const aiConfigSchema = stackkitConfigSchema.shape.ai;
 
-export const stackkitRecipeSchema = z.object({
+export const stackkitRecipeSchema = z.strictObject({
   schemaVersion: z.literal(1),
   preset: z.string().min(1).optional(),
   packageManager: packageManagerSchema.default("pnpm"),
@@ -315,7 +340,7 @@ export const createApplyPhaseStateSchema = z.object({
 });
 
 export const createApplyStateSchema = z
-  .object({
+  .looseObject({
     schemaVersion: z.literal(1),
     operation: z.literal("create"),
     planHash: z.string().min(1),
@@ -325,8 +350,7 @@ export const createApplyStateSchema = z
     plan: z.record(z.string(), z.unknown()),
     selectedModules: z.array(stackkitModuleSchema),
     phases: z.record(createApplyPhaseSchema, createApplyPhaseStateSchema)
-  })
-  .passthrough();
+  });
 
 export const stackkitManifestSchema = z.object({
   schemaVersion: z.literal(1),

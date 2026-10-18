@@ -16,6 +16,21 @@ describe("create --ts-quality / --py-typecheck", () => {
     expect(ids).not.toContain("quality/prettier");
   });
 
+  it("lets alternative tooling replace the golden preset's default quality modules", async () => {
+    const plan = await createDryRunPlanFromConfig({
+      name: "acme",
+      preset: "next-fastapi-postgres-auth0",
+      includePreview: true,
+      axes: { tsQuality: "biome", pyTypecheck: "pyright" }
+    });
+
+    const ids = plan.modules.map((module) => module.id);
+    expect(ids).toEqual(expect.arrayContaining(["quality/biome", "quality/tsc", "quality/ruff", "quality/pyright"]));
+    expect(ids).not.toEqual(expect.arrayContaining(["quality/eslint"]));
+    expect(ids).not.toEqual(expect.arrayContaining(["quality/prettier"]));
+    expect(ids).not.toEqual(expect.arrayContaining(["quality/mypy"]));
+  });
+
   it("gap-fills eslint/prettier and omits biome for the default --ts-quality eslint-prettier", async () => {
     const plan = await createDryRunPlanFromConfig({
       name: "acme",
