@@ -215,12 +215,17 @@ jobs:
           npm init --yes
           npm install --save-dev playwright@1.54.2
           npx playwright install --with-deps chromium
-          node - <<'JS'
+          node - <<'JS' || { docker compose -f "$BASE_COMPOSE" -f "$RELEASE_COMPOSE" logs web mock-auth api; exit 1; }
           const { chromium } = require("playwright");
 
+          let page;
           (async () => {
             const browser = await chromium.launch({ headless: true });
-            const page = await browser.newPage();
+            page = await browser.newPage();
+            // Trace the login round-trip so a failure shows where the redirect chain stopped.
+            page.on("response", (response) => {
+              if (response.request().isNavigationRequest()) console.log(`navigation ${response.status()} ${response.url()}`);
+            });
             await page.goto("http://localhost:3000");
             await page.getByRole("link", { name: "Log in" }).click();
             await page.getByRole("link", { name: "Open dashboard" }).click();
@@ -230,5 +235,12 @@ jobs:
             await page.getByRole("button", { name: "Complete" }).click();
             await page.getByRole("button", { name: "Reopen" }).waitFor();
             await browser.close();
-          })().catch((error) => { console.error(error); process.exit(1); });
+          })().catch(async (error) => {
+            console.error(error);
+            if (page) {
+              console.error(`page url: ${page.url()}`);
+              console.error(`page text: ${(await page.locator("body").innerText().catch(() => "<unavailable>")).slice(0, 2000)}`);
+            }
+            process.exit(1);
+          });
           JS
