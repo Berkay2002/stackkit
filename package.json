@@ -14,7 +14,7 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "smoke": "turbo run build --force && pnpm --filter @berkayorhan/stackkit-test-utils test -- e2e-",
+    "smoke": "turbo run build && pnpm --filter @berkayorhan/stackkit-test-utils smoke",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish"
@@ -26,5 +26,11 @@
     "turbo": "^2.9.16",
     "typescript": "^5.9.3",
     "vitest": "^4.1.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
   }
 }

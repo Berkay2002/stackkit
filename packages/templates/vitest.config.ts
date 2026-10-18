@@ -1,14 +1,12 @@
-import { fileURLToPath } from "node:url";
-
 import { defineConfig } from "vitest/config";
+
+import { workspaceAlias } from "../../vitest.shared";
 
 export default defineConfig({
   test: {
     environment: "node"
   },
   resolve: {
-    alias: {
-      "@berkayorhan/stackkit-schemas": fileURLToPath(new URL("../schemas/src/index.ts", import.meta.url))
-    }
+    alias: workspaceAlias
   }
 });

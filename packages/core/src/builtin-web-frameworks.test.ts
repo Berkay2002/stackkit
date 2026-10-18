@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { builtinModules } from "./index.js";
-import { resolveModuleGraph } from "@berkayorhan/stackkit-core";
+import { builtinModules } from "@berkayorhan/stackkit-registry";
+import { resolveModuleGraph } from "./index.js";
 
 function byId(id: string) {
   return builtinModules.find((m) => m.id === id);

@@ -172,10 +172,6 @@ importers:
       '@berkayorhan/stackkit-registry':
         specifier: workspace:*
         version: link:../registry
-    devDependencies:
-      '@berkayorhan/stackkit':
-        specifier: workspace:*
-        version: link:../cli
 
 packages:
 
