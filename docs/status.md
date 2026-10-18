@@ -39,12 +39,12 @@ Create plans are hashed together with selected module snapshots. Deterministic f
 The repository gate covers:
 
 - package and app tests, typechecks, and builds
-- root `pnpm test`, `pnpm typecheck`, and `pnpm smoke`
-- Ubuntu and Windows CI
+- root `pnpm test` (offline), `pnpm typecheck`, and `pnpm smoke` (real installs, builds, and uv-based Python checks of a generated project)
+- Ubuntu and Windows CI on pull requests and before every release run
 - public-package tarball packing and installation
 - creation through the packed CLI
 - generated-project install, test, typecheck, lint, build, doctor, and migration behavior
-- Compose build and runtime readiness in the release workflow
+- Compose build, API runtime readiness, and a browser Auth0 login and todo flow in the golden-path workflow (on pull requests and before release); the web service runs under `next dev` in that proof, so the production web container is built but not exercised
 - a scheduled pinned-versus-latest initializer canary
 
 ## Preview and planned areas
@@ -57,4 +57,4 @@ The customizer remains local and offline. Remote registries, hosted recipes, acc
 
 ## Release state
 
-The workspace packages and changelogs are prepared at version 0.3.0. Publishing is a separate maintainer action and is not performed by implementation or verification work.
+The workspace packages and changelogs are prepared at version 0.3.0. Publishing is a separate maintainer action and is not performed by implementation or verification work: the release workflow publishes only after a maintainer merges the Changesets version PR, and only once CI and the golden-path proof pass on that commit.
