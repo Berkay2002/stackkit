@@ -327,6 +327,7 @@ These commands evolve a managed project over time. They are in early alpha. Alwa
 stackkit add <module-id> --dry-run
 stackkit add <module-id> --dry-run --view apps/web/package.json
 stackkit add <module-id> --dry-run --diff
+stackkit add <preview-module-id> --include-preview
 ```
 
 **Remove a module**
@@ -334,6 +335,7 @@ stackkit add <module-id> --dry-run --diff
 ```bash
 stackkit remove <module-id> --dry-run
 stackkit remove <module-id> --yes
+stackkit remove <module-id> --yes --force   # also overwrite or delete drifted files
 ```
 
 **Update generated files for existing modules**

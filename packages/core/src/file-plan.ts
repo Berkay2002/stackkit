@@ -21,7 +21,7 @@ export type FilePlan = {
 
 export type FileConflict = {
   path: string;
-  reason: "exists-unowned" | "modified-owned";
+  reason: "exists-unowned" | "modified-owned" | "missing-owned";
 };
 
 export type ManifestFileRecord = {
@@ -80,7 +80,8 @@ export async function detectFileConflicts(
   for (const rawFile of plan.files) {
     const file = normalizePlannedFile(rawFile);
 
-    if (file.overwrite === "always") {
+    // "never" files that already exist are skipped on apply, so they can never conflict.
+    if (file.overwrite === "always" || file.overwrite === "never") {
       continue;
     }
 
@@ -129,6 +130,10 @@ export async function applyFilePlanUnchecked(projectDirectory: string, plan: Fil
   for (const rawFile of plan.files) {
     const file = normalizePlannedFile(rawFile);
     const targetPath = join(projectDirectory, file.path);
+
+    if (file.overwrite === "never" && (await readExistingFile(targetPath)) !== undefined) {
+      continue;
+    }
 
     await mkdir(dirname(targetPath), { recursive: true });
     await writeFile(targetPath, file.content, "utf8");

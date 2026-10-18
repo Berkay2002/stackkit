@@ -4,7 +4,8 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type RunCommand } from "@berkayorhan/stackkit-core";
+import { type RunCommand, type StackkitModule } from "@berkayorhan/stackkit-core";
+import { builtinModules } from "@berkayorhan/stackkit-registry";
 
 import { buildConfigFromInteractiveAnswers, createStackkitProgram, isDirectCliExecution, stackkitVersion } from "./index.js";
 
@@ -1005,16 +1006,16 @@ describe("createStackkitProgram", () => {
   it("plans curated skills when adding a builtin curated module in plan mode", async () => {
     const projectDirectory = await createManagedProject(["workspace/pnpm-turbo"], { skillMode: "plan" });
 
-    await runProgram(["add", "web/django", "--dir", projectDirectory]);
+    await runProgram(["add", "web/vite", "--include-preview", "--dir", projectDirectory]);
 
     const manifest = await readManifestFile(projectDirectory);
     expect(manifest.aiSkills.installed).toEqual([]);
     expect(manifest.aiSkills.planned).toEqual([
       expect.objectContaining({
-        source: "https://github.com/affaan-m/everything-claude-code",
-        skills: ["django-patterns", "django-security", "django-tdd", "django-verification"],
+        source: "https://github.com/antfu/skills",
+        skills: ["vite"],
         trust: "curated",
-        causedBy: "web/django"
+        causedBy: "web/vite"
       })
     ]);
     expect(manifest.aiSkills.unresolved).toEqual([]);
@@ -1029,23 +1030,12 @@ describe("createStackkitProgram", () => {
       return { exitCode: 0, stdout: "installed", stderr: "" };
     };
 
-    await runProgram(["add", "web/django", "--dir", projectDirectory], { runCommand });
+    await runProgram(["add", "web/vite", "--include-preview", "--dir", projectDirectory], { runCommand });
 
     expect(runCommandCalls).toEqual([
       expect.objectContaining({
         command: "npx",
-        args: expect.arrayContaining([
-          "skills",
-          "add",
-          "https://github.com/affaan-m/everything-claude-code",
-          "--skill",
-          "django-patterns",
-          "django-security",
-          "django-tdd",
-          "django-verification",
-          "--agent",
-          "codex"
-        ]),
+        args: expect.arrayContaining(["skills", "add", "https://github.com/antfu/skills", "--skill", "vite", "--agent", "codex"]),
         options: { cwd: projectDirectory }
       })
     ]);
@@ -1053,13 +1043,31 @@ describe("createStackkitProgram", () => {
     const manifest = await readManifestFile(projectDirectory);
     expect(manifest.aiSkills.installed).toEqual([
       expect.objectContaining({
-        source: "https://github.com/affaan-m/everything-claude-code",
-        skills: ["django-patterns", "django-security", "django-tdd", "django-verification"],
+        source: "https://github.com/antfu/skills",
+        skills: ["vite"],
         trust: "curated",
-        causedBy: "web/django"
+        causedBy: "web/vite"
       })
     ]);
     expect(manifest.aiSkills.unresolved).toEqual([]);
+  });
+
+  it("applies the create support gate to add and resolves aliases", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo"]);
+
+    await expect(runProgram(["add", "web/django", "--include-preview", "--dir", projectDirectory])).rejects.toThrow(
+      "Module web/django is planned and cannot be created"
+    );
+    await expect(runProgram(["add", "vite", "--dir", projectDirectory])).rejects.toThrow("--include-preview");
+    expect((await readManifestFile(projectDirectory)).modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo"]);
+
+    const { output } = await runProgram(["add", "next", "--dir", projectDirectory]);
+
+    expect(output).toBe("Added web/nextjs to acme-dashboard\n");
+    expect((await readManifestFile(projectDirectory)).modules.map((module) => module.id)).toEqual([
+      "workspace/pnpm-turbo",
+      "web/nextjs"
+    ]);
   });
 
   it("prints a remove dry-run summary", async () => {
@@ -1089,6 +1097,40 @@ describe("createStackkitProgram", () => {
 
     const manifest = await readManifestFile(projectDirectory);
     expect(manifest.modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo"]);
+  });
+
+  it("refuses to remove unknown, uninstalled, or depended-on modules", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    await expect(runProgram(["remove", "web/nextjss", "--yes", "--dir", projectDirectory])).rejects.toThrow(
+      "Unknown Stackkit module or alias: web/nextjss"
+    );
+    await expect(runProgram(["remove", "fastapi", "--yes", "--dir", projectDirectory])).rejects.toThrow(
+      "Module api/fastapi is not installed in acme-dashboard."
+    );
+
+    const plan = await runProgram(["remove", "workspace/pnpm-turbo", "--dry-run", "--dir", projectDirectory]);
+    expect(plan.output).toContain("Safe to remove: no");
+    expect(plan.output).toContain("Still required by: web/nextjs");
+    await expect(runProgram(["remove", "workspace/pnpm-turbo", "--yes", "--dir", projectDirectory])).rejects.toThrow(
+      "still required by web/nextjs"
+    );
+
+    const manifest = await readManifestFile(projectDirectory);
+    expect(manifest.modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo", "web/nextjs"]);
+  });
+
+  it("refuses to remove a module when that would overwrite a user-edited file", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+    await writeFile(join(projectDirectory, "README.md"), "# my own readme\n", "utf8");
+
+    await expect(runProgram(["remove", "web/nextjs", "--yes", "--dir", projectDirectory])).rejects.toThrow(
+      "Remove target has conflicts: README.md (modified-owned)"
+    );
+    await expect(readFile(join(projectDirectory, "README.md"), "utf8")).resolves.toBe("# my own readme\n");
+
+    await runProgram(["remove", "web/nextjs", "--yes", "--force", "--dir", projectDirectory]);
+    expect((await readManifestFile(projectDirectory)).modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo"]);
   });
 
   it("prints a read-only diff summary without modifying the manifest", async () => {
@@ -1229,7 +1271,7 @@ describe("createStackkitProgram", () => {
   it("prints pending migrations for migrate --dry-run without writing files", async () => {
     const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
 
-    const { output } = await runProgram(["migrate", "--dry-run", "--dir", projectDirectory]);
+    const { output } = await runProgram(["migrate", "--dry-run", "--dir", projectDirectory], { availableModules: modulesWithNextjsMigration });
 
     expect(output).toContain("Stackkit migrate plan for acme-dashboard");
     expect(output).toContain("Add Next.js instrumentation hook");
@@ -1251,7 +1293,7 @@ describe("createStackkitProgram", () => {
   it("applies automatic migrations with migrate --apply", async () => {
     const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
 
-    await runProgram(["migrate", "--apply", "--dir", projectDirectory]);
+    await runProgram(["migrate", "--apply", "--dir", projectDirectory], { availableModules: modulesWithNextjsMigration });
 
     const content = await readFile(join(projectDirectory, "apps", "web", "instrumentation.ts"), "utf8");
     expect(content).toContain("register");
@@ -1263,12 +1305,21 @@ describe("createStackkitProgram", () => {
   it("is idempotent when migrate --apply runs twice", async () => {
     const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
 
-    await runProgram(["migrate", "--apply", "--dir", projectDirectory]);
-    await runProgram(["migrate", "--apply", "--dir", projectDirectory]);
+    await runProgram(["migrate", "--apply", "--dir", projectDirectory], { availableModules: modulesWithNextjsMigration });
+    await runProgram(["migrate", "--apply", "--dir", projectDirectory], { availableModules: modulesWithNextjsMigration });
 
     const manifest = await readManifestFile(projectDirectory);
     expect(manifest.migrations.applied).toHaveLength(1);
   });
+
+  it("has no pending migrations for a fresh project with the builtin registry", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+
+    const { output } = await runProgram(["migrate", "--dry-run", "--dir", projectDirectory]);
+
+    expect(output).toContain("Automatic: 0");
+  });
+
   it("reports a healthy project with doctor", async () => {
     const projectDirectory = await createManagedProject(["workspace/pnpm-turbo"]);
 
@@ -1319,14 +1370,34 @@ describe("createStackkitProgram", () => {
   });
 });
 
+/** Builtin registry where web/nextjs 1.1.0 ships an automatic migration from the generated 1.0.0. */
+const modulesWithNextjsMigration: StackkitModule[] = builtinModules.map((module) =>
+  module.id === "web/nextjs"
+    ? {
+        ...module,
+        version: "1.1.0",
+        migrations: [
+          {
+            from: "1.0.0",
+            to: "1.1.0",
+            title: "Add Next.js instrumentation hook",
+            operations: [{ kind: "write", path: "apps/web/instrumentation.ts", content: "export function register() {}\n" }],
+            safety: "automatic"
+          }
+        ]
+      }
+    : module
+);
+
 async function runProgram(
   argv: string[],
-  options: { runCommand?: RunCommand } = {}
+  options: { runCommand?: RunCommand; availableModules?: readonly StackkitModule[] } = {}
 ): Promise<{ output: string; errorOutput: string }> {
   let output = "";
   let errorOutput = "";
   const program = createStackkitProgram({
-    runCommand: options.runCommand ?? (async () => ({ exitCode: 0, stdout: "", stderr: "" }))
+    runCommand: options.runCommand ?? (async () => ({ exitCode: 0, stdout: "", stderr: "" })),
+    availableModules: options.availableModules
   });
   program.configureOutput({
     writeOut: (value) => {

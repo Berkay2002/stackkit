@@ -97,6 +97,8 @@ export type CreatePlan = {
     id: string;
     version: string;
   }[];
+  /** Per-module options from the config; persisted into the manifest so lifecycle re-renders match create. */
+  options: NonNullable<StackkitConfig["options"]>;
   selectedModules: StackkitModule[];
   aiSkills: {
     mode: AiSkillMode;
@@ -201,6 +203,7 @@ export function createCreatePlan(input: CreatePlanInput): CreatePlan {
       id: module.id,
       version: module.version
     })),
+    options: input.config.options ?? {},
     aiSkills: {
       mode,
       linkMode,
@@ -555,7 +558,7 @@ export async function applyCreatePlan(
       modules: plan.selectedModules.map((module) => ({
         id: module.id,
         version: module.version,
-        options: {},
+        options: plan.options?.[module.id] ?? {},
         snapshot: snapshotStackkitModule(module)
       })),
       files: state.files,
@@ -1189,24 +1192,26 @@ export function buildExpectedManagedFilePlan(manifest: StackkitManifest): FilePl
 }
 
 export function buildReconstructedManagedFilePlan(manifest: StackkitManifest): FilePlan {
-  const modules = manifest.modules.map((module) => manifestModuleToStackkitModule(module));
-  const config = {
+  return buildCreateFilePlan(manifestToConfig(manifest), manifest.modules.map(manifestModuleToStackkitModule));
+}
+
+/** The config a manifest was rendered from, as far as the manifest records it (module ids and options). */
+export function manifestToConfig(manifest: StackkitManifest): StackkitConfig {
+  return {
     projectName: manifest.projectName,
     packageManager: manifest.packageManager,
-    workspace: "pnpm-turbo" as const,
+    workspace: "pnpm-turbo",
     modules: manifest.modules.map((module) => module.id),
     registries: {},
+    options: Object.fromEntries(
+      manifest.modules.filter((module) => Object.keys(module.options).length > 0).map((module) => [module.id, module.options])
+    ),
     ai: {
       skillTargets: manifest.aiSkills.targets.map((target) => target.agent),
       skillMode: manifest.aiSkills.mode,
       linkMode: manifest.aiSkills.linkMode
     }
   };
-  const createOperations = renderCreateFiles(config, modules);
-  const packageOperations = renderPackageChangeFiles(modules.flatMap((module) => module.packageChanges ?? []));
-  const envOperations = renderEnvExampleFiles("", modules.flatMap((module) => module.envVars ?? []));
-
-  return buildFilePlan(mergeCreateFileOperations([...createOperations, ...packageOperations, ...envOperations]));
 }
 
 export function buildCreateFilePlan(config: StackkitConfig, modules: readonly StackkitModule[]): FilePlan {

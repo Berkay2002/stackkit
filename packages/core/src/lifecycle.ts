@@ -14,13 +14,12 @@ import {
 import { hashContent, joinProjectDirectory, normalizeProjectPath, readExistingFile } from "./fs-utils.js";
 import { type RunCommand } from "./package-manager.js";
 import {
-  applyFilePlan,
+  applyFilePlanUnchecked,
   buildFilePlan,
   detectFileConflicts,
   mergeManifestFiles,
   type FileConflict,
-  type FilePlan,
-  type ManifestFileRecord
+  type PlannedFile
 } from "./file-plan.js";
 import { createManifest, readOptionalSkillsLock, writeManifest, writeSkillsLock } from "./manifest.js";
 import {
@@ -32,16 +31,26 @@ import {
   resolveAiSkills,
   writeLocalAiGuidance
 } from "./skills.js";
-import { resolveModuleGraph } from "./module-graph.js";
+import { resolveModuleAlias, resolveModuleGraph } from "./module-graph.js";
 import {
   buildReconstructedManagedFilePlan,
   filePlanToExpectedFiles,
+  manifestModuleToStackkitModule,
+  manifestToConfig,
   mergeCreateFileOperations,
   planEnvExampleFiles,
   renderCreateFiles,
   snapshotStackkitModule
 } from "./create.js";
 import { planPackageChangeFiles } from "./package-files.js";
+import { assertCreateSupport } from "./support.js";
+
+/** Files a lifecycle operation will write or delete, and the drifted files that block it. */
+export type LifecycleFileChanges = {
+  writes: PlannedFile[];
+  deletes: string[];
+  refusals: FileConflict[];
+};
 
 export type AddModulesPlan = {
   schemaVersion: 1;
@@ -50,21 +59,31 @@ export type AddModulesPlan = {
   refusals: FileConflict[];
   modules: StackkitModule[];
   modulesToAdd: StackkitModule[];
+  writes: PlannedFile[];
   manifest: StackkitManifest;
 };
 
-export type RemoveModulesPlan = {
+export type RemoveModulesPlan = LifecycleFileChanges & {
   schemaVersion: 1;
   operation: "remove";
   safe: boolean;
-  refusals: FileConflict[];
   blockedModules: string[];
+  /** Remaining modules that require a capability only the removed modules provide. */
+  dependents: string[];
   modulesToRemove: string[];
   removalAdvisories: {
     moduleId: string;
     policy: ModuleRemovalPolicy;
   }[];
-  filesToRemove: ManifestFileRecord[];
+  manifest: StackkitManifest;
+};
+
+export type UpdateModulesPlan = LifecycleFileChanges & {
+  schemaVersion: 1;
+  operation: "update";
+  safe: boolean;
+  updates: ModuleUpdatePlan["updates"];
+  migrations: ModuleMigrationPlan;
   manifest: StackkitManifest;
 };
 
@@ -73,6 +92,7 @@ export type ApplyAddModulesInput = {
   manifest: StackkitManifest;
   moduleIds: readonly string[];
   availableModules: readonly StackkitModule[];
+  includePreview?: boolean;
   curatedSkillSourceAllowlist?: readonly string[];
   skillTargets?: readonly AiSkillTarget[];
   runCommand?: RunCommand;
@@ -83,6 +103,16 @@ export type ApplyRemoveModulesInput = {
   manifest: StackkitManifest;
   moduleIds: readonly string[];
   availableModules?: readonly StackkitModule[];
+  /** Overwrite or delete drifted files instead of refusing. */
+  force?: boolean;
+};
+
+export type ApplyModuleUpdatesInput = {
+  projectDirectory: string;
+  manifest: StackkitManifest;
+  availableModules: readonly StackkitModule[];
+  /** Overwrite or delete drifted files instead of refusing. */
+  force?: boolean;
 };
 
 export type ModuleUpdatePlan = {
@@ -109,17 +139,41 @@ type MigrationFileOperation =
       owner: string;
     };
 
-export function planAddModules(input: {
+/**
+ * Resolve a module id or alias to a module installed in the manifest, or throw. Lifecycle commands
+ * must never report success for a typo or for a module the project does not have.
+ */
+export function resolveInstalledModuleId(
+  manifest: StackkitManifest,
+  input: string,
+  availableModules: readonly StackkitModule[] = []
+): string {
+  const moduleId = manifest.modules.some((module) => module.id === input)
+    ? input
+    : resolveModuleAlias(
+        input,
+        availableModules.length > 0 ? availableModules : manifest.modules.map(manifestModuleToStackkitModule)
+      );
+
+  if (!manifest.modules.some((module) => module.id === moduleId)) {
+    throw new Error(`Module ${moduleId} is not installed in ${manifest.projectName}.`);
+  }
+
+  return moduleId;
+}
+
+export async function planAddModules(input: {
+  projectDirectory: string;
   manifest: StackkitManifest;
   moduleIds: readonly string[];
   availableModules: readonly StackkitModule[];
-}): AddModulesPlan {
+  includePreview?: boolean;
+}): Promise<AddModulesPlan> {
   const manifest = createManifest(input.manifest);
   const moduleById = new Map(input.availableModules.map((module) => [module.id, module]));
   const existingIds = new Set(manifest.modules.map((module) => module.id));
-  const requestedIds = new Set(input.moduleIds);
-  const selectedIds = [...existingIds, ...input.moduleIds];
-  const selectedModules = selectedIds.map((moduleId) => {
+  const requestedIds = new Set(input.moduleIds.map((moduleId) => resolveModuleAlias(moduleId, input.availableModules)));
+  const selectedModules = [...existingIds, ...requestedIds].map((moduleId) => {
     const module = moduleById.get(moduleId);
 
     if (!module) {
@@ -130,6 +184,10 @@ export function planAddModules(input: {
   });
   const modules = resolveModuleGraph(selectedModules, { availableModules: input.availableModules });
   const modulesToAdd = modules.filter((module) => requestedIds.has(module.id) && !existingIds.has(module.id));
+
+  // Same support contract as create: planned modules are never generated, preview needs an explicit opt-in.
+  assertCreateSupport({ modules: modulesToAdd, includePreview: input.includePreview });
+
   const existingModuleById = new Map(manifest.modules.map((module) => [module.id, module]));
   const nextManifest = createManifest({
     ...manifest,
@@ -140,38 +198,52 @@ export function planAddModules(input: {
       snapshot: existingModuleById.get(module.id)?.snapshot ?? snapshotStackkitModule(module)
     }))
   });
+  const writes = await renderAddedModuleFiles(input.projectDirectory, nextManifest, modules, modulesToAdd);
+  const refusals = await detectFileConflicts(input.projectDirectory, { files: writes }, manifest.files);
 
   return {
     schemaVersion: 1,
     operation: "add",
-    safe: true,
-    refusals: [],
+    safe: refusals.length === 0,
+    refusals,
     modules,
     modulesToAdd,
-    manifest: nextManifest
+    writes,
+    manifest: withFileChanges(nextManifest, { writes, deletes: [] })
   };
 }
 
-export function planRemoveModules(input: {
+export async function planRemoveModules(input: {
+  projectDirectory: string;
   manifest: StackkitManifest;
   moduleIds: readonly string[];
-  currentFiles: readonly ManifestFileRecord[];
   availableModules?: readonly StackkitModule[];
-}): RemoveModulesPlan {
+  force?: boolean;
+}): Promise<RemoveModulesPlan> {
   const manifest = createManifest(input.manifest);
-  const removeIds = new Set(input.moduleIds);
-  const currentFileByPath = new Map(input.currentFiles.map((file) => [normalizeProjectPath(file.path), file]));
-  const filesToRemove = manifest.files.filter((file) => removeIds.has(file.owner));
-  const refusals = filesToRemove
-    .filter((file) => currentFileByPath.get(normalizeProjectPath(file.path))?.hash !== file.hash)
-    .map((file) => ({ path: normalizeProjectPath(file.path), reason: "modified-owned" as const }));
+  const removeIds = new Set(
+    input.moduleIds.map((moduleId) => resolveInstalledModuleId(manifest, moduleId, input.availableModules))
+  );
   const availableModuleById = new Map(input.availableModules?.map((module) => [module.id, module]) ?? []);
-  const manifestModuleById = new Map(manifest.modules.map((module) => [module.id, module]));
+  const installedModules = manifest.modules.map(
+    (module) => module.snapshot ?? availableModuleById.get(module.id) ?? manifestModuleToStackkitModule(module)
+  );
+  const remainingModules = installedModules.filter((module) => !removeIds.has(module.id));
+  const stillProvided = new Set(remainingModules.flatMap((module) => module.provides ?? []));
+  const lostCapabilities = new Set(
+    installedModules
+      .filter((module) => removeIds.has(module.id))
+      .flatMap((module) => module.provides ?? [])
+      .filter((capability) => !stillProvided.has(capability))
+  );
+  const dependents = remainingModules
+    .filter((module) => (module.requires ?? []).some((capability) => lostCapabilities.has(capability)))
+    .map((module) => module.id);
   const removalAdvisories = [...removeIds].map((moduleId) => ({
     moduleId,
     policy:
       availableModuleById.get(moduleId)?.removalPolicy ??
-      manifestModuleById.get(moduleId)?.snapshot?.removalPolicy ?? {
+      manifest.modules.find((module) => module.id === moduleId)?.snapshot?.removalPolicy ?? {
         mode: "managed-files-only" as const,
         retainedData: [],
         manualCleanup: []
@@ -182,62 +254,40 @@ export function planRemoveModules(input: {
     .map((advisory) => advisory.moduleId);
   const nextManifest = createManifest({
     ...manifest,
-    modules: manifest.modules.filter((module) => !removeIds.has(module.id)),
-    files: manifest.files.filter((file) => !removeIds.has(file.owner))
+    modules: manifest.modules.filter((module) => !removeIds.has(module.id))
+  });
+  const changes = await planManagedFileChanges({
+    projectDirectory: input.projectDirectory,
+    manifest,
+    nextManifest,
+    removedModuleIds: removeIds,
+    force: input.force
   });
 
   return {
     schemaVersion: 1,
     operation: "remove",
-    safe: refusals.length === 0 && blockedModules.length === 0,
-    refusals,
+    safe: changes.refusals.length === 0 && blockedModules.length === 0 && dependents.length === 0,
+    ...changes,
     blockedModules,
+    dependents,
     modulesToRemove: [...removeIds],
     removalAdvisories,
-    filesToRemove,
-    manifest: nextManifest
+    manifest: withFileChanges(nextManifest, changes)
   };
 }
 
-export async function readCurrentManagedFileHashes(
-  projectDirectory: string,
-  manifest: StackkitManifest
-): Promise<ManifestFileRecord[]> {
-  const records: ManifestFileRecord[] = [];
+export async function applyAddModules(
+  input: ApplyAddModulesInput
+): Promise<{ manifest: StackkitManifest; plan: AddModulesPlan }> {
+  const plan = await planAddModules(input);
 
-  for (const file of manifest.files) {
-    const normalizedPath = normalizeProjectPath(file.path);
-    const content = await readExistingFile(join(projectDirectory, normalizedPath));
-
-    if (content === undefined) {
-      continue;
-    }
-
-    records.push({
-      path: normalizedPath,
-      owner: file.owner,
-      hash: hashContent(content)
-    });
+  if (!plan.safe) {
+    throw new Error(`Add target has conflicts: ${formatConflicts(plan.refusals)}`);
   }
 
-  return records;
-}
+  await applyFilePlanUnchecked(input.projectDirectory, { files: plan.writes });
 
-export async function applyAddModules(input: ApplyAddModulesInput): Promise<{ manifest: StackkitManifest }> {
-  const plan = planAddModules(input);
-  const fullFilePlan = await planAddModuleFiles(input);
-  const conflicts = await detectFileConflicts(input.projectDirectory, fullFilePlan, input.manifest.files);
-
-  if (conflicts.length > 0) {
-    throw new Error(
-      `Add target has conflicts: ${conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ")}`
-    );
-  }
-
-  const files = await applyFilePlan(input.projectDirectory, fullFilePlan, {
-    ownedFiles: input.manifest.files,
-    conflictLabel: "Add target"
-  });
   if (input.runCommand) {
     await runLifecycleHooks(
       plan.modulesToAdd.flatMap((module) => module.postAdd ?? []),
@@ -257,12 +307,7 @@ export async function applyAddModules(input: ApplyAddModulesInput): Promise<{ ma
         unresolved: skillResult.lock.unresolved
       }
     : plan.manifest.aiSkills;
-  const nextManifest = await writeManifest(input.projectDirectory, {
-    ...plan.manifest,
-    files: mergeManifestFiles(input.manifest.files, files),
-    expectedFiles: mergeExpectedFiles(input.manifest.expectedFiles, filePlanToExpectedFiles(fullFilePlan)),
-    aiSkills: nextAiSkills
-  });
+  const nextManifest = await writeManifest(input.projectDirectory, { ...plan.manifest, aiSkills: nextAiSkills });
 
   if (skillResult.lock) {
     await writeSkillsLock(input.projectDirectory, skillResult.lock);
@@ -272,76 +317,31 @@ export async function applyAddModules(input: ApplyAddModulesInput): Promise<{ ma
     });
   }
 
-  return { manifest: nextManifest };
+  return { manifest: nextManifest, plan };
 }
 
-export async function applyRemoveModules(input: ApplyRemoveModulesInput): Promise<{ manifest: StackkitManifest }> {
-  const currentFiles = await readCurrentManagedFileHashes(input.projectDirectory, input.manifest);
-  const plan = planRemoveModules({ ...input, currentFiles });
+export async function applyRemoveModules(
+  input: ApplyRemoveModulesInput
+): Promise<{ manifest: StackkitManifest; plan: RemoveModulesPlan }> {
+  const plan = await planRemoveModules(input);
 
   if (plan.blockedModules.length > 0) {
     throw new Error(`Removal is blocked by module policy: ${plan.blockedModules.join(", ")}`);
   }
 
+  if (plan.dependents.length > 0) {
+    throw new Error(
+      `Cannot remove ${plan.modulesToRemove.join(", ")}: still required by ${plan.dependents.join(", ")}. Remove those modules first.`
+    );
+  }
+
   if (!plan.safe) {
-    throw new Error(
-      `Remove target has modified owned files: ${plan.refusals
-        .map((refusal) => `${refusal.path} (${refusal.reason})`)
-        .join(", ")}`
-    );
+    throw new Error(`Remove target has conflicts: ${formatConflicts(plan.refusals)}`);
   }
 
-  const regeneratedPlan = buildReconstructedManagedFilePlan(plan.manifest);
-  const managedPathSet = new Set(input.manifest.files.map((file) => normalizeProjectPath(file.path)));
-  const removePathSet = new Set(plan.filesToRemove.map((file) => normalizeProjectPath(file.path)));
-  const regeneratedFiles = regeneratedPlan.files.filter(
-    (file) => managedPathSet.has(file.path) && !removePathSet.has(file.path)
-  );
-  const regeneratedPathSet = new Set(regeneratedFiles.map((file) => file.path));
-  const sharedDeletes = plan.manifest.files.filter((file) => {
-    const path = normalizeProjectPath(file.path);
-    return managedPathSet.has(path) && !regeneratedPathSet.has(path);
-  });
-  const currentFileByPath = new Map(currentFiles.map((file) => [normalizeProjectPath(file.path), file]));
-  const sharedDeleteRefusals = sharedDeletes
-    .filter((file) => currentFileByPath.get(normalizeProjectPath(file.path))?.hash !== file.hash)
-    .map((file) => ({ path: normalizeProjectPath(file.path), reason: "modified-owned" as const }));
+  await applyLifecycleChanges(input.projectDirectory, plan);
 
-  if (sharedDeleteRefusals.length > 0) {
-    throw new Error(
-      `Remove target has modified shared files: ${sharedDeleteRefusals
-        .map((refusal) => `${refusal.path} (${refusal.reason})`)
-        .join(", ")}`
-    );
-  }
-
-  for (const file of plan.filesToRemove) {
-    await rm(join(input.projectDirectory, normalizeProjectPath(file.path)), { force: true });
-  }
-
-  for (const file of sharedDeletes) {
-    await rm(join(input.projectDirectory, normalizeProjectPath(file.path)), { force: true });
-  }
-
-  const rewrittenFiles = await applyFilePlan(input.projectDirectory, { files: regeneratedFiles }, {
-    ownedFiles: currentFiles,
-    conflictLabel: "Remove target"
-  });
-  const sharedDeletePathSet = new Set(sharedDeletes.map((file) => normalizeProjectPath(file.path)));
-  const nextFiles = mergeManifestFiles(
-    plan.manifest.files.filter((file) => !sharedDeletePathSet.has(normalizeProjectPath(file.path))),
-    rewrittenFiles
-  );
-  const nextFilePathSet = new Set(nextFiles.map((file) => normalizeProjectPath(file.path)));
-  const manifest = await writeManifest(input.projectDirectory, {
-    ...plan.manifest,
-    files: nextFiles,
-    expectedFiles: filePlanToExpectedFiles({ files: regeneratedFiles }).filter((file) =>
-      nextFilePathSet.has(normalizeProjectPath(file.path))
-    )
-  });
-
-  return { manifest };
+  return { manifest: await writeManifest(input.projectDirectory, plan.manifest), plan };
 }
 
 export function planModuleUpdates(input: {
@@ -430,10 +430,190 @@ export async function applyAutomaticMigrations(input: {
   modules: readonly StackkitModule[];
 }): Promise<{ manifest: StackkitManifest }> {
   const manifest = createManifest(input.manifest);
-  const automatic = collectPendingMigrations(manifest, input.modules).filter(
-    ({ migration }) => migration.safety === "automatic"
+  const migrations = await planAutomaticMigrationChanges(input.projectDirectory, manifest, input.modules);
+
+  if (migrations.refusals.length > 0) {
+    throw new Error(`Migration has conflicts: ${formatConflicts(migrations.refusals)}`);
+  }
+
+  await applyLifecycleChanges(input.projectDirectory, migrations);
+
+  // A migration moves the module to its `to` version, so it is never offered again.
+  const nextManifest = withFileChanges(
+    {
+      ...manifest,
+      modules: manifest.modules.map((module) => ({
+        ...module,
+        version: migrations.applied
+          .filter((entry) => entry.module.id === module.id)
+          .map((entry) => entry.migration.to)
+          .reduce((highest, version) => (compareSemver(version, highest) > 0 ? version : highest), module.version)
+      })),
+      migrations: {
+        applied: [...manifest.migrations.applied, ...migrations.applied.map(({ migration }) => migration)]
+      }
+    },
+    migrations
   );
-  const operations: MigrationFileOperation[] = automatic.flatMap(({ module, migration }) =>
+
+  return { manifest: await writeManifest(input.projectDirectory, nextManifest) };
+}
+
+/**
+ * Plan a full update: version bumps, re-rendered template changes, and pending automatic migrations,
+ * checked for conflicts together so apply either writes everything or nothing.
+ */
+export async function planUpdateModules(input: ApplyModuleUpdatesInput): Promise<UpdateModulesPlan> {
+  const manifest = createManifest(input.manifest);
+  const updates = planModuleUpdates({ manifestModules: manifest.modules, availableModules: input.availableModules }).updates;
+  const availableById = new Map(input.availableModules.map((module) => [module.id, module]));
+  const nextManifest = createManifest({
+    ...manifest,
+    modules: manifest.modules.map((manifestModule) => {
+      const available = availableById.get(manifestModule.id);
+
+      return available
+        ? { ...manifestModule, version: available.version, snapshot: snapshotStackkitModule(available) }
+        : manifestModule;
+    })
+  });
+  const templateChanges = await planManagedFileChanges({
+    projectDirectory: input.projectDirectory,
+    manifest,
+    nextManifest,
+    force: input.force
+  });
+  const migrations = await planAutomaticMigrationChanges(input.projectDirectory, manifest, input.availableModules);
+  const migrationPaths = new Set([...migrations.writes.map((file) => file.path), ...migrations.deletes]);
+  const changes: LifecycleFileChanges = {
+    writes: [...templateChanges.writes.filter((file) => !migrationPaths.has(file.path)), ...migrations.writes],
+    deletes: [...templateChanges.deletes.filter((path) => !migrationPaths.has(path)), ...migrations.deletes],
+    refusals: [...templateChanges.refusals, ...migrations.refusals]
+  };
+
+  return {
+    schemaVersion: 1,
+    operation: "update",
+    safe: changes.refusals.length === 0,
+    ...changes,
+    updates,
+    migrations: planModuleMigrations({ manifest, modules: input.availableModules }),
+    manifest: withFileChanges(
+      {
+        ...nextManifest,
+        migrations: {
+          applied: [...manifest.migrations.applied, ...migrations.applied.map(({ migration }) => migration)]
+        }
+      },
+      changes
+    )
+  };
+}
+
+export async function applyModuleUpdates(
+  input: ApplyModuleUpdatesInput
+): Promise<{ manifest: StackkitManifest; updates: ModuleUpdatePlan["updates"]; plan: UpdateModulesPlan }> {
+  const plan = await planUpdateModules(input);
+
+  if (!plan.safe) {
+    throw new Error(`Update target has conflicts: ${formatConflicts(plan.refusals)}`);
+  }
+
+  await applyLifecycleChanges(input.projectDirectory, plan);
+
+  return { manifest: await writeManifest(input.projectDirectory, plan.manifest), updates: plan.updates, plan };
+}
+
+/**
+ * Diff the files rendered for the current module set against the files rendered for the next one,
+ * and only touch paths whose rendered content changes. A path is written or deleted only while it
+ * still matches what Stackkit rendered (for files of removed modules: the recorded hash). Anything
+ * else — user edits, native-initializer or migration output, deleted files — is drift and is
+ * refused unless forced. Paths no template ever rendered are left alone.
+ *
+ * ponytail: the drift baseline is the current template code, so a template change shipped in a newer
+ * Stackkit without a module version bump also reads as drift; record per-file render provenance in the
+ * manifest if that becomes noisy.
+ */
+async function planManagedFileChanges(input: {
+  projectDirectory: string;
+  manifest: StackkitManifest;
+  nextManifest: StackkitManifest;
+  removedModuleIds?: ReadonlySet<string>;
+  force?: boolean;
+}): Promise<LifecycleFileChanges> {
+  const filesByPath = <T extends { path: string }>(files: readonly T[]) =>
+    new Map(files.map((file) => [normalizeProjectPath(file.path), file]));
+  const previousRender = filesByPath(buildReconstructedManagedFilePlan(input.manifest).files);
+  const nextRender = filesByPath(buildReconstructedManagedFilePlan(input.nextManifest).files);
+  const records = filesByPath(input.manifest.files);
+  const removed = input.removedModuleIds ?? new Set<string>();
+  const changes: LifecycleFileChanges = { writes: [], deletes: [], refusals: [] };
+  const readHash = async (path: string) => {
+    const content = await readExistingFile(join(input.projectDirectory, path));
+    return content === undefined ? undefined : hashContent(content);
+  };
+
+  for (const [path, file] of nextRender) {
+    const previous = previousRender.get(path);
+    const record = records.get(path);
+
+    if (previous?.hash === file.hash || (previous && !record)) {
+      continue;
+    }
+
+    const diskHash = await readHash(path);
+
+    if (diskHash !== undefined && file.overwrite === "never") {
+      continue;
+    }
+
+    const clean =
+      diskHash === undefined ? !record : diskHash === file.hash || (previous !== undefined && diskHash === previous.hash);
+
+    if (!clean && !input.force) {
+      changes.refusals.push({
+        path,
+        reason: diskHash === undefined ? "missing-owned" : record ? "modified-owned" : "exists-unowned"
+      });
+      continue;
+    }
+
+    changes.writes.push(file);
+  }
+
+  for (const [path, record] of records) {
+    if (nextRender.has(path)) {
+      continue;
+    }
+
+    const baseHash = removed.has(record.owner) ? record.hash : previousRender.get(path)?.hash;
+
+    // Not rendered by a template and its owner stays installed: native-initializer or migration output.
+    if (baseHash === undefined) {
+      continue;
+    }
+
+    const diskHash = await readHash(path);
+
+    if (diskHash !== undefined && diskHash !== baseHash && !input.force) {
+      changes.refusals.push({ path, reason: "modified-owned" });
+      continue;
+    }
+
+    changes.deletes.push(path);
+  }
+
+  return changes;
+}
+
+async function planAutomaticMigrationChanges(
+  projectDirectory: string,
+  manifest: StackkitManifest,
+  modules: readonly StackkitModule[]
+): Promise<LifecycleFileChanges & { applied: { module: StackkitModule; migration: ModuleMigration }[] }> {
+  const applied = collectPendingMigrations(manifest, modules).filter(({ migration }) => migration.safety === "automatic");
+  const operations: MigrationFileOperation[] = applied.flatMap(({ module, migration }) =>
     migration.operations.map((operation) =>
       operation.kind === "write"
         ? {
@@ -450,79 +630,24 @@ export async function applyAutomaticMigrations(input: {
           }
     )
   );
-  const writeOperations = operations.filter((operation) => operation.kind === "write");
   const deleteOperations = operations.filter((operation) => operation.kind === "delete");
-  const filePlan = buildFilePlan(writeOperations);
-  const conflicts = [
-    ...(await detectFileConflicts(input.projectDirectory, filePlan, manifest.files)),
-    ...(await detectMigrationDeleteConflicts(input.projectDirectory, deleteOperations, manifest.files))
-  ];
+  const writes = buildFilePlan(operations).files;
 
-  if (conflicts.length > 0) {
-    throw new Error(
-      `Migration has conflicts: ${conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ")}`
-    );
-  }
-
-  const fileByPath = new Map(
-    manifest.files.map((file) => {
-      const path = normalizeProjectPath(file.path);
-      return [path, { ...file, path }];
-    })
-  );
-
-  for (const operation of operations) {
-    if (operation.kind === "delete") {
-      const path = normalizeProjectPath(operation.path);
-      await rm(join(input.projectDirectory, path), { force: true });
-      fileByPath.delete(path);
-      continue;
-    }
-
-    const [file] = await applyFilePlan(input.projectDirectory, buildFilePlan([operation]), {
-      ownedFiles: [...fileByPath.values()],
-      conflictLabel: "Migration"
-    });
-    fileByPath.set(file.path, file);
-  }
-
-  const expectedFileByPath = new Map(
-    manifest.expectedFiles.map((file) => [normalizeProjectPath(file.path), { ...file, path: normalizeProjectPath(file.path) }])
-  );
-
-  for (const operation of operations) {
-    const path = normalizeProjectPath(operation.path);
-
-    if (operation.kind === "delete") {
-      expectedFileByPath.delete(path);
-      continue;
-    }
-
-    expectedFileByPath.set(path, {
-      path,
-      owner: operation.owner,
-      content: operation.content,
-      hash: hashContent(operation.content)
-    });
-  }
-
-  const nextManifest = createManifest({
-    ...manifest,
-    files: [...fileByPath.values()],
-    expectedFiles: [...expectedFileByPath.values()],
-    migrations: {
-      applied: [...manifest.migrations.applied, ...automatic.map(({ migration }) => migration)]
-    }
-  });
-  await writeManifest(input.projectDirectory, nextManifest);
-
-  return { manifest: nextManifest };
+  return {
+    writes,
+    deletes: deleteOperations.map((operation) => normalizeProjectPath(operation.path)),
+    refusals: [
+      ...(await detectFileConflicts(projectDirectory, { files: writes }, manifest.files)),
+      ...(await detectMigrationDeleteConflicts(projectDirectory, deleteOperations, manifest.files))
+    ],
+    applied
+  };
 }
 
 async function detectMigrationDeleteConflicts(
   projectDirectory: string,
   operations: readonly Extract<MigrationFileOperation, { kind: "delete" }>[],
-  ownedFiles: readonly ManifestFileRecord[]
+  ownedFiles: StackkitManifest["files"]
 ): Promise<FileConflict[]> {
   const ownedFileByPath = new Map(ownedFiles.map((file) => [normalizeProjectPath(file.path), file]));
   const conflicts: FileConflict[] = [];
@@ -550,87 +675,63 @@ async function detectMigrationDeleteConflicts(
   return conflicts;
 }
 
-export async function applyModuleUpdates(input: {
-  projectDirectory: string;
-  manifest: StackkitManifest;
-  availableModules: readonly StackkitModule[];
-}): Promise<{ manifest: StackkitManifest; updates: ModuleUpdatePlan["updates"] }> {
-  const manifest = createManifest(input.manifest);
-  const updatePlan = planModuleUpdates({
-    manifestModules: manifest.modules,
-    availableModules: input.availableModules
-  });
-  const availableById = new Map(input.availableModules.map((module) => [module.id, module]));
-  const nextModules = manifest.modules.map((manifestModule) => {
-    const available = availableById.get(manifestModule.id);
-
-    return {
-      ...manifestModule,
-      version: available?.version ?? manifestModule.version,
-      snapshot: available ? snapshotStackkitModule(available) : manifestModule.snapshot
-    };
-  });
-
-  // Re-render the managed file set from the updated module snapshots and apply it to the
-  // working tree under the same conflict discipline as add/remove: refuse unowned existing
-  // files and locally-modified owned files. The manifest must never describe a disk state
-  // that does not exist, so file writes and manifest writes happen together or not at all.
-  const regeneratedPlan = buildReconstructedManagedFilePlan({ ...manifest, modules: nextModules });
-  const conflicts = await detectFileConflicts(input.projectDirectory, regeneratedPlan, manifest.files);
-
-  if (conflicts.length > 0) {
-    throw new Error(
-      `Update target has conflicts: ${conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ")}`
-    );
+async function applyLifecycleChanges(
+  projectDirectory: string,
+  changes: Pick<LifecycleFileChanges, "writes" | "deletes">
+): Promise<void> {
+  for (const path of changes.deletes) {
+    await rm(join(projectDirectory, path), { force: true });
   }
 
-  const writtenFiles = await applyFilePlan(input.projectDirectory, regeneratedPlan, {
-    ownedFiles: manifest.files,
-    conflictLabel: "Update target"
-  });
-  const nextManifest = await writeManifest(input.projectDirectory, {
-    ...manifest,
-    modules: nextModules,
-    files: mergeManifestFiles(manifest.files, writtenFiles),
-    expectedFiles: mergeExpectedFiles(manifest.expectedFiles, filePlanToExpectedFiles(regeneratedPlan))
-  });
-
-  return { manifest: nextManifest, updates: updatePlan.updates };
+  await applyFilePlanUnchecked(projectDirectory, { files: changes.writes });
 }
 
-export async function planAddModuleFiles(input: {
-  projectDirectory: string;
-  manifest: StackkitManifest;
-  moduleIds: readonly string[];
-  availableModules: readonly StackkitModule[];
-}): Promise<FilePlan> {
-  const plan = planAddModules(input);
-  const moduleIdsToAdd = new Set(plan.modulesToAdd.map((module) => module.id));
-  const directOperations = renderCreateFiles(
-    {
-      projectName: input.manifest.projectName,
-      packageManager: input.manifest.packageManager,
-      workspace: "pnpm-turbo",
-      modules: plan.modules.map((module) => module.id),
-      registries: {},
-      ai: {
-        skillTargets: [],
-        skillMode: input.manifest.aiSkills.mode,
-        linkMode: input.manifest.aiSkills.linkMode
-      }
-    },
-    plan.modules
-  ).filter((operation) => moduleIdsToAdd.has(operation.owner));
+/** The manifest after applying file changes: deleted paths drop out, written paths get fresh records. */
+function withFileChanges(
+  manifest: StackkitManifest,
+  changes: Pick<LifecycleFileChanges, "writes" | "deletes">
+): StackkitManifest {
+  const deleted = new Set(changes.deletes);
+  const kept = <T extends { path: string }>(file: T) => !deleted.has(normalizeProjectPath(file.path));
+
+  return createManifest({
+    ...manifest,
+    files: mergeManifestFiles(
+      manifest.files.filter(kept),
+      changes.writes.map(({ path, owner, hash }) => ({ path, owner, hash }))
+    ),
+    expectedFiles: mergeExpectedFiles(
+      manifest.expectedFiles.filter(kept),
+      filePlanToExpectedFiles({ files: changes.writes })
+    )
+  });
+}
+
+function formatConflicts(conflicts: readonly FileConflict[]): string {
+  return conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ");
+}
+
+/** Files owned by the added modules, plus package.json and .env.example changes merged into what is on disk. */
+async function renderAddedModuleFiles(
+  projectDirectory: string,
+  manifest: StackkitManifest,
+  modules: readonly StackkitModule[],
+  modulesToAdd: readonly StackkitModule[]
+): Promise<PlannedFile[]> {
+  const moduleIdsToAdd = new Set(modulesToAdd.map((module) => module.id));
+  const directOperations = renderCreateFiles(manifestToConfig(manifest), modules).filter((operation) =>
+    moduleIdsToAdd.has(operation.owner)
+  );
   const packageOperations = await planPackageChangeFiles(
-    input.projectDirectory,
-    plan.modulesToAdd.flatMap((module) => module.packageChanges ?? [])
+    projectDirectory,
+    modulesToAdd.flatMap((module) => module.packageChanges ?? [])
   );
   const envOperations = await planEnvExampleFiles(
-    input.projectDirectory,
-    plan.modulesToAdd.flatMap((module) => module.envVars ?? [])
+    projectDirectory,
+    modulesToAdd.flatMap((module) => module.envVars ?? [])
   );
 
-  return buildFilePlan(mergeCreateFileOperations([...directOperations, ...packageOperations, ...envOperations]));
+  return buildFilePlan(mergeCreateFileOperations([...directOperations, ...packageOperations, ...envOperations])).files;
 }
 
 export async function runLifecycleHooks(

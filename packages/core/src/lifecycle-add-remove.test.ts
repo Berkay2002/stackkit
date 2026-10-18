@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyAddModules,
   applyRemoveModules,
+  buildCreateFilePlan,
   createManifest,
   defineModule,
   hashContent,
@@ -18,6 +19,11 @@ import {
 } from "./index.js";
 
 const tempDirectories: string[] = [];
+
+/** Lifecycle add applies the create support contract, so fixtures must opt out of the "planned" default. */
+function supportedModule(module: Parameters<typeof defineModule>[0]) {
+  return defineModule({ support: { level: "supported" }, ...module });
+}
 
 afterEach(async () => {
   await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
@@ -43,19 +49,22 @@ function baseManifest(files: StackkitManifest["files"] = []): StackkitManifest {
 }
 
 describe("planAddModules", () => {
-  it("plans adding new modules to an existing manifest", () => {
-    const plan = planAddModules({
+  it("plans adding new modules to an existing manifest", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-plan-add-"));
+    tempDirectories.push(projectDirectory);
+    const plan = await planAddModules({
+      projectDirectory,
       manifest: baseManifest(),
       moduleIds: ["web/nextjs"],
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "workspace/pnpm-turbo",
           version: "1.0.0",
           title: "Workspace",
           description: "Existing workspace",
           provides: ["workspace/node"]
         }),
-        defineModule({
+        supportedModule({
           id: "web/nextjs",
           version: "2.0.0",
           title: "Next.js",
@@ -76,19 +85,90 @@ describe("planAddModules", () => {
   });
 });
 
+describe("planAddModules support, aliases and conflicts", () => {
+  const workspace = () =>
+    supportedModule({ id: "workspace/pnpm-turbo", version: "1.0.0", title: "Workspace", description: "Workspace", provides: ["workspace/node"] });
+
+  it("refuses planned modules and requires an explicit opt-in for preview modules", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-plan-add-"));
+    tempDirectories.push(projectDirectory);
+    const availableModules = [
+      workspace(),
+      defineModule({ id: "rust/tokio", version: "1.0.0", title: "Tokio", description: "Planned", support: { level: "planned", reason: "Not built" } }),
+      defineModule({ id: "docs/readme", version: "1.0.0", title: "Docs", description: "Preview", support: { level: "preview", reason: "Preview" } })
+    ];
+    const input = { projectDirectory, manifest: baseManifest(), availableModules };
+
+    await expect(planAddModules({ ...input, moduleIds: ["rust/tokio"], includePreview: true })).rejects.toThrow(
+      "Module rust/tokio is planned and cannot be created"
+    );
+    await expect(planAddModules({ ...input, moduleIds: ["docs/readme"] })).rejects.toThrow("--include-preview");
+    await expect(planAddModules({ ...input, moduleIds: ["docs/readme"], includePreview: true })).resolves.toMatchObject({
+      modulesToAdd: [expect.objectContaining({ id: "docs/readme" })]
+    });
+  });
+
+  it("resolves aliases to canonical module ids", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-plan-add-"));
+    tempDirectories.push(projectDirectory);
+
+    const plan = await planAddModules({
+      projectDirectory,
+      manifest: baseManifest(),
+      moduleIds: ["pytest"],
+      availableModules: [
+        workspace(),
+        supportedModule({ id: "quality/pytest", version: "1.0.0", title: "pytest", description: "Tests", aliases: ["pytest"] })
+      ]
+    });
+
+    expect(plan.modulesToAdd.map((module) => module.id)).toEqual(["quality/pytest"]);
+  });
+
+  it("reports the conflicts apply would refuse on", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-plan-add-"));
+    tempDirectories.push(projectDirectory);
+    await writeFile(join(projectDirectory, "vercel.json"), "{}\n", "utf8");
+
+    const plan = await planAddModules({
+      projectDirectory,
+      manifest: baseManifest(),
+      moduleIds: ["deploy/vercel"],
+      availableModules: [
+        workspace(),
+        supportedModule({
+          id: "deploy/vercel",
+          version: "1.0.0",
+          title: "Vercel",
+          description: "Deploy",
+          files: [{ kind: "write", path: "vercel.json", owner: "deploy/vercel", content: "{ }\n" }]
+        })
+      ]
+    });
+
+    expect(plan.safe).toBe(false);
+    expect(plan.refusals).toEqual([{ path: "vercel.json", reason: "exists-unowned" }]);
+    expect(plan.writes.map((file) => file.path)).toEqual(["vercel.json"]);
+  });
+});
+
 describe("planRemoveModules", () => {
-  it("refuses to remove modified owned files", () => {
+  it("refuses to remove modified owned files", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-plan-remove-"));
+    tempDirectories.push(projectDirectory);
+    await mkdir(join(projectDirectory, "apps", "web"), { recursive: true });
+    await writeFile(join(projectDirectory, "apps", "web", "page.tsx"), "changed\n", "utf8");
     const manifest = baseManifest([{ path: "apps/web/page.tsx", owner: "web/nextjs", hash: hashContent("original\n") }]);
 
-    const plan = planRemoveModules({
+    const plan = await planRemoveModules({
+      projectDirectory,
       manifest: {
         ...manifest,
         modules: [...manifest.modules, { id: "web/nextjs", version: "1.0.0", options: {} }]
       },
       moduleIds: ["web/nextjs"],
-      currentFiles: [{ path: "apps/web/page.tsx", owner: "web/nextjs", hash: hashContent("changed\n") }],
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "web/nextjs",
           version: "1.0.0",
           title: "Next.js",
@@ -116,17 +196,19 @@ describe("planRemoveModules", () => {
     ]);
   });
 
-  it("blocks automatic removal when the module policy forbids it", () => {
+  it("blocks automatic removal when the module policy forbids it", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-plan-remove-"));
+    tempDirectories.push(projectDirectory);
     const manifest = baseManifest();
-    const plan = planRemoveModules({
+    const plan = await planRemoveModules({
+      projectDirectory,
       manifest: {
         ...manifest,
         modules: [...manifest.modules, { id: "service/manual", version: "1.0.0", options: {} }]
       },
       moduleIds: ["service/manual"],
-      currentFiles: [],
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "service/manual",
           version: "1.0.0",
           title: "Manual service",
@@ -152,14 +234,14 @@ describe("applyAddModules", () => {
       manifest,
       moduleIds: ["web/nextjs"],
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "workspace/pnpm-turbo",
           version: "1.0.0",
           title: "Workspace",
           description: "Existing workspace",
           provides: ["workspace/node"]
         }),
-        defineModule({
+        supportedModule({
           id: "web/nextjs",
           version: "1.0.0",
           title: "Next.js",
@@ -197,14 +279,14 @@ describe("applyAddModules", () => {
         manifest: baseManifest(),
         moduleIds: ["web/nextjs"],
         availableModules: [
-          defineModule({
+          supportedModule({
             id: "workspace/pnpm-turbo",
             version: "1.0.0",
             title: "Workspace",
             description: "Existing workspace",
             provides: ["workspace/node"]
           }),
-          defineModule({
+          supportedModule({
             id: "web/nextjs",
             version: "1.0.0",
             title: "Next.js",
@@ -236,13 +318,13 @@ describe("applyAddModules", () => {
       manifest,
       moduleIds: ["custom/local-skill"],
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "workspace/pnpm-turbo",
           version: "1.0.0",
           title: "Workspace",
           description: "Existing workspace"
         }),
-        defineModule({
+        supportedModule({
           id: "custom/local-skill",
           version: "1.0.0",
           title: "Local skill",
@@ -292,14 +374,14 @@ describe("applyAddModules", () => {
       moduleIds: ["web/nextjs", "custom/local-skill"],
       runCommand,
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "workspace/pnpm-turbo",
           version: "1.0.0",
           title: "Workspace",
           description: "Existing workspace",
           provides: ["workspace/node"]
         }),
-        defineModule({
+        supportedModule({
           id: "web/nextjs",
           version: "1.0.0",
           title: "Next.js",
@@ -315,7 +397,7 @@ describe("applyAddModules", () => {
             }
           ]
         }),
-        defineModule({
+        supportedModule({
           id: "custom/local-skill",
           version: "1.0.0",
           title: "Local skill",
@@ -366,14 +448,14 @@ describe("applyAddModules", () => {
       moduleIds: ["web/nextjs"],
       runCommand,
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "workspace/pnpm-turbo",
           version: "1.0.0",
           title: "Workspace",
           description: "Existing workspace",
           provides: ["workspace/node"]
         }),
-        defineModule({
+        supportedModule({
           id: "web/nextjs",
           version: "1.0.0",
           title: "Next.js",
@@ -449,13 +531,13 @@ describe("applyAddModules", () => {
       runCommand,
       curatedSkillSourceAllowlist: ["https://github.com/example/curated-skills"],
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "workspace/pnpm-turbo",
           version: "1.0.0",
           title: "Workspace",
           description: "Existing workspace"
         }),
-        defineModule({
+        supportedModule({
           id: "web/django",
           version: "1.0.0",
           title: "Django",
@@ -498,13 +580,13 @@ describe("applyAddModules", () => {
       runCommand,
       curatedSkillSourceAllowlist: ["https://github.com/example/rust-skills"],
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "workspace/pnpm-turbo",
           version: "1.0.0",
           title: "Workspace",
           description: "Existing workspace"
         }),
-        defineModule({
+        supportedModule({
           id: "rust/tokio",
           version: "1.0.0",
           title: "Tokio",
@@ -548,14 +630,14 @@ describe("applyAddModules", () => {
       manifest,
       moduleIds: ["web/nextjs", "custom/local-skill"],
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "workspace/pnpm-turbo",
           version: "1.0.0",
           title: "Workspace",
           description: "Existing workspace",
           provides: ["workspace/node"]
         }),
-        defineModule({
+        supportedModule({
           id: "web/nextjs",
           version: "1.0.0",
           title: "Next.js",
@@ -571,7 +653,7 @@ describe("applyAddModules", () => {
             }
           ]
         }),
-        defineModule({
+        supportedModule({
           id: "custom/local-skill",
           version: "1.0.0",
           title: "Local skill",
@@ -627,14 +709,14 @@ describe("applyAddModules", () => {
       manifest,
       moduleIds: ["web/nextjs", "deploy/docker"],
       availableModules: [
-        defineModule({
+        supportedModule({
           id: "workspace/pnpm-turbo",
           version: "1.0.0",
           title: "Workspace",
           description: "Existing workspace",
           provides: ["workspace/node"]
         }),
-        defineModule({
+        supportedModule({
           id: "web/nextjs",
           version: "1.0.0",
           title: "Next.js",
@@ -642,7 +724,7 @@ describe("applyAddModules", () => {
           requires: ["workspace/node"],
           provides: ["nextjs-app"]
         }),
-        defineModule({
+        supportedModule({
           id: "deploy/docker",
           version: "1.0.0",
           title: "Docker",
@@ -686,42 +768,7 @@ describe("applyRemoveModules", () => {
   });
 
   it("regenerates unchanged shared files from the remaining module snapshots", async () => {
-    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-remove-shared-"));
-    tempDirectories.push(projectDirectory);
-    const readmeWithWeb = "# acme\n\nStack:\n\n- Workspace\n- Next.js\n";
-    const workspaceModule = defineModule({
-      id: "workspace/pnpm-turbo",
-      version: "1.0.0",
-      title: "Workspace",
-      description: "Workspace foundation",
-      provides: ["workspace/node"]
-    });
-    const webModule = defineModule({
-      id: "web/nextjs",
-      version: "1.0.0",
-      title: "Next.js",
-      description: "Next.js app",
-      requires: ["workspace/node"]
-    });
-    await writeFile(join(projectDirectory, "README.md"), readmeWithWeb, "utf8");
-    const manifest = await writeManifest(
-      projectDirectory,
-      createManifest({
-        ...baseManifest([{ path: "README.md", owner: "docs/readme", hash: hashContent(readmeWithWeb) }]),
-        modules: [
-          { id: "workspace/pnpm-turbo", version: "1.0.0", options: {}, snapshot: workspaceModule },
-          { id: "web/nextjs", version: "1.0.0", options: {}, snapshot: webModule }
-        ],
-        expectedFiles: [
-          {
-            path: "README.md",
-            owner: "docs/readme",
-            content: readmeWithWeb,
-            hash: hashContent(readmeWithWeb)
-          }
-        ]
-      })
-    );
+    const { projectDirectory, manifest, readmeWithWeb } = await createReadmeProject();
 
     const result = await applyRemoveModules({ projectDirectory, manifest, moduleIds: ["web/nextjs"] });
 
@@ -731,8 +778,125 @@ describe("applyRemoveModules", () => {
     expect(result.manifest.files).toEqual([
       { path: "README.md", owner: "docs/readme", hash: hashContent(nextReadme) }
     ]);
+    expect(nextReadme).not.toBe(readmeWithWeb);
     expect(result.manifest.expectedFiles).toEqual([
       { path: "README.md", owner: "docs/readme", content: nextReadme, hash: hashContent(nextReadme) }
     ]);
   });
+
+  it("refuses to rewrite a drifted file owned by a module that stays installed", async () => {
+    const { projectDirectory, manifest, readmeWithWeb } = await createReadmeProject();
+    const editedReadme = `${readmeWithWeb}\nMy notes\n`;
+    await writeFile(join(projectDirectory, "README.md"), editedReadme, "utf8");
+
+    const plan = await planRemoveModules({ projectDirectory, manifest, moduleIds: ["web/nextjs"] });
+
+    expect(plan.safe).toBe(false);
+    expect(plan.refusals).toEqual([{ path: "README.md", reason: "modified-owned" }]);
+    await expect(applyRemoveModules({ projectDirectory, manifest, moduleIds: ["web/nextjs"] })).rejects.toThrow(
+      "Remove target has conflicts: README.md (modified-owned)"
+    );
+    await expect(readFile(join(projectDirectory, "README.md"), "utf8")).resolves.toBe(editedReadme);
+
+    const forced = await applyRemoveModules({ projectDirectory, manifest, moduleIds: ["web/nextjs"], force: true });
+    expect(forced.manifest.modules.map((module) => module.id)).toEqual(["workspace/pnpm-turbo"]);
+    await expect(readFile(join(projectDirectory, "README.md"), "utf8")).resolves.not.toContain("My notes");
+  });
+
+  it("leaves native-initializer and migration output of remaining modules alone", async () => {
+    const { projectDirectory, manifest } = await createReadmeProject();
+    const utils = "export function cn() {}\n";
+    await mkdir(join(projectDirectory, "packages", "ui", "src", "lib"), { recursive: true });
+    await writeFile(join(projectDirectory, "packages", "ui", "src", "lib", "utils.ts"), utils, "utf8");
+    const withInitializerFile = createManifest({
+      ...manifest,
+      files: [...manifest.files, { path: "packages/ui/src/lib/utils.ts", owner: "workspace/pnpm-turbo", hash: hashContent(utils) }]
+    });
+
+    const result = await applyRemoveModules({ projectDirectory, manifest: withInitializerFile, moduleIds: ["web/nextjs"] });
+
+    expect(result.plan.deletes).toEqual([]);
+    await expect(readFile(join(projectDirectory, "packages", "ui", "src", "lib", "utils.ts"), "utf8")).resolves.toBe(utils);
+    expect(result.manifest.files).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "packages/ui/src/lib/utils.ts" })])
+    );
+  });
+
+  it("refuses module ids that are unknown or not installed, and resolves aliases", async () => {
+    const { projectDirectory, manifest } = await createReadmeProject();
+    const availableModules = manifest.modules.map((module) => module.snapshot!);
+
+    await expect(planRemoveModules({ projectDirectory, manifest, moduleIds: ["nope/typo"], availableModules })).rejects.toThrow(
+      "Unknown Stackkit module or alias: nope/typo"
+    );
+    await expect(
+      planRemoveModules({
+        projectDirectory,
+        manifest,
+        moduleIds: ["api/fastapi"],
+        availableModules: [...availableModules, supportedModule({ id: "api/fastapi", version: "1.0.0", title: "FastAPI", description: "API" })]
+      })
+    ).rejects.toThrow("Module api/fastapi is not installed in acme.");
+
+    const plan = await planRemoveModules({ projectDirectory, manifest, moduleIds: ["next"], availableModules });
+    expect(plan.modulesToRemove).toEqual(["web/nextjs"]);
+  });
+
+  it("refuses to remove a module that remaining modules depend on", async () => {
+    const { projectDirectory, manifest } = await createReadmeProject();
+
+    const plan = await planRemoveModules({ projectDirectory, manifest, moduleIds: ["workspace/pnpm-turbo"] });
+
+    expect(plan.safe).toBe(false);
+    expect(plan.dependents).toEqual(["web/nextjs"]);
+    await expect(applyRemoveModules({ projectDirectory, manifest, moduleIds: ["workspace/pnpm-turbo"] })).rejects.toThrow(
+      "Cannot remove workspace/pnpm-turbo: still required by web/nextjs"
+    );
+  });
 });
+
+/** A workspace + Next.js project whose README is exactly what Stackkit renders for those modules. */
+async function createReadmeProject() {
+  const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-remove-shared-"));
+  tempDirectories.push(projectDirectory);
+  const workspaceModule = supportedModule({
+    id: "workspace/pnpm-turbo",
+    version: "1.0.0",
+    title: "Workspace",
+    description: "Workspace foundation",
+    provides: ["workspace/node"]
+  });
+  const webModule = supportedModule({
+    id: "web/nextjs",
+    version: "1.0.0",
+    title: "Next.js",
+    description: "Next.js app",
+    aliases: ["next"],
+    requires: ["workspace/node"]
+  });
+  const readmeWithWeb = buildCreateFilePlan(
+    {
+      projectName: "acme",
+      packageManager: "pnpm",
+      workspace: "pnpm-turbo",
+      modules: [],
+      registries: {},
+      ai: { skillTargets: ["codex"], skillMode: "install", linkMode: "copy" }
+    },
+    [workspaceModule, webModule]
+  ).files.find((file) => file.path === "README.md")!.content;
+  await writeFile(join(projectDirectory, "README.md"), readmeWithWeb, "utf8");
+  const manifest = await writeManifest(
+    projectDirectory,
+    createManifest({
+      ...baseManifest([{ path: "README.md", owner: "docs/readme", hash: hashContent(readmeWithWeb) }]),
+      modules: [
+        { id: "workspace/pnpm-turbo", version: "1.0.0", options: {}, snapshot: workspaceModule },
+        { id: "web/nextjs", version: "1.0.0", options: {}, snapshot: webModule }
+      ],
+      expectedFiles: [{ path: "README.md", owner: "docs/readme", content: readmeWithWeb, hash: hashContent(readmeWithWeb) }]
+    })
+  );
+
+  return { projectDirectory, manifest, readmeWithWeb };
+}

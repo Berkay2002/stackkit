@@ -406,17 +406,6 @@ const builtinModuleDefinitions = [
         causedBy: "web/nextjs",
         reason: "React and Next.js app code"
       }
-    ],
-    migrations: [
-      {
-        from: "1.0.0",
-        to: "1.1.0",
-        title: "Add Next.js instrumentation hook",
-        operations: [
-          { kind: "write", path: "apps/web/instrumentation.ts", content: "export function register() {}\n" }
-        ],
-        safety: "automatic"
-      }
     ]
   }),
   defineModule({
