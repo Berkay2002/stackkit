@@ -174,16 +174,16 @@ Rust tooling (Clippy, rustfmt, cargo check) is modeled in the registry, but its 
 
 ```bash
 # Cloud Supabase as the Postgres host (no Docker). Emits a DIRECT_URL for migrations.
-stackkit create my-app --web next --db postgres --db-provider supabase
+stackkit create my-app --web next --db postgres --db-provider supabase --include-preview
 
 # Neon on an edge runtime — generates the @neondatabase/serverless Drizzle client.
-stackkit create my-app --web next --db postgres --db-provider neon --db-runtime edge
+stackkit create my-app --web next --db postgres --db-provider neon --db-runtime edge --include-preview
 
 # Local Postgres in Docker (adds docker-compose.db.yml).
-stackkit create my-app --web next --db postgres --db-provider postgres-local
+stackkit create my-app --web next --db postgres --db-provider postgres-local --include-preview
 
 # Local Supabase via the Supabase CLI (adds supabase/config.toml; requires the CLI).
-stackkit create my-app --web next --db postgres --db-provider supabase-local
+stackkit create my-app --web next --db postgres --db-provider supabase-local --include-preview
 ```
 
 ---
@@ -195,10 +195,10 @@ Preview the planned output without writing anything to disk.
 **Preview a preset**
 
 ```bash
-stackkit create my-app --preset next-postgres-clerk --dry-run
+stackkit create my-app --preset next-postgres-clerk --include-preview --dry-run
 ```
 
-`next-postgres-clerk` resolves to a Next.js app with ShadCN, Postgres, Drizzle, Clerk, Docker, and Vercel modules.
+`next-postgres-clerk` is a preview preset. It resolves to a Next.js app with ShadCN, Postgres, Drizzle, Clerk, and Vercel modules plus the default TypeScript quality modules.
 
 **Preview an explicit stack**
 

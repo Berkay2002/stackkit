@@ -73,8 +73,8 @@ The resolver adds the workspace and language foundations it needs. React framewo
 Lint, format, and typecheck are modeled as per-language capabilities. A default quality module fills an empty slot. An explicit alternative suppresses the default it replaces.
 
 ```bash
-stackkit create my-app --web next --ts-quality biome
-stackkit create my-api --api fastapi --py-typecheck pyright
+stackkit create my-app --web next --ts-quality biome --include-preview
+stackkit create my-api --api fastapi --py-typecheck pyright --include-preview
 ```
 
 `--ts-quality biome` replaces the TypeScript ESLint and Prettier slots while leaving `tsc` in place. `--py-typecheck pyright` replaces mypy. This keeps the selected tool identity in the manifest, which makes `diff` and lifecycle operations reproducible.
@@ -107,4 +107,4 @@ Reference a local file from `stackkit.config.json`:
 }
 ```
 
-Use `stackkit registry list --config stackkit.config.json` to inspect the declarations. Remote registry fetching is not supported yet.
+Use `stackkit registry list --config stackkit.config.json` to inspect the declarations. Local registries are listing-only in this alpha: `create`, `add`, and `config validate` do not resolve their modules or presets yet. Remote registry fetching is not supported.

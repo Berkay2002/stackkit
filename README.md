@@ -26,7 +26,7 @@ Verified today:
 - Next.js, ShadCN, FastAPI, Postgres, SQLAlchemy, Auth0, and Docker modules in the golden preset
 - deterministic `README.md` and `.env.example`
 - root `dev`, `build`, `test`, `typecheck`, `lint`, and `format` scripts
-- `stackkit doctor`, `stackkit diff --file`, `stackkit info`, module discovery, presets, recipes, and local registry listing
+- `stackkit doctor`, `stackkit diff --file`, `stackkit info`, module discovery, presets, recipes, and local registry listing (local registries are listed only; `create` does not use them yet)
 - project-local AI skill targets for Codex `.agents` and Claude Code `.claude`
 
 Known gaps:
@@ -38,7 +38,7 @@ Known gaps:
 
 ## Install
 
-After the first npm publish:
+Version 0.3.0 is not on npm yet (the latest published release is 0.2.2). Until it is, build the CLI from source as described under [Development](#development). Once 0.3.0 is published:
 
 ```bash
 npx @berkayorhan/stackkit@0.3.0 create my-app --preset next-fastapi-postgres-auth0 --db-provider postgres-local --skills skip --yes
@@ -131,7 +131,7 @@ Run the local visual customizer:
 pnpm --filter @berkayorhan/stackkit-customizer dev
 ```
 
-The app lets you choose a small set of polished presets or customize the stack with friendly technology names. It outputs an offline `stackkit create <name> --recipe <code>` command and previews the canonical modules behind that command.
+The app lets you choose a small set of polished presets or customize the stack with friendly technology names. It outputs an offline `npx @berkayorhan/stackkit@<version> create <name> --recipe <code>` command (plus `--include-preview` when preview choices are selected) and previews the canonical modules behind that command.
 
 ## Inspect And Maintain
 
@@ -214,12 +214,7 @@ $target = "$env:TEMP/stackkit-playground"
 
 node packages/cli/dist/index.js create my-app `
   --dir "$target/my-app" `
-  --web next `
-  --api fastapi `
-  --db postgres `
-  --auth auth0 `
-  --with shadcn,docker `
-  --deploy vercel `
+  --preset next-fastapi-postgres-auth0 `
   --skills skip `
   --yes
 

@@ -177,7 +177,8 @@ export function renderPnpmTurboFoundation({
         'const { spawnSync } = require("node:child_process");',
         'const directBinary = process.env.STACKKIT_DOCTOR_BIN;',
         'const command = directBinary || (process.platform === "win32" ? "npx.cmd" : "npx");',
-        'const args = directBinary ? ["doctor"] : ["--yes", "@berkayorhan/stackkit@0.3.0", "doctor"];',
+        "// Run the Stackkit version that created this project, as recorded in the manifest.",
+        'const args = directBinary ? ["doctor"] : ["--yes", `@berkayorhan/stackkit@${require("./project.json").stackkitVersion}`, "doctor"];',
         'const result = spawnSync(command, args, { stdio: "inherit" });',
         'process.exit(result.status ?? 1);',
         ""

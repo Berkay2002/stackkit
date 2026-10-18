@@ -43,6 +43,6 @@ Some initializers are researched and declared but disabled. A disabled initializ
 
 Stackkit does not silently overwrite user changes to managed files. File operations carry an ownership policy, and the manifest stores the expected content hash for generated files. Lifecycle commands use that information to refuse unsafe operations or require review.
 
-Remote registry URLs are also rejected in the current alpha. Project-local declarative registries are supported through `stackkit.registry.json` files and can be inspected without fetching remote code.
+Remote registry URLs are also rejected in the current alpha. Project-local declarative registries can be declared through `stackkit.registry.json` files and inspected with `stackkit registry list` without fetching remote code. They are listing-only for now: create and lifecycle commands resolve from the built-in registry.
 
 See [Modules](/docs/modules) for the declaration model and [Managed Updates](/docs/managed-updates) for the lifecycle behavior built on top of it.

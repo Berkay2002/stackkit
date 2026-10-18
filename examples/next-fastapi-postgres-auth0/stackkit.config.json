@@ -9,19 +9,21 @@
     "ui/shadcn",
     "api/fastapi",
     "db/postgres",
-    "db/drizzle",
     "db/sqlalchemy",
+    "postgres/local",
     "auth/auth0-nextjs",
     "auth/auth0-fastapi",
+    "deploy/docker",
     "quality/eslint",
     "quality/prettier",
     "quality/tsc",
     "quality/ruff",
     "quality/mypy",
-    "deploy/vercel",
-    "deploy/docker"
+    "quality/pytest"
   ],
   "ai": {
-    "skillTargets": ["codex"]
+    "skillTargets": [
+      "codex"
+    ]
   }
 }

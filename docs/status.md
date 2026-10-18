@@ -16,7 +16,7 @@ Stackkit 0.3.0 has one supported generation path:
 
 The supported preset is the default for `stackkit create <name>`. Other modules, presets, and package managers are either preview or planned. Preview generation requires `--include-preview`; planned entries cannot be generated.
 
-The local customizer follows the same matrix. It shows supported choices by default, reveals preview choices only after explicit opt-in, and copies a pinned `@berkayorhan/stackkit@0.3.0` command. Preview commands include `--include-preview` so they round-trip through the CLI.
+The local customizer follows the same matrix. It shows supported choices by default, reveals preview choices only after explicit opt-in, and copies a command pinned to the current CLI version (`@berkayorhan/stackkit@<version>`). Preview commands include `--include-preview` so they round-trip through the CLI.
 
 ## Supported generated behavior
 
@@ -32,7 +32,7 @@ The golden path generates a pnpm/Turborepo workspace with:
 
 Create plans are hashed together with selected module snapshots. Deterministic files are applied from the reviewed plan. Lifecycle hooks and native initializers are checkpointed individually so resume does not repeat completed steps.
 
-`stackkit doctor` checks managed-file integrity, declared files, and runnable `command-succeeds` validations when invoked through the CLI. The generated `pnpm stackkit:doctor` script pins Stackkit 0.3.0.
+`stackkit doctor` checks managed-file integrity, declared files, and runnable `command-succeeds` validations when invoked through the CLI. The generated `pnpm stackkit:doctor` script runs the Stackkit version recorded in `.stackkit/project.json`.
 
 ## Verification gates
 

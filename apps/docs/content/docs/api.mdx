@@ -94,6 +94,7 @@ const module = defineModule({
   title: 'Acme Observability',
   description: 'Adds the Acme observability starter files',
   provides: ['observability'],
+  support: { level: 'preview' },
   files: [
     {
       kind: 'write',
@@ -110,8 +111,11 @@ const preset = definePreset({
   title: 'Acme default',
   description: 'The default Acme stack',
   modules: ['acme/observability'],
+  support: { level: 'preview' },
 });
 ```
+
+Omitting `support` defaults it to `{ level: 'planned' }`, and planned modules and presets cannot be created. Set `preview` (created only with `--include-preview`) or `supported` once the module is backed by verified templates.
 
 Keep registry declarations free of disk writes and process execution. Core consumes the declarations and owns planning, conflict checks, and application.
 

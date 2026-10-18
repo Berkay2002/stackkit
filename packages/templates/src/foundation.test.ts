@@ -79,7 +79,8 @@ describe("renderPnpmTurboFoundation", () => {
     expect(byPath.get(".gitignore")?.content).toContain("node_modules");
     expect(byPath.get(".gitignore")?.content).toContain(".env.*");
     expect(byPath.get(".stackkit/doctor.cjs")?.content).toContain("STACKKIT_DOCTOR_BIN");
-    expect(byPath.get(".stackkit/doctor.cjs")?.content).toContain("@berkayorhan/stackkit@0.3.0");
+    expect(byPath.get(".stackkit/doctor.cjs")?.content).toContain('require("./project.json").stackkitVersion');
+    expect(byPath.get(".stackkit/doctor.cjs")?.content).not.toMatch(/stackkit@\d/);
   });
 
   it("includes eslint/prettier/typescript-eslint root devDeps by default", () => {
