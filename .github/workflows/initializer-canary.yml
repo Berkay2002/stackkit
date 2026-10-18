@@ -7,13 +7,19 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   latest-shadcn:
     runs-on: ubuntu-latest
+    # Runs third-party initializer code: read-only token, never persisted to disk.
+    permissions:
+      contents: read
+    outputs:
+      drifted: ${{ steps.latest.outcome == 'failure' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@v7
         with:
@@ -66,8 +72,16 @@ jobs:
             ${{ runner.temp }}/latest.log
             ${{ runner.temp }}/pinned.log
             ${{ runner.temp }}/initializer.diff
+
+  # Only this job can write issues, and it runs no repository or initializer code.
+  report-drift:
+    needs: latest-shadcn
+    if: needs.latest-shadcn.outputs.drifted == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
       - name: Report drift
-        if: steps.latest.outcome == 'failure'
         uses: actions/github-script@v9
         with:
           script: |
