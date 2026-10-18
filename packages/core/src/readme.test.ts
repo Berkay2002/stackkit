@@ -57,6 +57,64 @@ describe("composeReadme", () => {
     );
   });
 
+  it("orders module setup steps before the workspace defaults and asks for a root .env", () => {
+    const readme = composeReadme({
+      projectName: "acme",
+      packageManager: "pnpm",
+      modules: [
+        defineModule({
+          id: "postgres/local",
+          version: "1.0.0",
+          title: "Local Postgres",
+          description: "Local Postgres",
+          readme: {
+            devCommands: [{ label: "Start Postgres", command: "docker compose -f docker-compose.db.yml up -d" }],
+            commands: [{ label: "Apply database migrations", command: "pnpm db:migrate" }]
+          },
+          envVars: [{ name: "DATABASE_URL", description: "Database connection string.", target: "api" }]
+        })
+      ]
+    });
+
+    expect(readme).toContain("## Install\n- Install dependencies: `pnpm install`\n- Create your local env file, then fill in the values: `cp .env.example .env`\n");
+    expect(readme).toContain(
+      "## Development\n- Start Postgres: `docker compose -f docker-compose.db.yml up -d`\n- Start development: `pnpm dev`\n"
+    );
+    expect(readme).toContain("- Apply database migrations: `pnpm db:migrate`\n- Build: `pnpm build`");
+    expect(composeReadme({ projectName: "acme", packageManager: "pnpm", modules: [] })).not.toContain(".env.example");
+  });
+
+  it("wires declared env vars into turbo, the API dev script, the web config, and compose", () => {
+    const module = (id: string, extra: Partial<Parameters<typeof defineModule>[0]> = {}) =>
+      defineModule({ id, version: "1.0.0", title: id, description: id, ...extra });
+    const plan = createCreatePlan({
+      config: {
+        projectName: "demo",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo", "web/nextjs", "api/fastapi", "postgres/local", "deploy/docker"],
+        ai: { skillTargets: ["codex"] }
+      },
+      availableModules: [
+        module("workspace/pnpm-turbo"),
+        module("web/nextjs"),
+        module("api/fastapi", {
+          envVars: [{ name: "AUTH0_DOMAIN", description: "Auth0 tenant domain.", target: "root" }]
+        }),
+        module("postgres/local"),
+        module("deploy/docker")
+      ]
+    });
+    const file = (path: string) => plan.filePlan.files.find((candidate) => candidate.path === path)?.content ?? "";
+
+    expect(JSON.parse(file("turbo.json")).globalPassThroughEnv).toEqual(["AUTH0_DOMAIN"]);
+    expect(JSON.parse(file("apps/api/package.json")).scripts.dev).toContain("uv run --env-file ../../.env");
+    expect(JSON.parse(file("apps/web/package.json")).name).toBe("@demo/web");
+    expect(file("apps/web/next.config.ts")).toContain("process.loadEnvFile");
+    expect(file("docker-compose.yml")).toContain("AUTH0_DOMAIN=${AUTH0_DOMAIN}");
+    expect(file("docker-compose.db.yml")).toContain("image: postgres:17-alpine");
+  });
+
   it("plans a generated README for create output", () => {
     const plan = createCreatePlan({
       config: {

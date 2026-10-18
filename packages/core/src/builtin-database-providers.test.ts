@@ -36,12 +36,13 @@ describe("postgres provider modules", () => {
     expect(byId("postgres/local")!.envVars ?? []).toEqual([]);
   });
 
-  it("postgres/local emits a static docker-compose.db.yml service", () => {
-    const files = byId("postgres/local")!.files ?? [];
-    const compose = files.find((file) => file.path === "docker-compose.db.yml");
-    expect(compose).toBeDefined();
-    expect(compose!.owner).toBe("postgres/local");
-    expect(compose!.content).toContain("postgres:17");
+  it("postgres/local leaves docker-compose.db.yml to the shared templates renderer and documents it", () => {
+    const module = byId("postgres/local")!;
+    expect(module.files ?? []).toEqual([]);
+    expect(module.validate).toEqual([{ kind: "file-exists", path: "docker-compose.db.yml" }]);
+    expect(module.readme?.devCommands).toEqual([
+      { label: "Start Postgres", command: "docker compose -f docker-compose.db.yml up -d" }
+    ]);
   });
 
   it("postgres/supabase-local emits a static supabase/config.toml", () => {

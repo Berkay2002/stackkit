@@ -113,6 +113,31 @@ describe("api templates", () => {
     expect(model).toContain("owner_sub:");
     expect(repository).toContain("Todo.owner_sub == owner_sub");
     expect(todoTests).toContain('current_user["sub"] = "another-user"');
+    expect(todoTests).toContain("def test_protected_todo_crud()");
+    expect(todoTests).toContain('json={"title": None}).status_code == 422');
+    expect(files.find((file) => file.path === "apps/api/app/schemas.py")?.content).toContain('raise ValueError("must not be null")');
     expect(auth).toContain('os.environ.get("AUTH0_JWKS_URL")');
+    expect(auth).toContain('options={"require": ["exp", "iat", "sub", "iss", "aud"]}');
+    expect(files.find((file) => file.path === "apps/api/tests/test_auth.py")?.content).toContain("jwt.MissingRequiredClaimError");
+  });
+
+  it("names and documents the todo API as unauthenticated when no auth module is selected", () => {
+    const files = renderFastApiService({ serviceName: "api", withSqlAlchemy: true });
+    const routes = files.find((file) => file.path === "apps/api/app/routes/todos.py")?.content ?? "";
+    const todoTests = files.find((file) => file.path === "apps/api/tests/test_todos.py")?.content ?? "";
+
+    expect(routes).toContain("unauthenticated demo CRUD");
+    expect(todoTests).toContain("def test_todo_crud()");
+    expect(todoTests).not.toContain("protected");
+  });
+
+  it("loads the monorepo root .env in the dev script when the stack declares env vars", () => {
+    const files = renderFastApiService({ serviceName: "api", projectName: "demo", withSqlAlchemy: true, loadRootEnv: true });
+    const packageJson = JSON.parse(files.find((file) => file.path === "apps/api/package.json")?.content ?? "{}");
+
+    expect(packageJson.name).toBe("@demo/api");
+    expect(packageJson.scripts.dev).toBe(
+      "uv run --env-file ../../.env alembic upgrade head && uv run --env-file ../../.env uvicorn app.main:app --reload"
+    );
   });
 });

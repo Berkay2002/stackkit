@@ -78,8 +78,18 @@ describe("renderPnpmTurboFoundation", () => {
     expect(byPath.get("tsconfig.json")?.content).toContain('"extends": "./tsconfig.base.json"');
     expect(byPath.get(".gitignore")?.content).toContain("node_modules");
     expect(byPath.get(".gitignore")?.content).toContain(".env.*");
+    expect(byPath.get(".gitignore")?.content).toContain("*.tsbuildinfo\n");
+    expect(byPath.get(".gitignore")?.content).toContain("next-env.d.ts\n");
+    expect(JSON.parse(byPath.get("turbo.json")?.content ?? "{}")).not.toHaveProperty("globalPassThroughEnv");
     expect(byPath.get(".stackkit/doctor.cjs")?.content).toContain("STACKKIT_DOCTOR_BIN");
     expect(byPath.get(".stackkit/doctor.cjs")?.content).toContain("@berkayorhan/stackkit@0.3.0");
+  });
+
+  it("passes declared env vars through Turborepo's strict env mode", () => {
+    const files = renderPnpmTurboFoundation({ projectName: "acme-app", passThroughEnv: ["AUTH0_DOMAIN", "DATABASE_URL", "AUTH0_DOMAIN"] });
+    const turbo = JSON.parse(files.find((file) => file.path === "turbo.json")?.content ?? "{}");
+
+    expect(turbo.globalPassThroughEnv).toEqual(["AUTH0_DOMAIN", "DATABASE_URL"]);
   });
 
   it("includes eslint/prettier/typescript-eslint root devDeps by default", () => {

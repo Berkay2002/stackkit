@@ -12,6 +12,7 @@ import {
   renderMypyConfig,
   renderNextjsApp,
   renderPnpmTurboFoundation,
+  renderPostgresLocalFiles,
   renderPrettierConfig,
   renderPyrightConfig,
   renderRuffConfig,
@@ -271,6 +272,9 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
   // the diff engine (which replays renderCreateFiles from manifest module ids) stays consistent.
   const tsTooling = selectedModuleIds.has("quality/biome") ? "biome" : "eslint-prettier";
   const pyTypecheck = selectedModuleIds.has("quality/pyright") ? "pyright" : "mypy";
+  // Module env declarations drive the root .env.example, so they also drive how apps receive env.
+  const envVars = normalizeEnvVars(modules.flatMap((module) => module.envVars ?? []));
+  const loadRootEnv = envVars.length > 0;
 
   appendUniqueFileOperations(operations, seenPaths, [renderStackkitConfig(config)]);
   appendUniqueFileOperations(operations, seenPaths, [
@@ -292,7 +296,8 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
         projectName: config.projectName,
         packageManagerField: packageManager.packageManagerField,
         workspaceFile: packageManager.workspaceFile,
-        tsTooling
+        tsTooling,
+        passThroughEnv: envVars.map((envVar) => envVar.name)
       }).filter((operation) => selectedModuleIds.has(operation.owner))
     );
   }
@@ -317,11 +322,13 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
       seenPaths,
       renderNextjsApp({
         appName: "web",
+        projectName: config.projectName,
         packageManagerField: packageManager.packageManagerField,
         tsTooling,
         withShadcn: hasShadcn,
         withAuth0: hasAuth0Nextjs,
-        withTodoApi: hasAuth0Nextjs && hasAuth0FastApi && hasSqlAlchemy
+        withTodoApi: hasAuth0Nextjs && hasAuth0FastApi && hasSqlAlchemy,
+        loadRootEnv
       }),
       selectedModuleIds
     );
@@ -331,7 +338,7 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
     appendSelectedFileOperations(
       operations,
       seenPaths,
-      renderViteApp({ appName: "web", packageManagerField: packageManager.packageManagerField, withShadcn: hasShadcn }),
+      renderViteApp({ appName: "web", projectName: config.projectName, packageManagerField: packageManager.packageManagerField, withShadcn: hasShadcn }),
       selectedModuleIds
     );
   }
@@ -340,7 +347,7 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
     appendSelectedFileOperations(
       operations,
       seenPaths,
-      renderTanStackStartApp({ appName: "web", packageManagerField: packageManager.packageManagerField, withShadcn: hasShadcn }),
+      renderTanStackStartApp({ appName: "web", projectName: config.projectName, packageManagerField: packageManager.packageManagerField, withShadcn: hasShadcn }),
       selectedModuleIds
     );
   }
@@ -354,7 +361,8 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
         projectName: config.projectName,
         pyTypecheck,
         withSqlAlchemy: hasSqlAlchemy,
-        withAuth0: hasAuth0FastApi
+        withAuth0: hasAuth0FastApi,
+        loadRootEnv
       }),
       selectedModuleIds
     );
@@ -371,13 +379,16 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
       renderDockerFiles({
         ...toDockerTemplateOptions(packageManager),
         serviceTargets: selectedDockerServiceTargets(selectedModuleIds),
+        envVars,
         withPostgres: selectedModuleIds.has("postgres/local"),
-        withSqlAlchemy: hasSqlAlchemy,
-        withAuth0Web: hasAuth0Nextjs,
-        withAuth0Api: hasAuth0FastApi
+        withSqlAlchemy: hasSqlAlchemy
       }),
       selectedModuleIds
     );
+  }
+
+  if (selectedModuleIds.has("postgres/local")) {
+    appendSelectedFileOperations(operations, seenPaths, renderPostgresLocalFiles(), selectedModuleIds);
   }
 
   if (selectedModuleIds.has("deploy/kubernetes")) {
