@@ -111,6 +111,17 @@ describe("runDoctor", () => {
         actions: ["stackkit skills sync --apply"]
       })
     );
+
+    // Once `skills sync` resolves them, skills-lock.json is the source of truth even if the manifest copy is stale.
+    await writeFile(
+      join(directory, "skills-lock.json"),
+      JSON.stringify({ schemaVersion: 1, targets: [], installed: [], local: [], unresolved: [] }),
+      "utf8"
+    );
+
+    const synced = await runDoctor(directory);
+
+    expect(synced.checks.find((item) => item.id === "skills.unresolved")).toBeUndefined();
   });
 
   it("reports skipped native initializers as known gaps", async () => {

@@ -8,6 +8,7 @@ import {
 } from "@berkayorhan/stackkit-schemas";
 
 import { hashContent, normalizeProjectPath, readExistingFile } from "./fs-utils.js";
+import { readOptionalSkillsLock } from "./manifest.js";
 import type { RunCommand } from "./package-manager.js";
 
 export type RunDoctorOptions = {
@@ -72,11 +73,14 @@ export async function runDoctor(projectDirectory: string, options: RunDoctorOpti
     }));
   }
 
-  if (manifest.aiSkills.unresolved.length > 0) {
+  // skills-lock.json is what `skills sync`/`skills update` maintain, so it wins over the manifest copy (same as info).
+  const unresolvedSkills = ((await readOptionalSkillsLock(projectDirectory)) ?? manifest.aiSkills).unresolved;
+
+  if (unresolvedSkills.length > 0) {
     checks.push(createDoctorCheck({
       id: "skills.unresolved",
       status: "warning",
-      message: `${manifest.aiSkills.unresolved.length} AI skill dependency could not be resolved`,
+      message: `${unresolvedSkills.length} AI skill dependency could not be resolved`,
       actions: ["stackkit skills sync --apply"]
     }));
   }

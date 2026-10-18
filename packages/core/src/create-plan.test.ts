@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { StackkitManifest } from "@berkayorhan/stackkit-schemas";
 
-import { createCreatePlan, defineModule, renderCreateFiles, validateProjectSlug } from "./index.js";
-import { buildExpectedManagedFilePlan } from "./create.js";
+import { createCreatePlan, createManifest, defineModule, renderCreateFiles, validateProjectSlug } from "./index.js";
+import { buildExpectedManagedFilePlan, buildReconstructedManagedFilePlan } from "./create.js";
 
 const availableModules = [
   defineModule({
@@ -807,6 +807,31 @@ describe("renderCreateFiles database client codegen", () => {
     const client = find(renderCreateFiles(cfg(modules, { "db/drizzle": { runtime: "edge" } }), modules), "apps/web/db/client.ts");
 
     expect(client!.content).toContain("@neondatabase/serverless");
+  });
+
+  it("keeps module options in the plan so lifecycle re-renders match create", () => {
+    const modules = [mod("web/nextjs", { provides: ["nextjs-app"] }), mod("db/postgres", { provides: ["postgres"] }), mod("db/drizzle"), mod("postgres/neon")];
+    const plan = createCreatePlan({ config: cfg(modules, { "db/drizzle": { runtime: "edge" } }), availableModules: modules });
+    expect(plan.options).toEqual({ "db/drizzle": { runtime: "edge" } });
+
+    const manifest = createManifest({
+      schemaVersion: 1,
+      stackkitVersion: "0.0.0",
+      projectName: "acme",
+      createdAt: "2026-06-02T00:00:00.000Z",
+      modules: modules.map((module) => ({
+        id: module.id,
+        version: module.version,
+        options: plan.options[module.id] ?? {},
+        snapshot: module
+      })),
+      files: [],
+      aiSkills: { targets: [], installed: [], unresolved: [] },
+      migrations: { applied: [] }
+    } as StackkitManifest);
+    const reconstructed = buildReconstructedManagedFilePlan(manifest).files.find((file) => file.path === "apps/web/db/client.ts");
+
+    expect(reconstructed!.content).toContain("@neondatabase/serverless");
   });
 
   it("emits a Prisma datasource with directUrl for Supabase", () => {

@@ -102,4 +102,20 @@ describe("applyFilePlan", () => {
     );
     await expect(readFile(join(projectDirectory, "README.md"), "utf8")).resolves.toBe("# Existing\n");
   });
+
+  it("never overwrites an existing file whose policy is never", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-apply-file-plan-"));
+    tempDirectories.push(projectDirectory);
+    await writeFile(join(projectDirectory, "stackkit.config.json"), "{ \"mine\": true }\n", "utf8");
+
+    const plan = buildFilePlan([
+      { kind: "write", path: "stackkit.config.json", owner: "stackkit", content: "{}\n", overwrite: "never" },
+      { kind: "write", path: ".env.example", owner: "stackkit", content: "A=1\n", overwrite: "never" }
+    ]);
+
+    await applyFilePlan(projectDirectory, plan);
+
+    await expect(readFile(join(projectDirectory, "stackkit.config.json"), "utf8")).resolves.toBe("{ \"mine\": true }\n");
+    await expect(readFile(join(projectDirectory, ".env.example"), "utf8")).resolves.toBe("A=1\n");
+  });
 });

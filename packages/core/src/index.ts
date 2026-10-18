@@ -164,20 +164,23 @@ export type {
   RemoveModulesPlan,
   ApplyAddModulesInput,
   ApplyRemoveModulesInput,
+  ApplyModuleUpdatesInput,
+  LifecycleFileChanges,
   ModuleUpdatePlan,
-  ModuleMigrationPlan
+  ModuleMigrationPlan,
+  UpdateModulesPlan
 } from "./lifecycle.js";
 export {
   planAddModules,
   planRemoveModules,
-  readCurrentManagedFileHashes,
+  planUpdateModules,
+  resolveInstalledModuleId,
   applyAddModules,
   applyRemoveModules,
   planModuleUpdates,
   planModuleMigrations,
   applyAutomaticMigrations,
   applyModuleUpdates,
-  planAddModuleFiles,
   runLifecycleHooks
 } from "./lifecycle.js";
 

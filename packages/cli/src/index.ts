@@ -20,11 +20,10 @@ import {
   getPackageManagerAdapter,
   recipeFromConfig,
   resolveCreateConfig,
-  planAddModuleFiles,
   planAddModules,
   planModuleMigrations,
-  planModuleUpdates,
   planRemoveModules,
+  planUpdateModules,
   planSkillSyncCommands,
   applySkillSync,
   planSkillUpdateCommands,
@@ -33,7 +32,6 @@ import {
   collectInfo,
   createFileContentDiff,
   diffManagedFile,
-  readCurrentManagedFileHashes,
   readManifest,
   readSkillsLock,
   resumeCreatePlan,
@@ -42,6 +40,7 @@ import {
   isPubliclySelectable,
   listStackkitModules,
   loadProjectRegistries,
+  resolveInstalledModuleId,
   resolveSpawnCommand,
   runDoctor,
   searchStackkitModules,
@@ -56,11 +55,13 @@ import {
   type DoctorCheck,
   type FileContentDiff,
   type FilePlan,
+  type LifecycleFileChanges,
   type ManagedFileDiff,
   type ModuleDiscoveryEntry,
   type ModuleMigrationPlan,
   type ModuleUpdatePlan,
   type RemoveModulesPlan,
+  type UpdateModulesPlan,
   type RunCommand,
   type StackkitManifest,
   type StackkitInfo,
@@ -86,6 +87,8 @@ export const stackkitVersion = String(
 
 export type StackkitProgramOptions = {
   runCommand?: RunCommand;
+  /** Modules the lifecycle commands (add, remove, update, migrate, diff) resolve against. Defaults to the built-in registry. */
+  availableModules?: readonly StackkitModule[];
 };
 
 export type InteractiveAnswers = {
@@ -109,6 +112,7 @@ export function buildConfigFromInteractiveAnswers(answers: InteractiveAnswers): 
 
 export function createStackkitProgram(programOptions: StackkitProgramOptions = {}): Command {
   const runCommand = programOptions.runCommand ?? runLocalCommand;
+  const lifecycleModules = programOptions.availableModules ?? builtinModules;
   const program = new Command()
     .name("stackkit")
     .description("Generate and maintain Stackkit-managed monorepos")
@@ -237,43 +241,42 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--dry-run", "Print the add plan without writing files")
     .option("--view <path>", "Print one planned file during --dry-run")
     .option("--diff", "Print file-oriented planned changes during --dry-run")
+    .option("--include-preview", "Allow preview modules")
     .option("--dir <path>", "Project directory")
-    .action(async (moduleId: string, options: { dryRun?: boolean; view?: string; diff?: boolean; dir?: string }) => {
+    .action(async (moduleId: string, options: { dryRun?: boolean; view?: string; diff?: boolean; includePreview?: boolean; dir?: string }) => {
       const projectDirectory = options.dir ? resolve(options.dir) : process.cwd();
       const manifest = await readManifest(projectDirectory);
-
-      if (options.dryRun) {
-        const plan = planAddModules({ manifest, moduleIds: [moduleId], availableModules: builtinModules });
-        if (options.view || options.diff) {
-          const filePlan = await planAddModuleFiles({
-            projectDirectory,
-            manifest,
-            moduleIds: [moduleId],
-            availableModules: builtinModules
-          });
-
-          writeProgramOutput(
-            program,
-            options.view
-              ? formatFileView(filePlan, options.view)
-              : await formatFilePlanDiff("Stackkit add diff", manifest.projectName, filePlan, projectDirectory)
-          );
-          return;
-        }
-
-        writeProgramOutput(program, formatAddPlan(plan));
-        return;
-      }
-
-      const result = await applyAddModules({
+      const input = {
         projectDirectory,
         manifest,
         moduleIds: [moduleId],
-        availableModules: builtinModules,
-        curatedSkillSourceAllowlist,
-        runCommand
-      });
-      writeProgramOutput(program, `Added ${moduleId} to ${result.manifest.projectName}\n`);
+        availableModules: lifecycleModules,
+        includePreview: options.includePreview
+      };
+
+      if (options.dryRun) {
+        const plan = await planAddModules(input);
+        const filePlan = { files: plan.writes };
+
+        writeProgramOutput(
+          program,
+          options.view
+            ? formatFileView(filePlan, options.view)
+            : options.diff
+              ? await formatFilePlanDiff("Stackkit add diff", manifest.projectName, filePlan, projectDirectory)
+              : formatAddPlan(plan)
+        );
+        return;
+      }
+
+      const result = await applyAddModules({ ...input, curatedSkillSourceAllowlist, runCommand });
+      const added = result.plan.modulesToAdd.map((module) => module.id);
+      writeProgramOutput(
+        program,
+        added.length > 0
+          ? `Added ${added.join(", ")} to ${result.manifest.projectName}\n`
+          : `${moduleId} is already installed in ${result.manifest.projectName}\n`
+      );
     });
 
   program
@@ -281,15 +284,20 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .description("Safely remove a module from a managed project")
     .option("--dry-run", "Print the remove plan without deleting files")
     .option("--yes", "Confirm the removal and delete owned files")
+    .option("--force", "Overwrite or delete managed files that drifted from what Stackkit rendered")
     .option("--dir <path>", "Project directory")
-    .action(async (moduleId: string, options: { dryRun?: boolean; yes?: boolean; dir?: string }) => {
+    .action(async (moduleId: string, options: { dryRun?: boolean; yes?: boolean; force?: boolean; dir?: string }) => {
       const projectDirectory = options.dir ? resolve(options.dir) : process.cwd();
-      const manifest = await readManifest(projectDirectory);
+      const input = {
+        projectDirectory,
+        manifest: await readManifest(projectDirectory),
+        moduleIds: [moduleId],
+        availableModules: lifecycleModules,
+        force: options.force
+      };
 
       if (options.dryRun) {
-        const currentFiles = await readCurrentManagedFileHashes(projectDirectory, manifest);
-        const plan = planRemoveModules({ manifest, moduleIds: [moduleId], currentFiles, availableModules: builtinModules });
-        writeProgramOutput(program, formatRemovePlan(plan));
+        writeProgramOutput(program, formatRemovePlan(await planRemoveModules(input)));
         return;
       }
 
@@ -297,17 +305,14 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
         throw new Error(`Refusing to remove ${moduleId} without --yes. Re-run with --yes to apply, or use --dry-run to preview.`);
       }
 
-      const currentFiles = await readCurrentManagedFileHashes(projectDirectory, manifest);
-      const plan = planRemoveModules({ manifest, moduleIds: [moduleId], currentFiles, availableModules: builtinModules });
-      const result = await applyRemoveModules({
-        projectDirectory,
-        manifest,
-        moduleIds: [moduleId],
-        availableModules: builtinModules
-      });
+      const result = await applyRemoveModules(input);
       writeProgramOutput(
         program,
-        [...formatRemovalAdvisories(plan), `Removed ${moduleId} from ${result.manifest.projectName}`, ""].join("\n")
+        [
+          ...formatRemovalAdvisories(result.plan),
+          `Removed ${result.plan.modulesToRemove.join(", ")} from ${result.manifest.projectName}`,
+          ""
+        ].join("\n")
       );
     });
 
@@ -316,46 +321,34 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .description("Update managed modules")
     .option("--dry-run", "Print the update plan without writing files")
     .option("--apply", "Apply pending module updates and automatic migrations")
+    .option("--force", "Overwrite or delete managed files that drifted from what Stackkit rendered")
     .option("--dir <path>", "Project directory")
-    .action(async (moduleId: string | undefined, options: { dryRun?: boolean; apply?: boolean; dir?: string }) => {
+    .action(async (moduleId: string | undefined, options: { dryRun?: boolean; apply?: boolean; force?: boolean; dir?: string }) => {
       const projectDirectory = options.dir ? resolve(options.dir) : process.cwd();
       const manifest = await readManifest(projectDirectory);
-      const availableModules = scopeModules(builtinModules, moduleId);
-      const manifestModules = scopeManifestModules(manifest.modules, moduleId);
+      const input = {
+        projectDirectory,
+        manifest,
+        availableModules: scopeModules(manifest, lifecycleModules, moduleId),
+        force: options.force
+      };
 
       if (resolveLifecyclePlanMode(options) === "plan") {
-        const updatePlan = planModuleUpdates({ manifestModules, availableModules });
-        const migrationPlan = planModuleMigrations({ manifest, modules: availableModules });
-        writeProgramOutput(program, formatUpdatePlan(manifest, updatePlan, migrationPlan));
+        writeProgramOutput(program, formatUpdatePlan(manifest, await planUpdateModules(input)));
         return;
       }
 
-      const migrationPlan = planModuleMigrations({ manifest, modules: availableModules });
+      const migrationPlan = planModuleMigrations({ manifest, modules: input.availableModules });
 
       if (migrationPlan.reviewRequired.length > 0 || migrationPlan.manual.length > 0) {
         throw new Error(refuseMigrationMessage(migrationPlan));
       }
 
-      let workingManifest = manifest;
-
-      if (migrationPlan.automatic.length > 0) {
-        const migrated = await applyAutomaticMigrations({
-          projectDirectory,
-          manifest: workingManifest,
-          modules: availableModules
-        });
-        workingManifest = migrated.manifest;
-      }
-
-      const updated = await applyModuleUpdates({
-        projectDirectory,
-        manifest: workingManifest,
-        availableModules
-      });
+      const updated = await applyModuleUpdates(input);
 
       writeProgramOutput(
         program,
-        `Updated ${updated.manifest.projectName}: ${updated.updates.length} module update(s), ${migrationPlan.automatic.length} migration(s) applied\n`
+        `Updated ${updated.manifest.projectName}: ${updated.updates.length} module update(s), ${updated.plan.migrations.automatic.length} migration(s) applied\n`
       );
     });
 
@@ -368,7 +361,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .action(async (moduleId: string | undefined, options: { dryRun?: boolean; apply?: boolean; dir?: string }) => {
       const projectDirectory = options.dir ? resolve(options.dir) : process.cwd();
       const manifest = await readManifest(projectDirectory);
-      const availableModules = scopeModules(builtinModules, moduleId);
+      const availableModules = scopeModules(manifest, lifecycleModules, moduleId);
       const migrationPlan = planModuleMigrations({ manifest, modules: availableModules });
 
       if (resolveLifecyclePlanMode(options) === "plan") {
@@ -413,12 +406,13 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
       }
 
       const manifest = await readManifest(projectDirectory);
-      const availableModules = scopeModules(builtinModules, moduleId);
-      const manifestModules = scopeManifestModules(manifest.modules, moduleId);
-      const updatePlan = planModuleUpdates({ manifestModules, availableModules });
-      const migrationPlan = planModuleMigrations({ manifest, modules: availableModules });
+      const plan = await planUpdateModules({
+        projectDirectory,
+        manifest,
+        availableModules: scopeModules(manifest, lifecycleModules, moduleId)
+      });
 
-      writeProgramOutput(program, formatDiff(manifest, updatePlan, migrationPlan));
+      writeProgramOutput(program, formatDiff(manifest, plan));
     });
 
   program
@@ -1115,32 +1109,47 @@ export function formatAddPlan(plan: AddModulesPlan): string {
     "Dry run: no files will be written.",
     `Modules to add: ${modulesToAdd.length > 0 ? modulesToAdd.join(", ") : "none"}`,
     `Resulting modules: ${resultingModules.join(", ")}`,
+    `Safe to add: ${plan.safe ? "yes" : "no"}`,
+    ...formatFileChangeLines({ ...plan, deletes: [] }),
     "STACKKIT_PLAN_JSON_START",
-    JSON.stringify(plan, null, 2),
+    JSON.stringify(withWritePaths(plan), null, 2),
     "STACKKIT_PLAN_JSON_END",
     ""
   ].join("\n");
 }
 
 export function formatRemovePlan(plan: RemoveModulesPlan): string {
-  const filesToRemove = plan.filesToRemove.map((file) => `- ${file.path}`);
-  const refusals = plan.refusals.map((refusal) => `- ${refusal.path} (${refusal.reason})`);
-
   return [
     `Stackkit remove plan for ${plan.manifest.projectName}`,
     "Dry run: no files will be deleted.",
     `Modules to remove: ${plan.modulesToRemove.length > 0 ? plan.modulesToRemove.join(", ") : "none"}`,
     `Safe to remove: ${plan.safe ? "yes" : "no"}`,
+    ...(plan.dependents.length > 0 ? [`Still required by: ${plan.dependents.join(", ")}`] : []),
     ...formatRemovalAdvisories(plan),
-    "Files to delete:",
-    ...(filesToRemove.length > 0 ? filesToRemove : ["- none"]),
-    "Refusals:",
-    ...(refusals.length > 0 ? refusals : ["- none"]),
+    ...formatFileChangeLines(plan),
     "STACKKIT_PLAN_JSON_START",
-    JSON.stringify(plan, null, 2),
+    JSON.stringify(withWritePaths(plan), null, 2),
     "STACKKIT_PLAN_JSON_END",
     ""
   ].join("\n");
+}
+
+function formatFileChangeLines(changes: Pick<LifecycleFileChanges, "writes" | "deletes" | "refusals">): string[] {
+  const list = (items: readonly string[]) => (items.length > 0 ? items.map((item) => `- ${item}`) : ["- none"]);
+
+  return [
+    "Files to write:",
+    ...list(changes.writes.map((file) => file.path)),
+    "Files to delete:",
+    ...list(changes.deletes),
+    "Refusals:",
+    ...list(changes.refusals.map((refusal) => `${refusal.path} (${refusal.reason})`))
+  ];
+}
+
+/** Plan JSON lists written paths, not full file contents. */
+function withWritePaths<T extends { writes: readonly { path: string }[] }>(plan: T): Omit<T, "writes"> & { writes: string[] } {
+  return { ...plan, writes: plan.writes.map((file) => file.path) };
 }
 
 function formatRemovalAdvisories(plan: RemoveModulesPlan): string[] {
@@ -1157,23 +1166,17 @@ function formatRemovalAdvisories(plan: RemoveModulesPlan): string[] {
   ]);
 }
 
-function scopeModules(modules: readonly StackkitModule[], moduleId: string | undefined): readonly StackkitModule[] {
-  if (!moduleId) {
-    return modules;
-  }
-
-  return modules.filter((module) => module.id === moduleId);
-}
-
-function scopeManifestModules(
-  modules: readonly StackkitManifest["modules"][number][],
+function scopeModules(
+  manifest: StackkitManifest,
+  modules: readonly StackkitModule[],
   moduleId: string | undefined
-): readonly StackkitManifest["modules"][number][] {
+): readonly StackkitModule[] {
   if (!moduleId) {
     return modules;
   }
 
-  return modules.filter((module) => module.id === moduleId);
+  const installedId = resolveInstalledModuleId(manifest, moduleId, modules);
+  return modules.filter((module) => module.id === installedId);
 }
 
 function refuseMigrationMessage(plan: ModuleMigrationPlan): string {
@@ -1186,7 +1189,7 @@ function refuseMigrationMessage(plan: ModuleMigrationPlan): string {
   ].join("\n");
 }
 
-function formatUpdateLines(plan: ModuleUpdatePlan): string[] {
+function formatUpdateLines(plan: Pick<ModuleUpdatePlan, "updates">): string[] {
   return plan.updates.length > 0
     ? plan.updates.map((update) => `- ${update.id}: ${update.from} -> ${update.to}`)
     : ["- none"];
@@ -1205,42 +1208,48 @@ function formatMigrationLines(plan: ModuleMigrationPlan): string[] {
   return lines;
 }
 
-export function formatDiff(
-  manifest: StackkitManifest,
-  updatePlan: ModuleUpdatePlan,
-  migrationPlan: ModuleMigrationPlan
-): string {
+export function formatDiff(manifest: StackkitManifest, plan: UpdateModulesPlan): string {
   return [
     `Stackkit diff for ${manifest.projectName}`,
     "Read-only: no files will be written.",
-    "Pending version updates:",
-    ...formatUpdateLines(updatePlan),
-    "Pending migrations:",
-    ...formatMigrationLines(migrationPlan),
+    ...formatUpdatePlanBody(plan),
     "STACKKIT_DIFF_JSON_START",
-    JSON.stringify({ updates: updatePlan, migrations: migrationPlan }, null, 2),
+    JSON.stringify(updatePlanJson(plan), null, 2),
     "STACKKIT_DIFF_JSON_END",
     ""
   ].join("\n");
 }
 
-export function formatUpdatePlan(
-  manifest: StackkitManifest,
-  updatePlan: ModuleUpdatePlan,
-  migrationPlan: ModuleMigrationPlan
-): string {
+export function formatUpdatePlan(manifest: StackkitManifest, plan: UpdateModulesPlan): string {
   return [
     `Stackkit update plan for ${manifest.projectName}`,
     "Dry run: no files will be written.",
-    "Planned version updates:",
-    ...formatUpdateLines(updatePlan),
-    "Pending migrations:",
-    ...formatMigrationLines(migrationPlan),
+    ...formatUpdatePlanBody(plan),
     "STACKKIT_UPDATE_JSON_START",
-    JSON.stringify({ updates: updatePlan, migrations: migrationPlan }, null, 2),
+    JSON.stringify(updatePlanJson(plan), null, 2),
     "STACKKIT_UPDATE_JSON_END",
     ""
   ].join("\n");
+}
+
+function formatUpdatePlanBody(plan: UpdateModulesPlan): string[] {
+  return [
+    "Pending version updates:",
+    ...formatUpdateLines(plan),
+    "Pending migrations:",
+    ...formatMigrationLines(plan.migrations),
+    `Safe to apply: ${plan.safe ? "yes" : "no"}`,
+    ...formatFileChangeLines(plan)
+  ];
+}
+
+function updatePlanJson(plan: UpdateModulesPlan) {
+  return {
+    updates: { updates: plan.updates },
+    migrations: plan.migrations,
+    safe: plan.safe,
+    files: { writes: plan.writes.map((file) => file.path), deletes: plan.deletes, refusals: plan.refusals }
+  };
 }
 
 export function formatMigratePlan(manifest: StackkitManifest, migrationPlan: ModuleMigrationPlan): string {

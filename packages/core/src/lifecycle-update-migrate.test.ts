@@ -9,7 +9,8 @@ import {
   applyModuleUpdates,
   hashContent,
   planModuleMigrations,
-  planModuleUpdates
+  planModuleUpdates,
+  planUpdateModules
 } from "./index.js";
 
 const tempDirectories: string[] = [];
@@ -438,6 +439,49 @@ describe("update and migration planning", () => {
     ).rejects.toThrow(/modified-owned/);
 
     // The user's edit must be left untouched when the update refuses.
+    await expect(readFile(join(directory, filePath), "utf8")).resolves.toBe(userEditedContent);
+  });
+
+  it("plans no file changes and keeps user edits when nothing needs updating", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-update-noop-"));
+    tempDirectories.push(directory);
+
+    const filePath = "apps/widget/config.ts";
+    const content = "export const version = 1;\n";
+    const userEditedContent = "export const version = 99; // hand edited\n";
+    await mkdir(join(directory, "apps", "widget"), { recursive: true });
+    await writeFile(join(directory, filePath), userEditedContent, "utf8");
+
+    const widget = {
+      id: "demo/widget",
+      version: "1.0.0",
+      title: "Widget",
+      description: "Widget module",
+      files: [{ kind: "write", path: filePath, owner: "demo/widget", content, overwrite: "if-owned" }]
+    } as const;
+    const manifest = {
+      schemaVersion: 1,
+      stackkitVersion: "0.0.0",
+      projectName: "acme",
+      createdAt: "2026-06-02T00:00:00.000Z",
+      modules: [{ id: "demo/widget", version: "1.0.0", options: {}, snapshot: widget }],
+      files: [{ path: filePath, owner: "demo/widget", hash: hashContent(content) }],
+      aiSkills: { targets: [], installed: [], unresolved: [] },
+      migrations: { applied: [] }
+    } as const;
+
+    const plan = await planUpdateModules({ projectDirectory: directory, manifest, availableModules: [widget] });
+
+    expect(plan).toMatchObject({
+      safe: true,
+      updates: [],
+      migrations: { automatic: [], reviewRequired: [], manual: [] },
+      writes: [],
+      deletes: [],
+      refusals: []
+    });
+
+    await applyModuleUpdates({ projectDirectory: directory, manifest, availableModules: [widget] });
     await expect(readFile(join(directory, filePath), "utf8")).resolves.toBe(userEditedContent);
   });
 });

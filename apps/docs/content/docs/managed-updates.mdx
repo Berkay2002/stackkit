@@ -43,7 +43,7 @@ stackkit add <module-id> --dry-run --view apps/web/package.json
 stackkit add <module-id> --dry-run --diff
 ```
 
-`add` resolves the requested module, checks requirements and conflicts, and plans new files, package changes, environment entries, hooks, and skills. Omit `--dry-run` only after reviewing the plan.
+`add` resolves the requested module or alias, checks requirements and conflicts, and plans new files, package changes, environment entries, hooks, and skills. It applies the same support gate as `create`: planned modules are refused, and preview modules need `--include-preview`. Omit `--dry-run` only after reviewing the plan; the dry run lists the same writes and refusals that apply acts on.
 
 ### Remove
 
@@ -52,7 +52,7 @@ stackkit remove <module-id> --dry-run
 stackkit remove <module-id> --yes
 ```
 
-Removal is ownership-aware. Stackkit can delete files owned only by the removed module, but it must not remove user-modified content or files still needed by another selected module.
+Removal is ownership-aware. Stackkit refuses unknown or uninstalled module ids and modules that remaining modules still depend on. It deletes files owned only by the removed module, re-renders shared files such as `README.md`, and leaves files written by native initializers or migrations alone. If any file it would touch has drifted, the plan lists it under refusals and `--yes` stops; `--force` overwrites or deletes those files anyway.
 
 ### Update
 
@@ -62,7 +62,7 @@ stackkit update <module-id> --dry-run
 stackkit update --apply
 ```
 
-`update` compares installed module versions with registry versions and plans the associated file changes and automatic migrations.
+`update` compares installed module versions with registry versions and plans the associated file changes and automatic migrations. Only files whose rendered content changes are written, and drifted files are refused unless you pass `--force`.
 
 ### Migrate
 
@@ -76,6 +76,6 @@ Migrations declare a source version, target version, operations, and safety leve
 
 ## Drift and safety
 
-If a managed file's current hash differs from the manifest hash, Stackkit treats it as user-modified. Lifecycle operations refuse unsafe overwrites or mark the file for review. Do not edit `.stackkit/project.json` to bypass this check; restore the intended source file or explicitly resolve the change first.
+A managed file has drifted when its current content matches neither what Stackkit rendered for the installed modules nor what it would render after the change. That covers user edits and edits made by native initializers such as `shadcn init`. Lifecycle operations refuse unsafe overwrites or mark the file for review. Do not edit `.stackkit/project.json` to bypass this check; restore the intended source file or explicitly resolve the change first.
 
 The current diff engine re-renders deterministic create-time files. Files whose expected content depends on metadata not retained in the manifest may need richer provenance before every historical variant can be reproduced exactly.
