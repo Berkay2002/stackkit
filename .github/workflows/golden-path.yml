@@ -81,8 +81,9 @@ jobs:
           import jwt
           from cryptography.hazmat.primitives.asymmetric import rsa
 
-          # @auth0/nextjs-auth0 rejects a domain with a port and derives the issuer from the bare
-          # domain, so the provider listens on :80 inside the compose network.
+          # @auth0/nextjs-auth0 builds the issuer as https://<AUTH0_DOMAIN>/ unless AUTH0_DOMAIN is an
+          # http:// URL and allowInsecureRequests is on, so the workflow sets AUTH0_DOMAIN=http://mock-auth.
+          # The provider listens on :80 so in-network and issuer URLs need no port.
           ISSUER = "http://mock-auth/"
           AUDIENCE = "https://stackkit-release-proof"
           CLIENT_ID = "stackkit-release-client"
@@ -185,7 +186,7 @@ jobs:
                 NODE_ENV: development
               command: ["pnpm", "exec", "next", "dev", "--hostname", "0.0.0.0", "--port", "3000"]
           YAML
-          export AUTH0_DOMAIN=mock-auth
+          export AUTH0_DOMAIN=http://mock-auth
           export AUTH0_AUDIENCE=https://stackkit-release-proof
           export AUTH0_CLIENT_ID=stackkit-release-client
           export AUTH0_CLIENT_SECRET=stackkit-release-secret
