@@ -171,6 +171,8 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
           stackkitVersion,
           runCommand,
           availableModules: builtinModules,
+          availablePresets: builtinPresets,
+          curatedSkillSourceAllowlist,
           allowExternalState: options.allowExternalState,
           retryInitializers: options.retryInitializers
         });

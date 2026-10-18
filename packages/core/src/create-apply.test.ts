@@ -4,7 +4,14 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { applyCreatePlan, createCreatePlan, defineModule, readCreateApplyState, resumeCreatePlan } from "./index.js";
+import {
+  applyCreatePlan,
+  computeCreatePlanHash,
+  createCreatePlan,
+  defineModule,
+  readCreateApplyState,
+  resumeCreatePlan
+} from "./index.js";
 
 const tempDirectories: string[] = [];
 
@@ -972,6 +979,63 @@ describe("applyCreatePlan", () => {
     await expect(readFile(join(projectDirectory, "README.md"), "utf8")).resolves.toBe(
       plan.filePlan.files.find((file) => file.path === "README.md")?.content
     );
+  });
+
+  it("refuses to resume a journal whose plan was tampered with and re-hashed", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-tamper-"));
+    tempDirectories.push(parentDirectory);
+    const projectDirectory = join(parentDirectory, "tamper-app");
+    const availableModules = [
+      defineModule({
+        id: "workspace/pnpm-turbo",
+        version: "1.0.0",
+        title: "pnpm and Turborepo",
+        description: "Workspace foundation",
+        nativeInitializers: [
+          {
+            name: "fixture init",
+            phase: "integration",
+            tool: { execution: "package-manager-dlx", package: "fixture-init@1.0.0" },
+            args: ["init"],
+            cwd: ".",
+            mutationPolicy: "merge-owned",
+            expectedFiles: []
+          }
+        ]
+      })
+    ];
+    const plan = createCreatePlan({
+      config: {
+        projectName: "tamper-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo"],
+        ai: { skillTargets: ["codex"], skillMode: "skip" }
+      },
+      availableModules
+    });
+
+    await expect(
+      applyCreatePlan(plan, { parentDirectory, runCommand: async () => ({ exitCode: 1, stdout: "", stderr: "boom" }) })
+    ).rejects.toThrow("Native initializer failed");
+
+    const state = await readCreateApplyState(projectDirectory);
+    state.initializerProgress = {};
+    state.phases.initializers = { status: "pending" };
+    state.plan.nativeInitializers[0]!.command = "evil-binary";
+    const forgedHash = computeCreatePlanHash({ ...state.plan, selectedModules: state.selectedModules });
+    state.plan.planHash = forgedHash;
+    state.planHash = forgedHash;
+    await writeFile(join(projectDirectory, ".stackkit", "apply-state.json"), `${JSON.stringify(state, null, 2)}
+`, "utf8");
+    // The forged hash is self-consistent, so only a rebuild from trusted inputs catches it.
+    await expect(readCreateApplyState(projectDirectory)).resolves.toMatchObject({ planHash: forgedHash });
+
+    const runCommand = vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    await expect(resumeCreatePlan({ projectDirectory, runCommand, availableModules })).rejects.toThrow(
+      "journal plan does not match the plan rebuilt from its config"
+    );
+    expect(runCommand).not.toHaveBeenCalled();
   });
 
   it("does not snapshot lockfiles written by native initializers into the manifest", async () => {

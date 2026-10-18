@@ -614,7 +614,7 @@ export async function applyCreatePlan(
 }
 
 export async function resumeCreatePlan(options: ResumeCreatePlanOptions): Promise<ApplyCreatePlanResult> {
-  const { availableModules, ...applyOptions } = options;
+  const { availableModules, availablePresets, curatedSkillSourceAllowlist, ...applyOptions } = options;
   const state = await readCreateApplyState(options.projectDirectory);
   const selectedModules = state.selectedModules.map((module) => stackkitModuleSchema.parse(module));
   const trustedModules = new Map(availableModules.map((module) => [module.id, module]));
@@ -631,7 +631,26 @@ export async function resumeCreatePlan(options: ResumeCreatePlanOptions): Promis
     );
   }
 
-  const plan = attachSelectedModules(state.plan, selectedModules);
+  // The journal hash is unkeyed, so a tampered journal can carry a matching one: rebuild the plan from its
+  // recorded config and the trusted registry, and only run what that rebuilt plan says.
+  const configFile = state.plan.filePlan.files.find((file) => file.path === "stackkit.config.json");
+  if (!configFile) {
+    throw new Error("Cannot resume create: the journal plan has no stackkit.config.json.");
+  }
+  const plan = createCreatePlan({
+    config: stackkitConfigSchema.parse(JSON.parse(configFile.content)),
+    source: state.plan.source,
+    availableModules,
+    availablePresets,
+    curatedSkillSourceAllowlist,
+    allowExternalState: applyOptions.allowExternalState ?? false
+  });
+  if (plan.planHash !== state.planHash) {
+    throw new Error(
+      "Cannot resume create: the journal plan does not match the plan rebuilt from its config and the installed Stackkit registry. " +
+      "Resume with the Stackkit version and --allow-external-state choice that started this create, or start over in an empty directory."
+    );
+  }
 
   return await applyCreatePlan(plan, {
     ...applyOptions,
@@ -907,6 +926,9 @@ export type ResumeCreatePlanOptions = Omit<ApplyCreatePlanOptions, "parentDirect
   projectDirectory: string;
   /** Trusted module definitions (the installed registry) the journal's modules must match. */
   availableModules: readonly StackkitModule[];
+  /** Trusted presets and skill allowlist; the plan is rebuilt from these, not read from the journal. */
+  availablePresets?: readonly StackkitPreset[];
+  curatedSkillSourceAllowlist?: readonly string[];
 };
 
 function planNativeInitializers(input: PlanNativeInitializersInput): PlannedNativeInitializer[] {

@@ -944,6 +944,27 @@ describe("createStackkitProgram", () => {
     expect(attempts).toBe(2);
   });
 
+  it("resumes a preset create whose plan is rebuilt from the journal config and trusted registry", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-resume-preset-"));
+    tempDirectories.push(directory);
+    const targetDirectory = join(directory, "gp");
+    let attempts = 0;
+    const runCommand: RunCommand = async () => {
+      attempts += 1;
+      return attempts === 1
+        ? { exitCode: 1, stdout: "", stderr: "interrupted" }
+        : { exitCode: 0, stdout: "ok", stderr: "" };
+    };
+    const create = ["create", "gp", "--preset", "next-fastapi-postgres-auth0", "--db-provider", "postgres-local", "--skills", "plan"];
+
+    await expect(runProgram([...create, "--dir", targetDirectory, "--yes"], { runCommand })).rejects.toThrow(
+      "Native initializer failed"
+    );
+    const { output } = await runProgram(["create", "--resume", "--retry-initializers", "--dir", targetDirectory], { runCommand });
+
+    expect(output).toContain(`Resumed Stackkit project at ${targetDirectory}\n`);
+  });
+
   it("warns on stderr when create skips external-state initializers", async () => {
     const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
     tempDirectories.push(directory);
