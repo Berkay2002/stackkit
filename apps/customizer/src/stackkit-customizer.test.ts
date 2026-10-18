@@ -1,15 +1,34 @@
+import { resolveModuleGraph } from "@berkayorhan/stackkit-core/customizer";
+import { builtinModules, builtinPresets } from "@berkayorhan/stackkit-registry";
 import { describe, expect, it } from "vitest";
 
+import cliPackage from "../../../packages/cli/package.json";
 import {
   applyPresetBaseline,
   buildCustomizerState,
+  choiceError,
+  choiceSupportLevel,
   createInitialCustomizerState,
+  customizerPresets,
   normalizeCustomizerState,
-  toCreateCommand
+  projectNameError,
+  type CustomizerState
 } from "./stackkit-customizer.js";
 
+function custom(overrides: Partial<CustomizerState>): CustomizerState {
+  return { ...createInitialCustomizerState(), preset: "custom", ...overrides };
+}
+
+function presetModuleIds(presetId: string): string[] {
+  return resolveModuleGraph([], {
+    presets: builtinPresets,
+    selectedPresets: [presetId],
+    availableModules: builtinModules
+  }).map((module) => module.id);
+}
+
 describe("Stackkit customizer state", () => {
-  it("builds the supported golden-path recipe command by default", () => {
+  it("builds the golden-path preset exactly as the CLI resolves it, pinned to the CLI version", () => {
     const result = buildCustomizerState(createInitialCustomizerState());
 
     expect(result.ok).toBe(true);
@@ -17,84 +36,60 @@ describe("Stackkit customizer state", () => {
       return;
     }
 
-    expect(result.recipe.modules).toContain("web/nextjs");
-    expect(result.recipe.modules).toContain("api/fastapi");
-    expect(result.recipe.modules).toContain("db/sqlalchemy");
-    expect(result.recipe.modules).toContain("auth/auth0-nextjs");
-    expect(result.recipe.modules).toContain("auth/auth0-fastapi");
-    expect(result.recipe.modules).toContain("deploy/docker");
-    expect(result.recipe.modules).toContain("ui/shadcn");
-    expect(result.command).toContain("npx @berkayorhan/stackkit@0.3.0 create my-stack --recipe sk_");
+    expect(result.recipe.preset).toBe("next-fastapi-postgres-auth0");
+    expect(result.recipe.modules).toEqual(presetModuleIds("next-fastapi-postgres-auth0"));
+    expect(result.recipe.modules).toContain("quality/pytest");
+    expect(result.command).toBe(
+      `npx @berkayorhan/stackkit@${cliPackage.version} create my-stack --recipe ${result.recipeCode}`
+    );
     expect(result.decoded).toEqual(result.recipe);
-    expect(result.catalog.presets.map((preset) => preset.id)).toEqual(["next-fastapi-postgres-auth0"]);
-    expect(result.catalog.previewPresets).toEqual([]);
   });
 
-  it("requires preview opt-in and refuses planned choices", () => {
-    const preview = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      preset: "custom",
-      web: "vite",
-      api: "none",
-      database: "none",
-      dbProvider: "byo",
-      auth: "none",
-      deploy: []
-    });
-    expect(preview).toEqual(
-      expect.objectContaining({ ok: false, error: expect.stringContaining("Module web/vite is preview") })
+  it("offers every non-planned registry preset and derives its baseline from the preset modules", () => {
+    expect(customizerPresets(false).map((preset) => preset.id)).toEqual(["next-fastapi-postgres-auth0"]);
+
+    const previewPresets = customizerPresets(true);
+    expect(previewPresets.map((preset) => preset.id)).toEqual(
+      builtinPresets.filter((preset) => preset.support.level !== "planned").map((preset) => preset.id)
     );
 
-    const optedIn = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      preset: "custom",
-      includePreview: true,
-      web: "vite",
-      api: "none",
-      database: "none",
-      dbProvider: "byo",
-      auth: "none",
-      deploy: []
-    });
-    expect(optedIn.ok && optedIn.recipe.modules).toContain("web/vite");
-    expect(optedIn.ok && optedIn.catalog.previewCategories.web).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "web/vite" })])
-    );
+    for (const preset of previewPresets) {
+      const state = applyPresetBaseline({ ...createInitialCustomizerState(), includePreview: true }, preset.id);
+      const result = buildCustomizerState(state);
 
-    const planned = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      preset: "custom",
-      includePreview: true,
-      web: "django",
-      api: "none",
-      database: "none",
-      dbProvider: "byo",
-      auth: "none",
-      deploy: []
-    });
-    expect(planned).toEqual(
-      expect.objectContaining({ ok: false, error: expect.stringContaining("Module web/django is planned") })
+      expect(result.ok, preset.id).toBe(true);
+      expect(result.ok && result.recipe.modules, preset.id).toEqual(presetModuleIds(preset.id));
+    }
+
+    const clerk = applyPresetBaseline({ ...createInitialCustomizerState(), includePreview: true }, "next-postgres-clerk");
+    expect(clerk).toEqual(
+      expect.objectContaining({ web: "nextjs", ui: "shadcn", database: "postgres", auth: "clerk", deploy: ["vercel"] })
     );
   });
 
-  it("uses presets as editable baselines", () => {
-    const state = applyPresetBaseline(createInitialCustomizerState(), "next-fastapi-postgres-auth0");
-    const result = buildCustomizerState(state);
+  it("reads preview flags from registry support levels", () => {
+    expect(choiceSupportLevel("web", "nextjs")).toBe("supported");
+    expect(choiceSupportLevel("web", "vite")).toBe("preview");
+    expect(choiceSupportLevel("deploy", "kubernetes")).toBe("preview");
+    expect(choiceSupportLevel("tsQuality", "biome")).toBe("preview");
+  });
 
-    expect(state.web).toBe("nextjs");
-    expect(state.api).toBe("fastapi");
-    expect(state.database).toBe("postgres");
-    expect(state.auth).toBe("auth0");
-    expect(state.deploy).toEqual(["docker"]);
-    expect(result.ok && result.recipe.modules).toEqual(
-      expect.arrayContaining(["web/nextjs", "api/fastapi", "db/postgres", "auth/auth0-nextjs", "auth/auth0-fastapi"])
+  it("drops preview choices when preview mode is off", () => {
+    expect(normalizeCustomizerState(custom({ web: "vite", includePreview: false })).web).toBe("none");
+
+    const withPreviewTools = custom({ includePreview: true, tsQuality: "biome", pyTypecheck: "pyright" });
+    expect(normalizeCustomizerState(withPreviewTools)).toEqual(
+      expect.objectContaining({ tsQuality: "biome", pyTypecheck: "pyright" })
     );
+
+    const previewOff = applyPresetBaseline({ ...withPreviewTools, includePreview: false }, "next-fastapi-postgres-auth0");
+    expect(previewOff).toEqual(expect.objectContaining({ tsQuality: "eslint-prettier", pyTypecheck: "mypy" }));
+    expect(buildCustomizerState(previewOff).ok).toBe(true);
   });
 
   it("customizes after applying a preset without keeping preset modules locked", () => {
     const state = normalizeCustomizerState({
-      ...applyPresetBaseline(createInitialCustomizerState(), "next-postgres-clerk"),
-      includePreview: true,
+      ...applyPresetBaseline({ ...createInitialCustomizerState(), includePreview: true }, "next-postgres-clerk"),
       preset: "custom",
       ui: "none",
       auth: "none"
@@ -113,66 +108,29 @@ describe("Stackkit customizer state", () => {
     expect(result.recipe.modules).not.toContain("auth/clerk");
   });
 
-  it("includes web/vite when web is vite", () => {
-    const state = {
-      ...createInitialCustomizerState(),
-      includePreview: true,
-      web: "vite" as const,
-      preset: "custom"
-    };
-    const result = buildCustomizerState(state);
-    expect(result.ok && result.recipe.modules).toContain("web/vite");
-  });
+  it("maps web and UI choices to modules", () => {
+    const vite = buildCustomizerState(custom({ includePreview: true, web: "vite", api: "none", database: "none", auth: "none", deploy: [] }));
+    expect(vite.ok && vite.recipe.modules).toContain("web/vite");
 
-  it("drops ui/shadcn when ui is none", () => {
-    const state = {
-      ...createInitialCustomizerState(),
-      includePreview: true,
-      web: "vite" as const,
-      ui: "none" as const,
-      preset: "custom"
-    };
-    const result = buildCustomizerState(state);
-    expect(result.ok && result.recipe.modules).not.toContain("ui/shadcn");
-  });
+    const viteNoUi = buildCustomizerState(custom({ includePreview: true, web: "vite", ui: "none", api: "none", database: "none", auth: "none", deploy: [] }));
+    expect(viteNoUi.ok && viteNoUi.recipe.modules).not.toContain("ui/shadcn");
 
-  it("rejects ui tailwind because ui/tailwind is declaration-only", () => {
-    const state = {
-      ...createInitialCustomizerState(),
-      includePreview: true,
-      web: "tanstack" as const,
-      ui: "tailwind" as const,
-      preset: "custom"
-    };
-    const result = buildCustomizerState(state);
-    expect(result.ok).toBe(false);
-    expect(!result.ok && result.error).toMatch(/ui\/tailwind is planned/);
+    // ui/tailwind is declaration-only, so even preview mode drops it and says why.
+    const tailwindState = custom({ includePreview: true, web: "tanstack", ui: "none", api: "none", database: "none", auth: "none", deploy: [] });
+    const tailwind = buildCustomizerState({ ...tailwindState, ui: "tailwind" });
+    expect(tailwind.ok && tailwind.recipe.modules).not.toContain("ui/tailwind");
+    expect(choiceSupportLevel("ui", "tailwind")).toBe("planned");
+    expect(choiceError(tailwindState, { ui: "tailwind" })).toMatch(/ui\/tailwind is planned/);
   });
 
   it("expands Auth0 for every selected supported framework", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      api: "fastapi",
-      database: "postgres",
-      auth: "auth0"
-    });
+    const result = buildCustomizerState(custom({ api: "fastapi", database: "postgres", auth: "auth0" }));
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.recipe.modules).toContain("auth/auth0-nextjs");
-    expect(result.recipe.modules).toContain("auth/auth0-fastapi");
+    expect(result.ok && result.recipe.modules).toEqual(expect.arrayContaining(["auth/auth0-nextjs", "auth/auth0-fastapi"]));
   });
 
   it("includes Docker for an API-only FastAPI project", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      web: "none",
-      api: "fastapi",
-      deploy: ["docker"]
-    });
+    const result = buildCustomizerState(custom({ web: "none", api: "fastapi", deploy: ["docker"] }));
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -184,204 +142,93 @@ describe("Stackkit customizer state", () => {
     expect(result.recipe.modules).not.toContain("web/nextjs");
   });
 
-  it("clears deployment choices that do not match the selected app shape", () => {
-    expect(
-      normalizeCustomizerState({
-        ...createInitialCustomizerState(),
-        web: "none",
-        api: "fastapi",
-        deploy: ["vercel", "docker", "kubernetes"]
-      }).deploy
-    ).toEqual(["docker", "kubernetes"]);
-    expect(
-      normalizeCustomizerState({
-        ...createInitialCustomizerState(),
-        web: "django",
-        api: "none",
-        deploy: ["vercel", "docker", "kubernetes"]
-      }).deploy
-    ).toEqual(["vercel"]);
-  });
-
-  it("refuses planned Django projects even with preview enabled", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      includePreview: true,
-      web: "django",
-      api: "none",
-      database: "none",
-      auth: "none",
-      deploy: ["vercel"]
-    });
-
-    expect(result).toEqual(
-      expect.objectContaining({ ok: false, error: expect.stringContaining("Module web/django is planned") })
+  it("drops choices core rejects for the selected app shape", () => {
+    const apiOnly = normalizeCustomizerState(
+      custom({ includePreview: true, web: "none", api: "fastapi", auth: "clerk", deploy: ["vercel", "docker", "kubernetes"] })
     );
+    expect(apiOnly.deploy).toEqual(["docker", "kubernetes"]);
+    expect(apiOnly.auth).toBe("none");
+
+    const empty = normalizeCustomizerState(
+      custom({ includePreview: true, web: "none", api: "none", database: "postgres", dbProvider: "neon", dbRuntime: "edge" })
+    );
+    expect(empty).toEqual(expect.objectContaining({ database: "none", dbProvider: "byo", dbRuntime: "node" }));
   });
 
-  it("includes the selected Postgres provider and edge runtime option", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      includePreview: true,
-      api: "none",
-      database: "postgres",
-      dbProvider: "supabase",
-      dbRuntime: "edge"
-    });
+  it("explains disabled choices with the core error and keeps choices that other axes can absorb", () => {
+    const apiOnly = custom({ web: "none", api: "fastapi", auth: "none", database: "none", deploy: [] });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
+    expect(choiceError(apiOnly, { auth: "clerk" })).toEqual(expect.any(String));
+    expect(choiceError(apiOnly, { auth: "auth0" })).toBeUndefined();
+    expect(choiceError(createInitialCustomizerState(), { web: "none" })).toBeUndefined();
+  });
 
-    expect(result.recipe.modules).toContain("postgres/supabase");
-    expect(result.recipe.options).toEqual({ "db/drizzle": { runtime: "edge" } });
+  it("emits the edge runtime option only for Neon", () => {
+    const neon = buildCustomizerState(
+      custom({ includePreview: true, api: "none", auth: "none", database: "postgres", dbProvider: "neon", dbRuntime: "edge" })
+    );
+    expect(neon.ok && neon.recipe.options).toEqual({ "db/drizzle": { runtime: "edge" } });
+
+    const supabaseState = normalizeCustomizerState(
+      custom({ includePreview: true, api: "none", auth: "none", database: "postgres", dbProvider: "supabase", dbRuntime: "edge" })
+    );
+    expect(supabaseState.dbRuntime).toBe("node");
+
+    const supabase = buildCustomizerState(supabaseState);
+    expect(supabase.ok && supabase.recipe.modules).toContain("postgres/supabase");
+    expect(supabase.ok && supabase.recipe.options).toEqual({});
   });
 
   it("omits a provider module for the default BYO selection", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      database: "postgres",
-      dbProvider: "byo"
-    });
+    const result = buildCustomizerState(custom({ database: "postgres", dbProvider: "byo" }));
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.recipe.modules.filter((id) => id.startsWith("postgres/"))).toEqual([]);
+    expect(result.ok && result.recipe.modules.filter((id) => id.startsWith("postgres/"))).toEqual([]);
   });
 
-  it("defaults to ESLint, Prettier, and mypy tooling", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      api: "fastapi"
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.recipe.modules).toContain("quality/eslint");
-    expect(result.recipe.modules).toContain("quality/prettier");
-    expect(result.recipe.modules).toContain("quality/mypy");
-    expect(result.recipe.modules).not.toContain("quality/biome");
-    expect(result.recipe.modules).not.toContain("quality/pyright");
-  });
-
-  it("swaps to Biome when tsQuality is biome", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      includePreview: true,
-      tsQuality: "biome"
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.recipe.modules).toContain("quality/biome");
-    expect(result.recipe.modules).not.toContain("quality/eslint");
-    expect(result.recipe.modules).not.toContain("quality/prettier");
-  });
-
-  it("swaps to Pyright when pyTypecheck is pyright with a Python API", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      includePreview: true,
-      api: "fastapi",
-      pyTypecheck: "pyright"
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.recipe.modules).toContain("quality/pyright");
-    expect(result.recipe.modules).not.toContain("quality/mypy");
-  });
-
-  it("ignores Python type checker choices when no Python app is selected", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      api: "none",
-      database: "none",
-      auth: "none",
-      deploy: [],
-      pyTypecheck: "pyright"
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.recipe.modules).not.toContain("quality/pyright");
-    expect(result.recipe.modules).not.toContain("quality/mypy");
-    expect(result.recipe.modules).not.toContain("quality/clippy");
-  });
-
-  it("ignores TypeScript quality choices when no TypeScript app is selected", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      web: "none",
-      api: "fastapi",
-      tsQuality: "biome"
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.recipe.modules).not.toContain("quality/biome");
-    expect(result.recipe.modules).not.toContain("quality/eslint");
-    expect(result.recipe.modules).toContain("quality/ruff");
-  });
-
-  it("normalizes unsupported auth and database choices", () => {
-    const unsupportedAuth = normalizeCustomizerState({
-      ...createInitialCustomizerState(),
-      web: "none",
-      api: "fastapi",
-      auth: "clerk"
-    });
-    const unsupportedDatabase = normalizeCustomizerState({
-      ...createInitialCustomizerState(),
-      web: "none",
-      api: "none",
-      database: "postgres",
-      dbProvider: "neon",
-      dbRuntime: "edge"
-    });
-
-    expect(unsupportedAuth.auth).toBe("none");
-    expect(unsupportedDatabase.database).toBe("none");
-    expect(unsupportedDatabase.dbProvider).toBe("byo");
-    expect(unsupportedDatabase.dbRuntime).toBe("node");
-  });
-
-  it("generates a shell-safe command with custom project and package manager", () => {
-    const result = buildCustomizerState({
-      ...createInitialCustomizerState(),
-      projectName: "client portal",
-      packageManager: "bun",
-      includePreview: true
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(toCreateCommand("client portal", result.recipeCode, true)).toBe(
-      `npx @berkayorhan/stackkit@0.3.0 create "client portal" --recipe ${result.recipeCode} --include-preview`
+  it("swaps quality tools and ignores them when their language is absent", () => {
+    const defaults = buildCustomizerState(custom({ api: "fastapi" }));
+    expect(defaults.ok && defaults.recipe.modules).toEqual(
+      expect.arrayContaining(["quality/eslint", "quality/prettier", "quality/mypy"])
     );
-    expect(result.command).toBe(toCreateCommand("client portal", result.recipeCode, true));
+
+    const biome = buildCustomizerState(custom({ includePreview: true, tsQuality: "biome" }));
+    expect(biome.ok && biome.recipe.modules).toContain("quality/biome");
+    expect(biome.ok && biome.recipe.modules).not.toContain("quality/eslint");
+
+    const pyright = buildCustomizerState(custom({ includePreview: true, api: "fastapi", pyTypecheck: "pyright" }));
+    expect(pyright.ok && pyright.recipe.modules).toContain("quality/pyright");
+    expect(pyright.ok && pyright.recipe.modules).not.toContain("quality/mypy");
+
+    const noPython = buildCustomizerState(
+      custom({ includePreview: true, api: "none", database: "none", auth: "none", deploy: [], pyTypecheck: "pyright" })
+    );
+    expect(noPython.ok && noPython.recipe.modules).not.toContain("quality/pyright");
+
+    const noTypeScript = buildCustomizerState(custom({ includePreview: true, web: "none", api: "fastapi", tsQuality: "biome" }));
+    expect(noTypeScript.ok && noTypeScript.recipe.modules).not.toContain("quality/biome");
+    expect(noTypeScript.ok && noTypeScript.recipe.modules).toContain("quality/ruff");
+  });
+
+  it("rejects project names the CLI would reject instead of quoting them", () => {
+    expect(projectNameError("client-portal")).toBeUndefined();
+    expect(projectNameError("my $(whoami) app")).toContain("Invalid project name");
+
+    const result = buildCustomizerState({ ...createInitialCustomizerState(), projectName: "client portal" });
+    expect(result).toEqual(expect.objectContaining({ ok: false, error: expect.stringContaining("Invalid project name") }));
+  });
+
+  it("adds --include-preview and the selected package manager for preview stacks", () => {
+    const result = buildCustomizerState({ ...createInitialCustomizerState(), projectName: "client-portal", packageManager: "bun", includePreview: true });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.command).toBe(
+      `npx @berkayorhan/stackkit@${cliPackage.version} create client-portal --recipe ${result.recipeCode} --include-preview`
+    );
     expect(result.recipe.packageManager).toBe("bun");
+    expect(normalizeCustomizerState({ ...createInitialCustomizerState(), packageManager: "bun" }).packageManager).toBe("pnpm");
   });
 });

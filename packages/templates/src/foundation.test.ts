@@ -82,7 +82,8 @@ describe("renderPnpmTurboFoundation", () => {
     expect(byPath.get(".gitignore")?.content).toContain("next-env.d.ts\n");
     expect(JSON.parse(byPath.get("turbo.json")?.content ?? "{}")).not.toHaveProperty("globalPassThroughEnv");
     expect(byPath.get(".stackkit/doctor.cjs")?.content).toContain("STACKKIT_DOCTOR_BIN");
-    expect(byPath.get(".stackkit/doctor.cjs")?.content).toContain("@berkayorhan/stackkit@0.3.0");
+    expect(byPath.get(".stackkit/doctor.cjs")?.content).toContain('require("./project.json").stackkitVersion');
+    expect(byPath.get(".stackkit/doctor.cjs")?.content).not.toMatch(/stackkit@\d/);
   });
 
   it("passes declared env vars through Turborepo's strict env mode", () => {

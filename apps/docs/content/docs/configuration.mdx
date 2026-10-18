@@ -72,8 +72,8 @@ Describes how the project was created. The object is discriminated by a `kind` f
 
 | `kind` | When used |
 | --- | --- |
-| `"config"` | Default — project was generated from a `stackkit.config.json` file. |
-| `"scripted"` | Project was created via a programmatic API. |
+| `"config"` | Project was created with `stackkit create --config <file>`. |
+| `"scripted"` | Project was created from `--preset` or stack-axis flags (for example `--web next`), including a bare `stackkit create <name>`. |
 | `"recipe"` | Project was created from a shareable recipe code. |
 | `"interactive"` | Project was scaffolded through the interactive CLI prompts. |
 
@@ -254,6 +254,8 @@ Array of module IDs to include. Stackkit installs and generates each listed modu
 ### `registries`
 
 A map of registry namespace to a local JSON registry file. Defaults to `{}`. Remote `http` and `https` registries are rejected in the current alpha.
+
+Local registries are listing-only for now: `stackkit registry list --config <file>` shows them, but `create`, `add`, and `config validate` resolve modules and presets from the built-in registry only. A preset or module ID from a local registry fails with `Unknown Stackkit preset` or `Unknown Stackkit module`.
 
 ### `options`
 

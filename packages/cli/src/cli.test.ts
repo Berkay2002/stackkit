@@ -25,8 +25,8 @@ afterEach(async () => {
 
 describe("createStackkitProgram", () => {
   it("reports the package version", () => {
-    expect(stackkitVersion).toBe("0.3.0");
-    expect(createStackkitProgram().version()).toBe("0.3.0");
+    expect(stackkitVersion).toMatch(/^\d+\.\d+\.\d+/);
+    expect(createStackkitProgram().version()).toBe(stackkitVersion);
   });
 
   it("exposes the full Stackkit lifecycle command surface", () => {

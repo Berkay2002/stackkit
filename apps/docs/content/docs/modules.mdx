@@ -108,4 +108,4 @@ Reference a local file from `stackkit.config.json`:
 }
 ```
 
-Use `stackkit registry list --config stackkit.config.json` to inspect the declarations. Remote registry fetching is not supported yet.
+Use `stackkit registry list --config stackkit.config.json` to inspect the declarations. Local registries are listing-only in this alpha: `create`, `add`, and `config validate` do not resolve their modules or presets yet. Remote registry fetching is not supported.

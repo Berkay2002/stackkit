@@ -46,7 +46,7 @@ describe('docs content', () => {
     const status = readFileSync(join(docsDir, 'status.mdx'), 'utf8');
 
     expect(gettingStarted).toContain(
-      'npx @berkayorhan/stackkit@0.3.0 create my-app --preset next-fastapi-postgres-auth0 --db-provider postgres-local'
+      'create my-app --preset next-fastapi-postgres-auth0 --db-provider postgres-local'
     );
     expect(gettingStarted).toContain('--include-preview');
     expect(modules).toContain('supported | Safe default');

@@ -14,8 +14,7 @@
     "quality/ruff",
     "quality/mypy",
     "deploy/docker",
-    "deploy/kubernetes",
-    "docs/local-dev"
+    "deploy/kubernetes"
   ],
   "ai": {
     "skillTargets": ["codex", "claude-code"]

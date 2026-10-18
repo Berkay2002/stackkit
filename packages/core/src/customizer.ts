@@ -16,6 +16,7 @@ export {
   resolveModuleAlias,
   resolveModuleGraph,
   resolveStackAxes,
+  validateProjectSlug,
   type StackAxes,
   type ResolveModuleGraphOptions
 } from "./module-graph.js";

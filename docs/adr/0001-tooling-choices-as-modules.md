@@ -27,3 +27,16 @@ it replaces, and adding a tool means adding a module rather than an enum value.
 - The hardcoded tooling output in `renderPnpmTurboFoundation` / `renderNextjsApp` /
   `renderFastApiService` must become derived from the selected Quality Modules so it stays
   diff-reproducible.
+
+## Update (0.3.0)
+
+- The provenance gap described above is partly closed: the manifest now stores a snapshot of each
+  selected module and the full `expectedFiles` content, so `diff` no longer depends on
+  `manifestModuleToStackkitModule` rebuilding a bare module.
+- The hardcoded-tooling consequence is done: Quality Modules own their config files in generated
+  manifests (`quality/eslint` owns `eslint.config.mjs`, `quality/ruff` owns `ruff.toml`, and so on).
+- Per-module `options` are still written as `{}` in manifest `modules[]`, and
+  `buildExpectedManagedFilePlan` rebuilds the config without `options`. `db/drizzle`'s `runtime`
+  option uses exactly that path, so it does not round-trip through managed-update reproduction.
+  Tooling selection therefore stays modeled as modules; whether options-based selection becomes
+  acceptable depends on persisting `config.options` in the manifest first.

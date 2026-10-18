@@ -28,7 +28,8 @@ _Avoid_: tool category, tool group
 **Quality Module**:
 A Module that fills one or more Tooling Slots by owning its real config file(s) and the package
 scripts that run it (e.g. `quality/eslint` owns `eslint.config.mjs` and the `lint` script).
-Today these are metadata-only; the design makes them own their generated output.
+Generated projects record these modules as the owners of their config files in
+`.stackkit/project.json` (for example `eslint.config.mjs`, `ruff.toml`, `mypy.ini`).
 _Avoid_: linter module, dev-tool module
 
 **Combined Tool**:

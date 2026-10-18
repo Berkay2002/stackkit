@@ -37,6 +37,8 @@ async function runDoctorScript(env: NodeJS.ProcessEnv): Promise<{ status: number
   tempDirectories.push(directory);
   const script = renderPnpmTurboFoundation({ projectName: "acme-app" }).find((file) => file.path === ".stackkit/doctor.cjs");
   await writeFile(join(directory, "doctor.cjs"), script?.content ?? "", "utf8");
+  // The script runs the Stackkit version recorded in the sibling manifest.
+  await writeFile(join(directory, "project.json"), JSON.stringify({ stackkitVersion: "0.3.0" }), "utf8");
   const result = spawnSync(process.execPath, [join(directory, "doctor.cjs")], { env, encoding: "utf8" });
 
   return { status: result.status, stderr: result.stderr };
