@@ -72,6 +72,8 @@ export { composeReadme } from "./readme.js";
 
 export type {
   AiSkillInstallCommand,
+  ApplySkillLockOptions,
+  ApplySkillLockResult,
   InstallAiSkillsOptions,
   InstallAiSkillsResult,
   ResolveAiSkillOptions,
@@ -87,6 +89,7 @@ export {
   applySkillSync,
   planSkillUpdateCommands,
   applySkillUpdate,
+  isRetriableUnresolvedSkill,
   mergeSkillDependencies,
   writeLocalAiGuidance
 } from "./skills.js";

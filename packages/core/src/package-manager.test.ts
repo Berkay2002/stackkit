@@ -1,4 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
 
 import { getPackageManagerAdapter, resolveSpawnCommand } from "./index.js";
 
@@ -65,24 +71,59 @@ describe("resolveSpawnCommand", () => {
     });
   });
 
-  it("routes Windows commands through cmd.exe without shell mode", () => {
-    expect(resolveSpawnCommand("pnpm", ["test", "--", "unit"], { platform: "win32", comspec: "cmd.exe" })).toEqual({
-      command: "cmd.exe",
-      args: ["/d", "/s", "/c", '"pnpm ^"test^" ^"--^" ^"unit^""'],
-      windowsVerbatimArguments: true
-    });
+  const tempDirectories: string[] = [];
+  afterEach(async () => {
+    await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
   });
 
-  it("escapes Windows shell metacharacters in arguments", () => {
-    const invocation = resolveSpawnCommand("node", ['quote"here', "x&y", "path with spaces"], {
-      platform: "win32",
-      comspec: "cmd.exe"
-    });
+  async function pathWith(file: string): Promise<{ directory: string; env: NodeJS.ProcessEnv }> {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-spawn-"));
+    tempDirectories.push(directory);
+    await writeFile(join(directory, file), "", "utf8");
+    return { directory, env: { PATH: directory, PATHEXT: ".EXE;.CMD" } };
+  }
 
-    expect(invocation).toEqual({
+  it("routes Windows executables through cmd.exe with a single escaping pass", async () => {
+    const { env } = await pathWith("node.exe");
+
+    expect(resolveSpawnCommand("node", ["test", "--", "unit"], { platform: "win32", comspec: "cmd.exe", env })).toEqual({
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", '"node ^"test^" ^"--^" ^"unit^""'],
+      windowsVerbatimArguments: true
+    });
+    expect(resolveSpawnCommand("node", ['quote"here', "x&y", "path with spaces"], { platform: "win32", comspec: "cmd.exe", env })).toEqual({
       command: "cmd.exe",
       args: ["/d", "/s", "/c", '"node ^"quote\\^"here^" ^"x^&y^" ^"path^ with^ spaces^""'],
       windowsVerbatimArguments: true
     });
+  });
+
+  it("double-escapes arguments for .cmd shims such as npx.cmd", async () => {
+    const { env } = await pathWith("npx.cmd");
+
+    expect(resolveSpawnCommand("npx", ["x&y"], { platform: "win32", comspec: "cmd.exe", env }).args).toEqual([
+      "/d", "/s", "/c", '"npx ^^^"x^^^&y^^^""'
+    ]);
+  });
+
+  it.runIf(process.platform === "win32")("passes shell metacharacters through a real .cmd shim verbatim", async () => {
+    const { directory } = await pathWith("echoargs.js");
+    await writeFile(
+      join(directory, "echoargs.js"),
+      "require('fs').writeFileSync(require('path').join(__dirname, 'argv.json'), JSON.stringify(process.argv.slice(2)));\n",
+      "utf8"
+    );
+    await writeFile(join(directory, "echoargs.cmd"), '@node "%~dp0echoargs.js" %*\r\n', "utf8");
+    const payload = ['ok" & echo PWNED> pwned.txt & "', "a|b", "100%", "x^y", "plain"];
+    const invocation = resolveSpawnCommand(join(directory, "echoargs"), payload, { cwd: directory });
+
+    spawnSync(invocation.command, invocation.args, {
+      cwd: directory,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+      windowsHide: true
+    });
+
+    expect(existsSync(join(directory, "pwned.txt"))).toBe(false);
+    expect(JSON.parse(await readFile(join(directory, "argv.json"), "utf8"))).toEqual(payload);
   });
 });

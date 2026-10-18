@@ -32,9 +32,14 @@ export const aiSkillTargetSchema = z.object({
   enabled: z.boolean()
 });
 
+// Skill names become CLI arguments and directory names, so keep them to a shell- and path-safe set.
+export const aiSkillNameSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "Use a skill name made of letters, digits, '.', '_' or '-'");
+
 export const aiSkillDependencySchema = z.object({
   source: z.string().url().optional(),
-  skills: z.array(z.string().min(1)).min(1),
+  skills: z.array(aiSkillNameSchema).min(1),
   trust: aiSkillTrustSchema,
   causedBy: moduleIdSchema,
   reason: z.string().min(1),

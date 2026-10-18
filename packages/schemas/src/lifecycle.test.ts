@@ -93,6 +93,20 @@ describe("skillsLockSchema", () => {
       unresolved: [{ ...skill, trust: "unresolved" }]
     });
   });
+
+  it("rejects skill names that could inject shell syntax or escape the skills directory", () => {
+    for (const name of ['ok" & echo PWNED & "', "../../outside", "a/b", ".hidden", ""]) {
+      expect(() =>
+        skillsLockSchema.parse({
+          schemaVersion: 1,
+          targets: [],
+          installed: [{ skills: [name], trust: "official", causedBy: "web", reason: "r" }],
+          local: [],
+          unresolved: []
+        })
+      ).toThrow();
+    }
+  });
 });
 
 describe("stackkitManifestSchema", () => {

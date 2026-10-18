@@ -8,7 +8,7 @@ import {
   type StackkitManifest
 } from "@berkayorhan/stackkit-schemas";
 
-import { readExistingFile } from "./fs-utils.js";
+import { readExistingFile, resolveContainedProjectPath } from "./fs-utils.js";
 
 export function createManifest(input: StackkitManifest): StackkitManifest {
   return stackkitManifestSchema.parse(input);
@@ -19,7 +19,7 @@ export async function writeManifest(projectDirectory: string, manifest: Stackkit
   const stackkitDirectory = join(projectDirectory, ".stackkit");
 
   await mkdir(stackkitDirectory, { recursive: true });
-  await writeFile(join(stackkitDirectory, "project.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  await writeFile(await resolveContainedProjectPath(projectDirectory, ".stackkit/project.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 
   return parsed;
 }
@@ -38,7 +38,7 @@ export async function readManifest(projectDirectory: string): Promise<StackkitMa
 export async function writeSkillsLock(projectDirectory: string, lock: SkillsLock): Promise<SkillsLock> {
   const parsed = skillsLockSchema.parse(lock);
 
-  await writeFile(join(projectDirectory, "skills-lock.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  await writeFile(await resolveContainedProjectPath(projectDirectory, "skills-lock.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 
   return parsed;
 }

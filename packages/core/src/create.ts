@@ -1,5 +1,6 @@
 import { mkdir, open, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   renderBiomeConfig,
@@ -46,7 +47,8 @@ import {
   isNodeError,
   normalizeProjectPath,
   normalizeTargetDirectoryName,
-  readExistingFile
+  readExistingFile,
+  resolveProjectCwd
 } from "./fs-utils.js";
 import { getPackageManagerAdapter, type PackageManagerAdapter, type RunCommand } from "./package-manager.js";
 import { composeReadme } from "./readme.js";
@@ -509,13 +511,15 @@ export async function applyCreatePlan(
 
     for (const [initializerIndex, initializer] of plan.nativeInitializers.entries()) {
       const stepId = `native:${initializerIndex}:${initializer.moduleId}:${initializer.name}`;
-      await runCheckpointedInitializerStep(state, stepId, projectDirectory, options.now, options.retryInitializers ?? false, async () => {
-        const initializerResult = await runNativeInitializers([initializer], {
+      await runCheckpointedInitializerStep(state, stepId, projectDirectory, options.now, options.retryInitializers ?? false, async (progress) => {
+        const initializerResult = await runNativeInitializer(initializer, {
           projectDirectory,
           runCommand: options.runCommand!,
-          allowExternalState: options.allowExternalState ?? false
+          allowExternalState: options.allowExternalState ?? false,
+          progress,
+          persistProgress: () => writeCreateApplyState(projectDirectory, state, options.now)
         });
-        state.files = await refreshManagedFileHashes(projectDirectory, state.files);
+        state.files = refreshChangedFileHashes(state.files, initializerResult.changed);
         state.files = mergeManifestFiles(state.files, initializerResult.files);
         state.skippedInitializers = mergeSkippedInitializers(state.skippedInitializers, initializerResult.skipped);
       });
@@ -544,7 +548,7 @@ export async function applyCreatePlan(
 
   await runCreateApplyPhase(state, "manifest", projectDirectory, options.now, async () => {
     const skillInstallResult = state.skillInstallResult ?? emptySkillInstallResult(plan);
-    const expectedFiles = await readManagedExpectedFiles(projectDirectory, state.files, plan.nativeInitializers);
+    const expectedFiles = await readManagedExpectedFiles(projectDirectory, state.files, plan.filePlan, plan.nativeInitializers);
     state.manifest = await writeManifest(projectDirectory, {
       schemaVersion: 1,
       stackkitVersion: options.stackkitVersion ?? "0.0.0",
@@ -579,7 +583,7 @@ export async function applyCreatePlan(
   });
 
   await runCreateApplyPhase(state, "verification", projectDirectory, options.now, async () => {
-    state.doctor = await runDoctor(projectDirectory, { runCommand: options.runCommand });
+    state.doctor = await runDoctor(projectDirectory, { runCommand: options.runCommand, modules: plan.selectedModules });
   });
 
   if (!state.manifest || !state.doctor) {
@@ -590,12 +594,27 @@ export async function applyCreatePlan(
 }
 
 export async function resumeCreatePlan(options: ResumeCreatePlanOptions): Promise<ApplyCreatePlanResult> {
+  const { availableModules, ...applyOptions } = options;
   const state = await readCreateApplyState(options.projectDirectory);
   const selectedModules = state.selectedModules.map((module) => stackkitModuleSchema.parse(module));
+  const trustedModules = new Map(availableModules.map((module) => [module.id, module]));
+  const untrusted = selectedModules.filter((module) => {
+    const trusted = trustedModules.get(module.id);
+    return !trusted || !isDeepStrictEqual(snapshotStackkitModule(trusted), module);
+  });
+
+  // The journal is project data: its hooks and validations only run when they match the installed registry.
+  if (untrusted.length > 0) {
+    throw new Error(
+      `Cannot resume create: journal modules do not match the installed Stackkit registry: ${untrusted.map((module) => module.id).join(", ")}. ` +
+      "Resume with the Stackkit version that started this create, or start over in an empty directory."
+    );
+  }
+
   const plan = attachSelectedModules(state.plan, selectedModules);
 
   return await applyCreatePlan(plan, {
-    ...options,
+    ...applyOptions,
     parentDirectory: options.projectDirectory,
     targetDirectory: options.projectDirectory,
     resume: true
@@ -614,7 +633,7 @@ export async function readCreateApplyState(projectDirectory: string): Promise<Cr
   if (state.schemaVersion !== 1 || state.operation !== "create" || !state.plan || !state.planHash) {
     throw new Error(`Cannot resume create: ${path} is not a valid create journal.`);
   }
-  if (state.projectDirectory !== projectDirectory) {
+  if (!isSameDirectory(state.projectDirectory, projectDirectory)) {
     throw new Error(`Cannot resume create: journal target is ${state.projectDirectory}, not ${projectDirectory}.`);
   }
   state.selectedModules = state.selectedModules.map((module) => stackkitModuleSchema.parse(module));
@@ -623,6 +642,11 @@ export async function readCreateApplyState(projectDirectory: string): Promise<Cr
     throw new Error("Cannot resume create: journal plan hash is invalid.");
   }
   return state;
+}
+
+function isSameDirectory(left: string, right: string): boolean {
+  const normalize = (path: string) => (process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path));
+  return normalize(left) === normalize(right);
 }
 
 function createInitialApplyState(plan: CreatePlan, projectDirectory: string, now: () => Date): CreateApplyState {
@@ -655,7 +679,7 @@ async function runCheckpointedInitializerStep(
   projectDirectory: string,
   now: (() => Date) | undefined,
   retryInitializers: boolean,
-  run: () => Promise<void>
+  run: (progress: InitializerProgress) => Promise<void>
 ): Promise<void> {
   const existing = state.initializerProgress[stepId];
   if (existing?.status === "completed") {
@@ -668,18 +692,19 @@ async function runCheckpointedInitializerStep(
     );
   }
 
-  state.initializerProgress[stepId] = { status: "running" };
+  const progress: InitializerProgress = { status: "running", before: existing?.before };
+  state.initializerProgress[stepId] = progress;
   await writeCreateApplyState(projectDirectory, state, now);
 
   try {
-    await run();
+    await run(progress);
     state.initializerProgress[stepId] = {
       status: "completed",
       completedAt: (now ?? (() => new Date()))().toISOString()
     };
     await writeCreateApplyState(projectDirectory, state, now);
   } catch (error) {
-    state.initializerProgress[stepId] = { status: "failed", error: errorMessage(error) };
+    state.initializerProgress[stepId] = { status: "failed", error: errorMessage(error), before: progress.before };
     await writeCreateApplyState(projectDirectory, state, now);
     throw error;
   }
@@ -762,17 +787,25 @@ function errorMessage(error: unknown): string {
 async function readManagedExpectedFiles(
   projectDirectory: string,
   files: readonly ManifestFileRecord[],
+  filePlan: FilePlan,
   nativeInitializers: readonly PlannedNativeInitializer[] = []
 ): Promise<ManifestExpectedFile[]> {
   const expectedFiles: ManifestExpectedFile[] = [];
   const redactedPatterns = nativeInitializers.flatMap((initializer) => initializer.redactExpectedFiles);
+  const plannedByPath = new Map(filePlan.files.map((file) => [file.path, file]));
 
   for (const file of files) {
     if (redactedPatterns.some((pattern) => matchGlob(file.path, pattern))) {
       continue;
     }
 
-    const content = await readExistingFile(join(projectDirectory, file.path));
+    // Record what Stackkit produced, not later edits: disk content only when it still matches the
+    // recorded hash (e.g. a user edit made before --resume), otherwise the planned content.
+    const onDisk = await readExistingFile(join(projectDirectory, file.path));
+    const planned = plannedByPath.get(file.path);
+    const content = onDisk !== undefined && hashContent(onDisk) === file.hash
+      ? onDisk
+      : planned?.hash === file.hash ? planned.content : undefined;
 
     if (content === undefined) {
       continue;
@@ -789,26 +822,19 @@ async function readManagedExpectedFiles(
   return expectedFiles;
 }
 
-async function refreshManagedFileHashes(
-  projectDirectory: string,
-  files: readonly ManifestFileRecord[]
-): Promise<ManifestFileRecord[]> {
-  const refreshed: ManifestFileRecord[] = [];
-
-  for (const file of files) {
-    const content = await readExistingFile(join(projectDirectory, file.path));
-
-    if (content === undefined) {
-      continue;
+/** Apply an initializer's own changes to managed records (undefined hash = deleted); other drift stays drift. */
+function refreshChangedFileHashes(
+  files: readonly ManifestFileRecord[],
+  changed: ReadonlyMap<string, string | undefined>
+): ManifestFileRecord[] {
+  return files.flatMap((file) => {
+    if (!changed.has(file.path)) {
+      return [file];
     }
 
-    refreshed.push({
-      ...file,
-      hash: hashContent(content)
-    });
-  }
-
-  return refreshed;
+    const hash = changed.get(file.path);
+    return hash === undefined ? [] : [{ ...file, hash }];
+  });
 }
 
 type PlanNativeInitializersInput = {
@@ -849,17 +875,24 @@ export type CreateApplyState = {
   >;
   files: ManifestFileRecord[];
   skippedInitializers: SkippedInitializer[];
-  initializerProgress: Record<
-    string,
-    { status: "running" | "completed" | "failed"; completedAt?: string; error?: string }
-  >;
+  initializerProgress: Record<string, InitializerProgress>;
   skillInstallResult?: ResolveSkillInstallResult;
   manifest?: StackkitManifest;
   doctor?: import("@berkayorhan/stackkit-schemas").DoctorResult;
 };
 
+type InitializerProgress = {
+  status: "running" | "completed" | "failed";
+  completedAt?: string;
+  error?: string;
+  /** Project file hashes captured before the first attempt, so a retry still claims partial output. */
+  before?: Record<string, string>;
+};
+
 export type ResumeCreatePlanOptions = Omit<ApplyCreatePlanOptions, "parentDirectory" | "targetDirectory" | "resume"> & {
   projectDirectory: string;
+  /** Trusted module definitions (the installed registry) the journal's modules must match. */
+  availableModules: readonly StackkitModule[];
 };
 
 function planNativeInitializers(input: PlanNativeInitializersInput): PlannedNativeInitializer[] {
@@ -1086,55 +1119,69 @@ async function captureProjectFileSnapshot(projectDirectory: string): Promise<Map
 }
 
 /**
- * Run each native initializer and record the files it actually creates. We diff the working
- * tree before and after each run and take ownership of every newly created file (minus any the
- * initializer explicitly redacts). Modifications to already-managed files are handled separately
- * by refreshing their hashes, so this only claims genuinely new paths.
+ * Run one native initializer and record what it actually did. The working tree is diffed before and
+ * after the run: new paths (minus redactions) are claimed, and `changed` lists every path whose
+ * content the run itself changed. New paths are measured against the snapshot taken before the
+ * first attempt, so a retry still claims output a failed attempt left behind.
  */
-async function runNativeInitializers(
-  initializers: readonly PlannedNativeInitializer[],
+async function runNativeInitializer(
+  initializer: PlannedNativeInitializer,
   options: {
     projectDirectory: string;
     runCommand: RunCommand;
     allowExternalState: boolean;
+    progress: InitializerProgress;
+    persistProgress: () => Promise<void>;
   }
-): Promise<{ files: ManifestFileRecord[]; skipped: SkippedInitializer[] }> {
-  const files: ManifestFileRecord[] = [];
-  const skipped: SkippedInitializer[] = [];
-
-  for (const initializer of initializers) {
-    const gating = nativeInitializerGating(initializer.mutationPolicy, options.allowExternalState);
-    if (initializer.gated || gating.gated) {
-      skipped.push({
+): Promise<{ files: ManifestFileRecord[]; changed: Map<string, string | undefined>; skipped: SkippedInitializer[] }> {
+  const gating = nativeInitializerGating(initializer.mutationPolicy, options.allowExternalState);
+  if (initializer.gated || gating.gated) {
+    return {
+      files: [],
+      changed: new Map(),
+      skipped: [{
         name: initializer.name,
         moduleId: initializer.moduleId,
         mutationPolicy: initializer.mutationPolicy,
         reason: initializer.skipReason ?? gating.reason ?? "Skipped"
-      });
-      continue;
+      }]
+    };
+  }
+
+  const before = await captureProjectFileSnapshot(options.projectDirectory);
+  if (!options.progress.before) {
+    options.progress.before = Object.fromEntries(before);
+    await options.persistProgress();
+  }
+  const firstAttemptBefore = new Map(Object.entries(options.progress.before));
+
+  const cwd = resolveProjectCwd(options.projectDirectory, initializer.cwd);
+  const result = await options.runCommand(initializer.command, initializer.args, { cwd });
+
+  if (result.exitCode !== 0) {
+    throw new Error(`Native initializer failed: ${initializer.name}`);
+  }
+
+  const after = await captureProjectFileSnapshot(options.projectDirectory);
+  const redacted = expandExpectedFiles(initializer.redactExpectedFiles, after.keys());
+  const files: ManifestFileRecord[] = [];
+  const changed = new Map<string, string | undefined>();
+
+  for (const [path, hash] of after) {
+    if (before.get(path) !== hash) {
+      changed.set(path, hash);
     }
-
-    const before = await captureProjectFileSnapshot(options.projectDirectory);
-    const cwd = join(options.projectDirectory, initializer.cwd);
-    const result = await options.runCommand(initializer.command, initializer.args, { cwd });
-
-    if (result.exitCode !== 0) {
-      throw new Error(`Native initializer failed: ${initializer.name}`);
-    }
-
-    const after = await captureProjectFileSnapshot(options.projectDirectory);
-    const redacted = expandExpectedFiles(initializer.redactExpectedFiles, after.keys());
-
-    for (const [path, hash] of after) {
-      if (before.has(path) || redacted.includes(path)) {
-        continue;
-      }
-
+    if (!firstAttemptBefore.has(path) && !redacted.includes(path)) {
       files.push({ path, owner: initializer.moduleId, hash });
     }
   }
+  for (const path of before.keys()) {
+    if (!after.has(path)) {
+      changed.set(path, undefined);
+    }
+  }
 
-  return { files, skipped };
+  return { files, changed, skipped: [] };
 }
 
 async function assertCreateTargetIsSafe(projectDirectory: string): Promise<void> {
@@ -1150,7 +1197,11 @@ async function assertCreateTargetIsSafe(projectDirectory: string): Promise<void>
     const entries = await readdir(projectDirectory);
 
     if (entries.length > 0) {
-      throw new Error(`Refusing to create in non-empty directory: ${projectDirectory}`);
+      const hasJournal = (await readExistingFile(join(projectDirectory, ".stackkit", "apply-state.json"))) !== undefined;
+      throw new Error(
+        `Refusing to create in non-empty directory: ${projectDirectory}` +
+        (hasJournal ? `. It holds an interrupted create; continue it with stackkit create --resume --dir ${projectDirectory}` : "")
+      );
     }
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {

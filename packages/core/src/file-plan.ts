@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 
 import { type FileOperation } from "@berkayorhan/stackkit-schemas";
 
-import { hashContent, normalizeProjectPath, readExistingFile } from "./fs-utils.js";
+import { hashContent, normalizeProjectPath, readExistingFile, resolveContainedProjectPath } from "./fs-utils.js";
 
 export type FileOverwritePolicy = "never" | "if-owned" | "always";
 
@@ -126,9 +126,11 @@ export async function applyFilePlan(
 export async function applyFilePlanUnchecked(projectDirectory: string, plan: FilePlan): Promise<ManifestFileRecord[]> {
   const records: ManifestFileRecord[] = [];
 
+  await mkdir(projectDirectory, { recursive: true });
+
   for (const rawFile of plan.files) {
     const file = normalizePlannedFile(rawFile);
-    const targetPath = join(projectDirectory, file.path);
+    const targetPath = await resolveContainedProjectPath(projectDirectory, file.path);
 
     await mkdir(dirname(targetPath), { recursive: true });
     await writeFile(targetPath, file.content, "utf8");

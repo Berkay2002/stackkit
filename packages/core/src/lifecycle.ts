@@ -11,7 +11,7 @@ import {
   type StackkitModule
 } from "@berkayorhan/stackkit-schemas";
 
-import { hashContent, joinProjectDirectory, normalizeProjectPath, readExistingFile } from "./fs-utils.js";
+import { hashContent, normalizeProjectPath, readExistingFile, resolveContainedProjectPath, resolveProjectCwd } from "./fs-utils.js";
 import { type RunCommand } from "./package-manager.js";
 import {
   applyFilePlan,
@@ -316,11 +316,11 @@ export async function applyRemoveModules(input: ApplyRemoveModulesInput): Promis
   }
 
   for (const file of plan.filesToRemove) {
-    await rm(join(input.projectDirectory, normalizeProjectPath(file.path)), { force: true });
+    await rm(await resolveContainedProjectPath(input.projectDirectory, file.path), { force: true });
   }
 
   for (const file of sharedDeletes) {
-    await rm(join(input.projectDirectory, normalizeProjectPath(file.path)), { force: true });
+    await rm(await resolveContainedProjectPath(input.projectDirectory, file.path), { force: true });
   }
 
   const rewrittenFiles = await applyFilePlan(input.projectDirectory, { files: regeneratedFiles }, {
@@ -474,7 +474,7 @@ export async function applyAutomaticMigrations(input: {
   for (const operation of operations) {
     if (operation.kind === "delete") {
       const path = normalizeProjectPath(operation.path);
-      await rm(join(input.projectDirectory, path), { force: true });
+      await rm(await resolveContainedProjectPath(input.projectDirectory, path), { force: true });
       fileByPath.delete(path);
       continue;
     }
@@ -639,7 +639,7 @@ export async function runLifecycleHooks(
 ): Promise<void> {
   for (const hook of hooks) {
     const result = await options.runCommand(hook.command, hook.args, {
-      cwd: hook.cwd ? joinProjectDirectory(options.projectDirectory, normalizeProjectPath(hook.cwd)) : options.projectDirectory
+      cwd: resolveProjectCwd(options.projectDirectory, hook.cwd)
     });
 
     if (result.exitCode !== 0) {

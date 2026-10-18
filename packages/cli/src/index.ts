@@ -26,6 +26,7 @@ import {
   applySkillSync,
   planSkillUpdateCommands,
   applySkillUpdate,
+  isRetriableUnresolvedSkill,
   collectInfo,
   createFileContentDiff,
   diffManagedFile,
@@ -65,7 +66,7 @@ import {
   type StackkitRecipe
 } from "@berkayorhan/stackkit-core";
 import { builtinModules, builtinPresets, builtinRegistry, curatedSkillSourceAllowlist } from "@berkayorhan/stackkit-registry";
-import { stackkitConfigSchema, type AiSkillAgent, type PackageManager, type StackkitConfig } from "@berkayorhan/stackkit-schemas";
+import { stackkitConfigSchema, type AiSkillAgent, type AiSkillDependency, type PackageManager, type StackkitConfig } from "@berkayorhan/stackkit-schemas";
 
 export type CreateDryRunPlan = CreatePlan;
 
@@ -148,6 +149,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
           projectDirectory: resolve(options.dir),
           stackkitVersion,
           runCommand,
+          availableModules: builtinModules,
           allowExternalState: options.allowExternalState,
           retryInitializers: options.retryInitializers
         });
@@ -214,6 +216,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
           `Skipped ${initializer.name} (${initializer.mutationPolicy}). Re-run with --allow-external-state to enable.\n`
         );
       }
+      writeSkillFailures(program, result.manifest.aiSkills.unresolved.filter(isRetriableUnresolvedSkill));
       writeProgramOutput(program, `Created Stackkit project at ${result.projectDirectory}\n`);
     });
 
@@ -413,7 +416,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--dir <path>", "Project directory")
     .action(async (options: { dir?: string }) => {
       const projectDirectory = options.dir ? resolve(options.dir) : process.cwd();
-      const result = await runDoctor(projectDirectory, { runCommand });
+      const result = await runDoctor(projectDirectory, { runCommand, modules: builtinModules });
       const hasWarnings = result.checks.some((check) => check.status === "warning");
       const summary = !result.ok
         ? "Stackkit doctor found issues"
@@ -498,9 +501,10 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
         return;
       }
 
-      const updated = await applySkillSync(lock, { cwd: projectDirectory, runCommand });
+      const { lock: updated, failed } = await applySkillSync(lock, { cwd: projectDirectory, runCommand });
       await writeSkillsLock(projectDirectory, updated);
-      writeProgramOutput(program, "Stackkit skills sync complete\n");
+      writeSkillFailures(program, failed);
+      writeProgramOutput(program, failed.length > 0 ? "Stackkit skills sync finished with failures\n" : "Stackkit skills sync complete\n");
     });
   skills
     .command("update")
@@ -517,9 +521,10 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
         return;
       }
 
-      const updated = await applySkillUpdate(lock, { cwd: projectDirectory, runCommand });
+      const { lock: updated, failed } = await applySkillUpdate(lock, { cwd: projectDirectory, runCommand });
       await writeSkillsLock(projectDirectory, updated);
-      writeProgramOutput(program, "Stackkit skills update complete\n");
+      writeSkillFailures(program, failed);
+      writeProgramOutput(program, failed.length > 0 ? "Stackkit skills update finished with failures\n" : "Stackkit skills update complete\n");
     });
 
   const recipe = program.command("recipe").description("Manage offline Stackkit recipes");
@@ -1445,6 +1450,18 @@ export function formatMigratePlan(manifest: StackkitManifest, migrationPlan: Mod
   ].join("\n");
 }
 
+/** Report failed skill installs on stderr and fail the command; the lock keeps them as unresolved. */
+function writeSkillFailures(program: Command, failed: readonly AiSkillDependency[]): void {
+  for (const skill of failed) {
+    writeProgramError(program, `AI skill ${skill.skills.join(", ")} from ${skill.source ?? "unknown source"}: ${skill.reason}\n`);
+  }
+
+  if (failed.length > 0) {
+    writeProgramError(program, "Retry with stackkit skills sync --apply\n");
+    process.exitCode = 1;
+  }
+}
+
 function formatSkillCommands(title: string, commands: readonly AiSkillInstallCommand[]): string {
   return [
     title,
@@ -1456,11 +1473,13 @@ function formatSkillCommands(title: string, commands: readonly AiSkillInstallCom
     .join("\n");
 }
 
+const defaultCommandTimeoutMs = 10 * 60 * 1000;
+
 export const runLocalCommand: RunCommand = async (command, args, options) => {
   const { spawn } = await import("node:child_process");
 
   return await new Promise((resolve) => {
-    const invocation = resolveSpawnCommand(command, args);
+    const invocation = resolveSpawnCommand(command, args, { cwd: options.cwd });
     const child = spawn(invocation.command, invocation.args, {
       cwd: options.cwd,
       windowsVerbatimArguments: invocation.windowsVerbatimArguments,
@@ -1469,6 +1488,22 @@ export const runLocalCommand: RunCommand = async (command, args, options) => {
     });
     let stdout = "";
     let stderr = "";
+    const timeoutMs = Number(process.env.STACKKIT_COMMAND_TIMEOUT_MS) || defaultCommandTimeoutMs;
+    const timer = setTimeout(() => {
+      // On Windows the child is cmd.exe; kill the whole tree so the real tool dies too.
+      if (process.platform === "win32" && child.pid !== undefined) {
+        spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
+      } else {
+        child.kill("SIGKILL");
+      }
+      resolve({
+        exitCode: 1,
+        stdout,
+        stderr: `${stderr}${stderr && !stderr.endsWith("\n") ? "\n" : ""}Timed out after ${timeoutMs}ms: ${[command, ...args].join(" ")} (set STACKKIT_COMMAND_TIMEOUT_MS to change the limit)`
+      });
+    }, timeoutMs);
+    timer.unref();
+    child.on("exit", () => clearTimeout(timer));
 
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { type RunCommand } from "@berkayorhan/stackkit-core";
 
-import { buildConfigFromInteractiveAnswers, createStackkitProgram, isDirectCliExecution, stackkitVersion } from "./index.js";
+import { buildConfigFromInteractiveAnswers, createStackkitProgram, isDirectCliExecution, runLocalCommand, stackkitVersion } from "./index.js";
 
 const tempDirectories: string[] = [];
 
@@ -1304,6 +1304,41 @@ describe("createStackkitProgram", () => {
     const { output } = await runProgram(["skills", "sync", "--apply", "--dir", projectDirectory]);
 
     expect(output).toBe("Stackkit skills sync complete\n");
+  });
+
+  it("times out local commands that hang", async () => {
+    process.env.STACKKIT_COMMAND_TIMEOUT_MS = "300";
+
+    try {
+      const started = Date.now();
+      const result = await runLocalCommand("node", ["-e", "setTimeout(() => {}, 20000)"], {});
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Timed out after 300ms");
+      expect(Date.now() - started).toBeLessThan(10000);
+    } finally {
+      delete process.env.STACKKIT_COMMAND_TIMEOUT_MS;
+    }
+  });
+
+  it("reports failed skill installs on stderr and exits non-zero", async () => {
+    const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
+    const runCommand: RunCommand = async () => ({ exitCode: 1, stdout: "", stderr: "network down" });
+
+    try {
+      const sync = await runProgram(["skills", "sync", "--apply", "--dir", projectDirectory], { runCommand });
+      expect(sync.output).toBe("Stackkit skills sync finished with failures\n");
+      expect(sync.errorOutput).toContain("vercel-react-best-practices");
+      expect(sync.errorOutput).toContain("Skill install failed: network down");
+      expect(process.exitCode).toBe(1);
+
+      process.exitCode = undefined;
+      const update = await runProgram(["skills", "update", "--apply", "--dir", projectDirectory], { runCommand });
+      expect(update.output).toBe("Stackkit skills update finished with failures\n");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = undefined;
+    }
   });
 
   it("applies skill update and rewrites skills-lock.json", async () => {

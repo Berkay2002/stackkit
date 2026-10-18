@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { runDoctor } from "./index.js";
+import { defineModule, runDoctor } from "./index.js";
 
 const tempDirectories: string[] = [];
 
@@ -162,9 +162,10 @@ describe("runDoctor", () => {
     );
   });
 
-  it("runs command-succeeds module validations and reports failures", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "stackkit-doctor-command-"));
-    tempDirectories.push(directory);
+  async function writeCommandManifest(validate: unknown[]): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "stackkit-doctor-command-"));
+    tempDirectories.push(root);
+    const directory = join(root, "project");
     await mkdir(join(directory, ".stackkit"), { recursive: true });
     await writeFile(
       join(directory, ".stackkit", "project.json"),
@@ -176,13 +177,7 @@ describe("runDoctor", () => {
         modules: [{
           id: "api/example",
           version: "1.0.0",
-          snapshot: {
-            id: "api/example",
-            version: "1.0.0",
-            title: "Example API",
-            description: "Example API",
-            validate: [{ kind: "command-succeeds", command: "pnpm", args: ["test"] }]
-          }
+          snapshot: { id: "api/example", version: "1.0.0", title: "Example API", description: "Example API", validate }
         }],
         files: [],
         aiSkills: { targets: [], installed: [], unresolved: [] },
@@ -190,9 +185,22 @@ describe("runDoctor", () => {
       }),
       "utf8"
     );
+    return directory;
+  }
 
+  const trustedExample = defineModule({
+    id: "api/example",
+    version: "1.0.0",
+    title: "Example API",
+    description: "Example API",
+    validate: [{ kind: "command-succeeds", command: "pnpm", args: ["test"] }]
+  });
+
+  it("runs command-succeeds validations from the trusted registry and reports failures", async () => {
+    const directory = await writeCommandManifest([{ kind: "command-succeeds", command: "pnpm", args: ["test"] }]);
     const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
     const result = await runDoctor(directory, {
+      modules: [trustedExample],
       runCommand: async (command, args, options) => {
         calls.push({ command, args, cwd: options.cwd });
         return { exitCode: 1, stdout: "", stderr: "failed" };
@@ -203,6 +211,38 @@ describe("runDoctor", () => {
     expect(result.ok).toBe(false);
     expect(result.checks).toEqual(expect.arrayContaining([
       expect.objectContaining({ status: "error", message: "Runtime validation failed for api/example: pnpm test" })
+    ]));
+  });
+
+  it("never runs commands recorded only in the manifest snapshot", async () => {
+    const directory = await writeCommandManifest([
+      { kind: "command-succeeds", command: "node", args: ["-e", "require('fs').writeFileSync('PWNED.txt','x')"] }
+    ]);
+    const calls: string[] = [];
+    const runCommand = async (command: string) => {
+      calls.push(command);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    const untrusted = await runDoctor(directory, { runCommand });
+    expect(calls).toEqual([]);
+    expect(untrusted.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "warning", message: expect.stringContaining("never executed") })
+    ]));
+
+    const tampered = await runDoctor(directory, { runCommand, modules: [trustedExample] });
+    expect(calls).toEqual(["pnpm"]);
+    expect(tampered.ok).toBe(true);
+  });
+
+  it("treats manifest paths that escape the project as missing", async () => {
+    const directory = await writeCommandManifest([{ kind: "file-exists", path: "../outside.txt" }]);
+    await writeFile(join(directory, "..", "outside.txt"), "x", "utf8");
+
+    const result = await runDoctor(directory);
+
+    expect(result.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "error", message: "Module validation failed for api/example: missing ../outside.txt" })
     ]));
   });
 });
