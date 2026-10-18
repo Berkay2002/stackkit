@@ -1238,6 +1238,7 @@ function formatUpdatePlanBody(plan: UpdateModulesPlan): string[] {
   return [
     "Pending version updates:",
     ...formatUpdateLines(plan),
+    ...plan.warnings.map((warning) => `Warning: ${warning}`),
     "Pending migrations:",
     ...formatMigrationLines(plan.migrations),
     `Safe to apply: ${plan.safe ? "yes" : "no"}`,
@@ -1247,7 +1248,7 @@ function formatUpdatePlanBody(plan: UpdateModulesPlan): string[] {
 
 function updatePlanJson(plan: UpdateModulesPlan) {
   return {
-    updates: { updates: plan.updates },
+    updates: { updates: plan.updates, warnings: plan.warnings },
     migrations: plan.migrations,
     safe: plan.safe,
     files: { writes: plan.writes.map((file) => file.path), deletes: plan.deletes, refusals: plan.refusals }

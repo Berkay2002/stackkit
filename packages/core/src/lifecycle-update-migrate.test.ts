@@ -38,6 +38,30 @@ describe("update and migration planning", () => {
     expect(plan.updates).toEqual([{ id: "web/nextjs", from: "1.0.0", to: "1.1.0" }]);
   });
 
+  it("never plans a downgrade and warns when the installed module is newer", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-update-downgrade-"));
+    tempDirectories.push(projectDirectory);
+    const available = defineModule({ id: "web/nextjs", version: "1.0.0", title: "Next.js", description: "Next.js app" });
+    const manifest = createManifest({
+      schemaVersion: 1,
+      stackkitVersion: "0.0.0",
+      projectName: "acme",
+      createdAt: "2026-06-02T00:00:00.000Z",
+      modules: [{ id: "web/nextjs", version: "1.10.0", options: {} }],
+      files: [],
+      aiSkills: { targets: [], installed: [], unresolved: [] },
+      migrations: { applied: [] }
+    });
+
+    const plan = planModuleUpdates({ manifestModules: manifest.modules, availableModules: [available] });
+    expect(plan.updates).toEqual([]);
+    expect(plan.warnings).toEqual([expect.stringContaining("web/nextjs 1.10.0 is newer than the available 1.0.0")]);
+
+    const update = await planUpdateModules({ projectDirectory, manifest, availableModules: [available] });
+    expect(update.manifest.modules[0]?.version).toBe("1.10.0");
+    expect(update.warnings).toHaveLength(1);
+  });
+
   it("plans pending migrations and separates review-required migrations", () => {
     const plan = planModuleMigrations({
       manifest: createManifest({

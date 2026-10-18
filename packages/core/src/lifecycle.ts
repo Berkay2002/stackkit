@@ -79,6 +79,7 @@ export type UpdateModulesPlan = LifecycleFileChanges & {
   operation: "update";
   safe: boolean;
   updates: ModuleUpdatePlan["updates"];
+  warnings: ModuleUpdatePlan["warnings"];
   migrations: ModuleMigrationPlan;
   manifest: StackkitManifest;
 };
@@ -115,6 +116,8 @@ export type ApplyModuleUpdatesInput = {
 
 export type ModuleUpdatePlan = {
   updates: { id: string; from: string; to: string }[];
+  /** Installed modules newer than the available definition; never downgraded. */
+  warnings: string[];
 };
 
 export type ModuleMigrationPlan = {
@@ -364,18 +367,22 @@ export function planModuleUpdates(input: {
   availableModules: readonly StackkitModule[];
 }): ModuleUpdatePlan {
   const availableById = new Map(input.availableModules.map((module) => [module.id, module]));
+  const plan: ModuleUpdatePlan = { updates: [], warnings: [] };
 
-  return {
-    updates: input.manifestModules.flatMap((manifestModule) => {
-      const available = availableById.get(manifestModule.id);
+  for (const manifestModule of input.manifestModules) {
+    const available = availableById.get(manifestModule.id);
+    const order = available ? compareSemver(available.version, manifestModule.version) : 0;
 
-      if (!available || available.version === manifestModule.version) {
-        return [];
-      }
+    if (order > 0) {
+      plan.updates.push({ id: manifestModule.id, from: manifestModule.version, to: available!.version });
+    } else if (order < 0) {
+      plan.warnings.push(
+        `${manifestModule.id} ${manifestModule.version} is newer than the available ${available!.version}; it is left as is.`
+      );
+    }
+  }
 
-      return [{ id: manifestModule.id, from: manifestModule.version, to: available.version }];
-    })
-  };
+  return plan;
 }
 
 function compareSemver(a: string, b: string): number {
@@ -480,14 +487,15 @@ export async function applyAutomaticMigrations(input: {
  */
 export async function planUpdateModules(input: ApplyModuleUpdatesInput): Promise<UpdateModulesPlan> {
   const manifest = createManifest(input.manifest);
-  const updates = planModuleUpdates({ manifestModules: manifest.modules, availableModules: input.availableModules }).updates;
+  const { updates, warnings } = planModuleUpdates({ manifestModules: manifest.modules, availableModules: input.availableModules });
   const availableById = new Map(input.availableModules.map((module) => [module.id, module]));
   const nextManifest = createManifest({
     ...manifest,
     modules: manifest.modules.map((manifestModule) => {
       const available = availableById.get(manifestModule.id);
 
-      return available
+      // Never downgrade: a module newer than the available definition keeps its version and snapshot.
+      return available && compareSemver(available.version, manifestModule.version) >= 0
         ? { ...manifestModule, version: available.version, snapshot: snapshotStackkitModule(available) }
         : manifestModule;
     })
@@ -512,6 +520,7 @@ export async function planUpdateModules(input: ApplyModuleUpdatesInput): Promise
     safe: changes.refusals.length === 0,
     ...changes,
     updates,
+    warnings,
     migrations: planModuleMigrations({ manifest, modules: input.availableModules }),
     manifest: withFileChanges(
       {
