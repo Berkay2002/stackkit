@@ -38,18 +38,19 @@ import {
   siVite,
   type SimpleIcon
 } from "simple-icons";
-import type { StackkitModule } from "@berkayorhan/stackkit-schemas";
+import { builtinModules } from "@berkayorhan/stackkit-registry";
+import type { StackkitModule, StackkitPreset } from "@berkayorhan/stackkit-schemas";
 
 import {
   applyPresetBaseline,
   buildCustomizerState,
+  choiceError,
+  choiceSupportLevel,
   createInitialCustomizerState,
-  hasPythonApplicationShape,
-  hasTypeScriptApplicationShape,
-  isAuthChoiceSupported,
-  isDatabaseChoiceSupported,
-  isDeployChoiceSupported,
+  customizerPresets,
+  hasLanguage,
   normalizeCustomizerState,
+  projectNameError,
   type AiSkillModeChoice,
   type ApiChoice,
   type AuthChoice,
@@ -63,6 +64,10 @@ import {
   type WebChoice
 } from "../src/stackkit-customizer";
 
+type ChoiceAxis = Parameters<typeof choiceSupportLevel>[0];
+
+const moduleById = new Map(builtinModules.map((module) => [module.id, module]));
+
 type Choice<T extends string> = {
   value: T;
   label: string;
@@ -71,7 +76,6 @@ type Choice<T extends string> = {
   icons?: SimpleIcon[];
   customIcon?: LocalIconKey;
   iconLabel?: string;
-  preview?: boolean;
 };
 
 type LocalIconKey = "pyright";
@@ -108,22 +112,23 @@ const iconByKey: Record<string, SimpleIcon> = {
   vite: siVite
 };
 
+// Labels and icons are presentation only; support levels and validity come from the registry and core.
 const webChoices: Choice<WebChoice>[] = [
   { value: "nextjs", label: "Next.js", description: "React app with shadcn/ui", icon: siNextdotjs },
-  { value: "vite", label: "Vite", description: "React SPA with Vite", icon: siVite, preview: true },
-  { value: "tanstack", label: "TanStack Start", description: "Full-stack React", icon: siTanstack, preview: true },
+  { value: "vite", label: "Vite", description: "React SPA with Vite", icon: siVite },
+  { value: "tanstack", label: "TanStack Start", description: "Full-stack React", icon: siTanstack },
   { value: "none", label: "No web app", description: "API or service only", iconLabel: "None" }
 ];
 
 const uiChoices: Choice<UiChoice>[] = [
   { value: "shadcn", label: "ShadCN", description: "shadcn/ui components", icon: siShadcnui },
-  { value: "tailwind", label: "Tailwind", description: "Tailwind CSS only", icon: siTailwindcss, preview: true },
+  { value: "tailwind", label: "Tailwind", description: "Tailwind CSS only", icon: siTailwindcss },
   { value: "none", label: "No UI kit", description: "Plain framework", iconLabel: "None" }
 ];
 
 const apiChoices: Choice<ApiChoice>[] = [
   { value: "none", label: "No API", description: "Frontend-only stack", iconLabel: "None" },
-  { value: "fastapi", label: "FastAPI", description: "Python service", icon: siFastapi },
+  { value: "fastapi", label: "FastAPI", description: "Python service", icon: siFastapi }
 ];
 
 const databaseChoices: Choice<DatabaseChoice>[] = [
@@ -133,50 +138,32 @@ const databaseChoices: Choice<DatabaseChoice>[] = [
 
 const databaseProviderChoices: Choice<DatabaseProviderChoice>[] = [
   { value: "byo", label: "Bring your own", description: "Provide your own DATABASE_URL", iconLabel: "URL" },
-  { value: "neon", label: "Neon", description: "Serverless Postgres in the cloud", icon: siNeon, preview: true },
-  { value: "supabase", label: "Supabase", description: "Hosted Postgres (host only)", icon: siSupabase, preview: true },
-  { value: "supabase-local", label: "Supabase (local)", description: "Local stack via the Supabase CLI", icon: siSupabase, preview: true },
+  { value: "neon", label: "Neon", description: "Serverless Postgres in the cloud", icon: siNeon },
+  { value: "supabase", label: "Supabase", description: "Hosted Postgres (host only)", icon: siSupabase },
+  { value: "supabase-local", label: "Supabase (local)", description: "Local stack via the Supabase CLI", icon: siSupabase },
   { value: "postgres-local", label: "Postgres (Docker)", description: "Local Postgres compose service", icon: siDocker }
 ];
 
 const authChoices: Choice<AuthChoice>[] = [
   { value: "none", label: "No auth", description: "Keep auth out", iconLabel: "None" },
   { value: "auth0", label: "Auth0", description: "Framework-aware Auth0 modules", icon: siAuth0 },
-  { value: "clerk", label: "Clerk", description: "Hosted auth for React", icon: siClerk, preview: true }
+  { value: "clerk", label: "Clerk", description: "Hosted auth for React", icon: siClerk }
 ];
 
 const deployChoices: Choice<DeployChoice>[] = [
-  { value: "vercel", label: "Vercel", description: "Web deployment", icon: siVercel, preview: true },
+  { value: "vercel", label: "Vercel", description: "Web deployment", icon: siVercel },
   { value: "docker", label: "Docker", description: "Next.js or FastAPI containers", icon: siDocker },
-  { value: "kubernetes", label: "Kubernetes", description: "Container manifests", icon: siKubernetes, preview: true }
+  { value: "kubernetes", label: "Kubernetes", description: "Container manifests", icon: siKubernetes }
 ];
 
 const tsQualityChoices: Choice<TsQualityChoice>[] = [
   { value: "eslint-prettier", label: "ESLint + Prettier", description: "Default lint and format", icons: [siEslint, siPrettier] },
-  { value: "biome", label: "Biome", description: "Combined linter and formatter", icon: siBiome, preview: true }
-];
-
-const presetChoices: Choice<string>[] = [
-  { value: "custom", label: "Custom", description: "Choose technology below", iconLabel: "Custom" },
-  { value: "next", label: "Next.js", description: "Next.js with shadcn/ui", icons: [siNextdotjs, siShadcnui], preview: true },
-  {
-    value: "next-postgres-clerk",
-    label: "Next + Clerk",
-    description: "Postgres and Clerk",
-    icons: [siNextdotjs, siShadcnui, siPostgresql, siClerk],
-    preview: true
-  },
-  {
-    value: "next-fastapi-postgres-auth0",
-    label: "Next + FastAPI",
-    description: "Postgres and Auth0",
-    icons: [siNextdotjs, siFastapi, siPostgresql, siAuth0]
-  }
+  { value: "biome", label: "Biome", description: "Combined linter and formatter", icon: siBiome }
 ];
 
 const pyTypecheckChoices: Choice<PyTypecheckChoice>[] = [
   { value: "mypy", label: "mypy", description: "Default Python type checker", icon: siPython },
-  { value: "pyright", label: "pyright", description: "Alternative Python type checker", customIcon: "pyright", preview: true }
+  { value: "pyright", label: "pyright", description: "Alternative Python type checker", customIcon: "pyright" }
 ];
 
 const aiModeChoices: Choice<AiSkillModeChoice>[] = [
@@ -185,13 +172,25 @@ const aiModeChoices: Choice<AiSkillModeChoice>[] = [
   { value: "skip", label: "Skip skills", description: "No skill installation", iconLabel: "Skip" }
 ];
 
+const customPresetChoice: Choice<string> = {
+  value: "custom",
+  label: "Custom",
+  description: "Choose technology below",
+  iconLabel: "Custom"
+};
+
 export default function Page() {
   const [state, setState] = useState<CustomizerState>(() => createInitialCustomizerState());
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const result = useMemo(() => buildCustomizerState(state), [state]);
+  const presetChoices = useMemo(
+    () => [{ choice: customPresetChoice, preview: false }, ...customizerPresets(state.includePreview).map(presetChoice)],
+    [state.includePreview]
+  );
+  const nameError = projectNameError(state.projectName);
 
   function patch(next: Partial<CustomizerState>) {
-    setCopied(false);
+    setCopyStatus("idle");
     setState((current) => normalizeCustomizerState({ ...current, ...next }));
   }
 
@@ -200,19 +199,16 @@ export default function Page() {
   }
 
   function selectPreset(preset: string) {
-    setCopied(false);
+    setCopyStatus("idle");
     setState((current) => applyPresetBaseline(current, preset));
   }
 
   function setPreviewMode(includePreview: boolean) {
-    setCopied(false);
+    setCopyStatus("idle");
     setState((current) =>
       includePreview
         ? { ...current, includePreview: true }
-        : applyPresetBaseline(
-            { ...current, includePreview: false, packageManager: "pnpm" },
-            "next-fastapi-postgres-auth0"
-          )
+        : applyPresetBaseline({ ...current, includePreview: false }, "next-fastapi-postgres-auth0")
     );
   }
 
@@ -221,9 +217,24 @@ export default function Page() {
       return;
     }
 
-    await navigator.clipboard.writeText(result.command);
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(result.command);
+      setCopyStatus("copied");
+    } catch {
+      // Clipboard is unavailable outside secure contexts or when permission is denied:
+      // select the command so it can be copied manually.
+      const command = document.getElementById("recipe-command");
+      if (command) {
+        window.getSelection()?.selectAllChildren(command);
+      }
+      setCopyStatus("failed");
+    }
   }
+
+  const choiceProps = {
+    includePreview: state.includePreview,
+    disabledReason: (patchValue: Partial<CustomizerState>) => choiceError(state, patchValue)
+  };
 
   return (
     <>
@@ -239,10 +250,17 @@ export default function Page() {
           <label>
             Project
             <input
+              aria-describedby={nameError ? "project-name-error" : undefined}
+              aria-invalid={nameError ? true : undefined}
               value={state.projectName}
               onChange={(event) => patch({ projectName: event.target.value })}
               placeholder="my-stack"
             />
+            {nameError ? (
+              <span className="field-error" id="project-name-error">
+                {nameError}
+              </span>
+            ) : null}
           </label>
           <label>
             Package manager
@@ -272,18 +290,19 @@ export default function Page() {
             </label>
           </div>
           <Step title="Start from a preset">
-            <div className="preset-grid">
-              {visibleChoices(presetChoices, state.includePreview).map((choice) => (
+            <div aria-label="Preset" className="preset-grid" role="radiogroup">
+              {presetChoices.map(({ choice, preview }) => (
                 <button
+                  aria-checked={state.preset === choice.value}
                   className={state.preset === choice.value ? "preset active" : "preset"}
                   key={choice.value}
                   onClick={() => selectPreset(choice.value)}
-                  aria-pressed={state.preset === choice.value}
+                  role="radio"
                   type="button"
                 >
                   <ChoiceIcon choice={choice} />
                   <span>{choice.label}</span>
-                  {choice.preview ? <span className="preview-badge">Preview</span> : null}
+                  {preview ? <span className="preview-badge">Preview</span> : null}
                   <small>{choice.description}</small>
                 </button>
               ))}
@@ -291,29 +310,30 @@ export default function Page() {
           </Step>
 
           <Step title="Application shape">
-            <ChoiceGrid choices={webChoices} includePreview={state.includePreview} value={state.web} onChange={(web) => patchStack({ web })} />
-            <ChoiceGrid choices={uiChoices} includePreview={state.includePreview} value={state.ui} onChange={(ui) => patchStack({ ui })} />
-            <ChoiceGrid choices={apiChoices} includePreview={state.includePreview} value={state.api} onChange={(api) => patchStack({ api })} />
+            <ChoiceGrid {...choiceProps} axis="web" label="Web app" choices={webChoices} value={state.web} toPatch={(web) => ({ web })} onChange={patchStack} />
+            <ChoiceGrid {...choiceProps} axis="ui" label="UI kit" choices={uiChoices} value={state.ui} toPatch={(ui) => ({ ui })} onChange={patchStack} />
+            <ChoiceGrid {...choiceProps} axis="api" label="API" choices={apiChoices} value={state.api} toPatch={(api) => ({ api })} onChange={patchStack} />
           </Step>
 
           <Step title="Data and auth">
             <ChoiceGrid
+              {...choiceProps}
+              label="Database"
               choices={databaseChoices}
-              includePreview={state.includePreview}
               value={state.database}
-              onChange={(database) => patchStack({ database })}
-              isDisabled={(database) => !isDatabaseChoiceSupported(state, database)}
-              disabledDescription={() => "Select an app or API first"}
+              toPatch={(database) => ({ database })}
+              onChange={patchStack}
             />
             <div className="choice-group">
-              <h3>Postgres provider</h3>
+              <h3 id="postgres-provider-label">Postgres provider</h3>
               <ChoiceGrid
+                {...choiceProps}
+                axis="dbProvider"
+                labelledBy="postgres-provider-label"
                 choices={databaseProviderChoices}
-                includePreview={state.includePreview}
                 value={state.database === "postgres" ? state.dbProvider : undefined}
-                onChange={(dbProvider) => patchStack({ database: "postgres", dbProvider })}
-                isDisabled={() => !isDatabaseChoiceSupported(state, "postgres")}
-                disabledDescription={() => "Select an app or API first"}
+                toPatch={(dbProvider) => ({ database: "postgres", dbProvider })}
+                onChange={patchStack}
               />
             </div>
             {state.database === "postgres" && state.dbProvider === "neon" ? (
@@ -328,44 +348,36 @@ export default function Page() {
                 </label>
               </div>
             ) : null}
-            <ChoiceGrid
-              choices={authChoices}
-              includePreview={state.includePreview}
-              value={state.auth}
-              onChange={(auth) => patchStack({ auth })}
-              isDisabled={(auth) => !isAuthChoiceSupported(state, auth)}
-              disabledDescription={(auth) => unsupportedAuthReason(auth)}
-            />
+            <ChoiceGrid {...choiceProps} axis="auth" label="Auth" choices={authChoices} value={state.auth} toPatch={(auth) => ({ auth })} onChange={patchStack} />
           </Step>
 
           <Step title="Deployment">
-            <div className="choice-grid">
-              {visibleChoices(deployChoices, state.includePreview).map((choice) => {
-                const supported = isDeployChoiceSupported(state, choice.value);
-                const active = supported && state.deploy.includes(choice.value);
+            <div aria-label="Deployment targets" className="choice-grid" role="group">
+              {visibleChoices(deployChoices, state.includePreview, "deploy").map((choice) => {
+                const active = state.deploy.includes(choice.value);
+                const reason = active ? undefined : choiceError(state, { deploy: [...state.deploy, choice.value] });
 
                 return (
                   <button
-                    className={active ? "choice active" : supported ? "choice" : "choice disabled"}
-                    disabled={!supported}
+                    aria-disabled={reason ? true : undefined}
+                    aria-pressed={active}
+                    className={active ? "choice active" : reason ? "choice disabled" : "choice"}
                     key={choice.value}
                     onClick={() =>
-                      supported
-                        ? patchStack({
+                      reason
+                        ? undefined
+                        : patchStack({
                             deploy: active
                               ? state.deploy.filter((item) => item !== choice.value)
                               : [...state.deploy, choice.value]
                           })
-                        : undefined
                     }
-                    aria-disabled={!supported}
-                    aria-pressed={active}
                     type="button"
                   >
                     <ChoiceIcon choice={choice} />
                     <span>{choice.label}</span>
-                    {choice.preview ? <span className="preview-badge">Preview</span> : null}
-                    <small>{supported ? choice.description : unsupportedDeployReason(choice.value)}</small>
+                    {isPreview("deploy", choice.value) ? <span className="preview-badge">Preview</span> : null}
+                    <small>{reason ?? choice.description}</small>
                   </button>
                 );
               })}
@@ -373,32 +385,45 @@ export default function Page() {
           </Step>
 
           <Step title="Code quality">
-            {hasTypeScriptApplicationShape(state) ? (
+            {hasLanguage(state, "ts") ? (
               <div className="choice-group">
-                <h3>TypeScript quality</h3>
+                <h3 id="ts-quality-label">TypeScript quality</h3>
                 <ChoiceGrid
+                  {...choiceProps}
+                  axis="tsQuality"
+                  labelledBy="ts-quality-label"
                   choices={tsQualityChoices}
-                  includePreview={state.includePreview}
                   value={state.tsQuality}
-                  onChange={(tsQuality) => patchStack({ tsQuality })}
+                  toPatch={(tsQuality) => ({ tsQuality })}
+                  onChange={patchStack}
                 />
               </div>
             ) : null}
-            {hasPythonApplicationShape(state) ? (
+            {hasLanguage(state, "py") ? (
               <div className="choice-group">
-                <h3>Python typecheck</h3>
+                <h3 id="py-typecheck-label">Python typecheck</h3>
                 <ChoiceGrid
+                  {...choiceProps}
+                  axis="pyTypecheck"
+                  labelledBy="py-typecheck-label"
                   choices={pyTypecheckChoices}
-                  includePreview={state.includePreview}
                   value={state.pyTypecheck}
-                  onChange={(pyTypecheck) => patchStack({ pyTypecheck })}
+                  toPatch={(pyTypecheck) => ({ pyTypecheck })}
+                  onChange={patchStack}
                 />
               </div>
             ) : null}
           </Step>
 
           <Step title="AI skills">
-            <ChoiceGrid choices={aiModeChoices} includePreview={state.includePreview} value={state.aiSkillMode} onChange={(aiSkillMode) => patch({ aiSkillMode })} />
+            <ChoiceGrid
+              includePreview={state.includePreview}
+              label="AI skill mode"
+              choices={aiModeChoices}
+              value={state.aiSkillMode}
+              toPatch={(aiSkillMode) => ({ aiSkillMode })}
+              onChange={patch}
+            />
             <div className="switch-row">
               <label>
                 <input
@@ -420,7 +445,7 @@ export default function Page() {
           </Step>
         </div>
 
-        <aside className="summary" aria-live="polite">
+        <aside className="summary">
           <div className="summary-header">
             <Terminal aria-hidden="true" />
             <div>
@@ -429,12 +454,28 @@ export default function Page() {
             </div>
           </div>
 
+          <p aria-live="polite" className="sr-only">
+            {result.ok
+              ? copyStatus === "copied"
+                ? "Command copied"
+                : copyStatus === "failed"
+                  ? "Copy failed. The command is selected; copy it manually."
+                  : ""
+              : result.error}
+          </p>
+
           {result.ok ? (
             <>
-              <pre className="command">{result.command}</pre>
+              <pre className="command" id="recipe-command">
+                {result.command}
+              </pre>
               <button className="copy" onClick={copyCommand} type="button">
-                {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-                {copied ? "Copied" : "Copy command"}
+                {copyStatus === "copied" ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+                {copyStatus === "copied"
+                  ? "Copied"
+                  : copyStatus === "failed"
+                    ? "Copy failed, select the command manually"
+                    : "Copy command"}
               </button>
               <nav className="summary-links" aria-label="Stackkit guidance">
                 <a href="https://github.com/Berkay2002/stackkit/blob/master/apps/docs/content/docs/getting-started.mdx">
@@ -460,9 +501,7 @@ export default function Page() {
               </details>
             </>
           ) : (
-            <div className="error" role="alert">
-              {result.error}
-            </div>
+            <div className="error">{result.error}</div>
           )}
         </aside>
       </section>
@@ -471,24 +510,25 @@ export default function Page() {
   );
 }
 
-function unsupportedDeployReason(deploy: DeployChoice) {
-  if (deploy === "vercel") {
-    return "Select a web app first";
-  }
+function presetChoice(preset: StackkitPreset): { choice: Choice<string>; preview: boolean } {
+  const icons = [
+    ...new Set(
+      preset.modules
+        .filter((id) => /^(web|api|db|auth|rust)\//.test(id))
+        .map((id) => moduleById.get(id))
+        .flatMap((module) => (module ? [resolveModuleIcon(module)] : []))
+        .filter((icon): icon is SimpleIcon => Boolean(icon))
+    )
+  ].slice(0, 4);
 
-  return "Select Next.js or FastAPI first";
+  return {
+    choice: { value: preset.id, label: preset.title, description: preset.description, icons },
+    preview: preset.support.level === "preview"
+  };
 }
 
-function unsupportedAuthReason(auth: AuthChoice) {
-  if (auth === "auth0") {
-    return "Select Next.js or FastAPI first";
-  }
-
-  if (auth === "clerk" || auth === "better-auth") {
-    return "Select a React web app first";
-  }
-
-  return "Unavailable";
+function isPreview(axis: ChoiceAxis, value: string): boolean {
+  return choiceSupportLevel(axis, value) === "preview";
 }
 
 function Step({ children, title }: { children: React.ReactNode; title: string }) {
@@ -503,39 +543,46 @@ function Step({ children, title }: { children: React.ReactNode; title: string })
 }
 
 function ChoiceGrid<T extends string>({
+  axis,
   choices,
-  disabledDescription,
-  isDisabled,
+  disabledReason,
   includePreview,
+  label,
+  labelledBy,
   onChange,
+  toPatch,
   value
 }: {
+  axis?: ChoiceAxis;
   choices: Choice<T>[];
-  disabledDescription?: (value: T) => string;
-  isDisabled?: (value: T) => boolean;
+  disabledReason?: (patch: Partial<CustomizerState>) => string | undefined;
   includePreview: boolean;
-  onChange: (value: T) => void;
+  label?: string;
+  labelledBy?: string;
+  onChange: (patch: Partial<CustomizerState>) => void;
+  toPatch: (value: T) => Partial<CustomizerState>;
   value?: T;
 }) {
   return (
-    <div className="choice-grid">
-      {visibleChoices(choices, includePreview).map((choice) => {
-        const disabled = isDisabled?.(choice.value) ?? false;
+    <div aria-label={label} aria-labelledby={labelledBy} className="choice-grid" role="radiogroup">
+      {visibleChoices(choices, includePreview, axis).map((choice) => {
+        const selected = value === choice.value;
+        const reason = selected ? undefined : disabledReason?.(toPatch(choice.value));
 
         return (
           <button
-            className={value === choice.value ? "choice active" : disabled ? "choice disabled" : "choice"}
-            disabled={disabled}
+            aria-checked={selected}
+            aria-disabled={reason ? true : undefined}
+            className={selected ? "choice active" : reason ? "choice disabled" : "choice"}
             key={choice.value}
-            onClick={() => (disabled ? undefined : onChange(choice.value))}
-            aria-disabled={disabled}
-            aria-pressed={value === choice.value}
+            onClick={() => (reason ? undefined : onChange(toPatch(choice.value)))}
+            role="radio"
             type="button"
           >
             <ChoiceIcon choice={choice} />
             <span>{choice.label}</span>
-            {choice.preview ? <span className="preview-badge">Preview</span> : null}
-            <small>{disabled ? (disabledDescription?.(choice.value) ?? choice.description) : choice.description}</small>
+            {axis && isPreview(axis, choice.value) ? <span className="preview-badge">Preview</span> : null}
+            <small>{reason ?? choice.description}</small>
           </button>
         );
       })}
@@ -563,8 +610,15 @@ function ChoiceIcon<T extends string>({ choice }: { choice: Choice<T> }) {
   );
 }
 
-function visibleChoices<T extends string>(choices: readonly Choice<T>[], includePreview: boolean): Choice<T>[] {
-  return choices.filter((choice) => includePreview || !choice.preview);
+function visibleChoices<T extends string>(
+  choices: readonly Choice<T>[],
+  includePreview: boolean,
+  axis?: ChoiceAxis
+): Choice<T>[] {
+  return choices.filter((choice) => {
+    const level = axis ? choiceSupportLevel(axis, choice.value) : "supported";
+    return level === "supported" || (includePreview && level === "preview");
+  });
 }
 
 function ModuleIcon({ module }: { module: StackkitModule }) {

@@ -1,19 +1,5 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  turbopack: {
-    resolveAlias: {
-      "./module-graph.js": "../../packages/core/src/module-graph.ts",
-      "./support.js": "../../packages/core/src/support.ts",
-      "./tooling.js": "../../packages/core/src/tooling.ts",
-      "./tooling-catalog.js": "../../packages/registry/src/tooling-catalog.ts"
-    }
-  },
-  transpilePackages: [
-    "@berkayorhan/stackkit-core",
-    "@berkayorhan/stackkit-registry",
-    "@berkayorhan/stackkit-schemas"
-  ]
-};
+const nextConfig: NextConfig = {};
 
 export default nextConfig;

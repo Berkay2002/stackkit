@@ -121,7 +121,7 @@ input:focus-visible,
 select:focus-visible,
 button:focus-visible,
 summary:focus-visible {
-  outline: 3px solid rgb(17 116 93 / 24%);
+  outline: 3px solid rgb(17 116 93);
   outline-offset: 3px;
 }
 
@@ -602,4 +602,18 @@ summary {
   .preset {
     min-height: 96px;
   }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.field-error {
+  color: var(--red);
+  font-size: 0.85rem;
 }
