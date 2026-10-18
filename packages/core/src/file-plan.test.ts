@@ -17,7 +17,7 @@ describe("buildFilePlan", () => {
     const plan = buildFilePlan([
       { kind: "write", path: "src/app.ts", owner: "web/nextjs", content: "export const app = true;\n" },
       { kind: "write", path: "./README.md", owner: "docs/readme" },
-      { kind: "install", package: "vitest" }
+      { kind: "delete", path: "src/old.ts", owner: "web/nextjs" }
     ]);
 
     expect(plan.files).toEqual([

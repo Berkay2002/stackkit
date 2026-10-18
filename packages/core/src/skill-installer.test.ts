@@ -36,7 +36,7 @@ const installCommand: AiSkillInstallCommand = {
 
 describe("installAiSkills", () => {
   it("runs successful commands and records installed skills", async () => {
-    const calls: { command: string; args: string[]; cwd?: string }[] = [];
+    const calls: { command: string; args: readonly string[]; cwd?: string }[] = [];
     const runCommand: RunCommand = async (command, args, options) => {
       calls.push({ command, args, cwd: options.cwd });
       return { exitCode: 0, stdout: "installed", stderr: "" };

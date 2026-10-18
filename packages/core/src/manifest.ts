@@ -5,16 +5,19 @@ import {
   skillsLockSchema,
   stackkitManifestSchema,
   type SkillsLock,
-  type StackkitManifest
+  type SkillsLockInput,
+  type StackkitManifest,
+  type StackkitManifestInput
 } from "@berkayorhan/stackkit-schemas";
 
 import { readExistingFile, resolveContainedProjectPath } from "./fs-utils.js";
 
-export function createManifest(input: StackkitManifest): StackkitManifest {
+/** Validate a manifest, filling schema defaults. */
+export function createManifest(input: StackkitManifestInput): StackkitManifest {
   return stackkitManifestSchema.parse(input);
 }
 
-export async function writeManifest(projectDirectory: string, manifest: StackkitManifest): Promise<StackkitManifest> {
+export async function writeManifest(projectDirectory: string, manifest: StackkitManifestInput): Promise<StackkitManifest> {
   const parsed = createManifest(manifest);
   const stackkitDirectory = join(projectDirectory, ".stackkit");
 
@@ -35,7 +38,7 @@ export async function readManifest(projectDirectory: string): Promise<StackkitMa
   return stackkitManifestSchema.parse(JSON.parse(existing));
 }
 
-export async function writeSkillsLock(projectDirectory: string, lock: SkillsLock): Promise<SkillsLock> {
+export async function writeSkillsLock(projectDirectory: string, lock: SkillsLockInput): Promise<SkillsLock> {
   const parsed = skillsLockSchema.parse(lock);
 
   await writeFile(await resolveContainedProjectPath(projectDirectory, "skills-lock.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");

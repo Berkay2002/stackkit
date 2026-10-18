@@ -1546,7 +1546,7 @@ async function runProgram(
   return { output, errorOutput };
 }
 
-function readCreatePlan(output: string): {
+type CreatePlanJson = {
   projectName: string;
   packageManager: string;
   modules: { id: string; version: string }[];
@@ -1560,23 +1560,12 @@ function readCreatePlan(output: string): {
     unresolved: unknown[];
   };
   skillInstallCommands: { args: string[] }[];
-} {
+};
+
+function readCreatePlan(output: string): CreatePlanJson {
   const json = output.match(/STACKKIT_PLAN_JSON_START\n(?<json>[\s\S]+?)\nSTACKKIT_PLAN_JSON_END/)?.groups?.json;
 
-  return JSON.parse(json ?? "{}") as {
-    projectName: string;
-    packageManager: string;
-    modules: { id: string; version: string }[];
-    filePlan: { files: { path: string; content: string }[] };
-    aiSkills: {
-      mode: string;
-      linkMode: string;
-      local: unknown[];
-      planned: unknown[];
-      unresolved: unknown[];
-    };
-    skillInstallCommands: { args: string[] }[];
-  };
+  return JSON.parse(json ?? "{}") as CreatePlanJson;
 }
 
 async function createManagedProject(

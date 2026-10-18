@@ -112,7 +112,7 @@ describe("createCreatePlan", () => {
   });
 
   it("marks external-state native initializers as gated unless explicitly allowed", () => {
-    const input = {
+    const input: Parameters<typeof createCreatePlan>[0] = {
       config: {
         projectName: "native-app",
         packageManager: "pnpm",
@@ -139,7 +139,7 @@ describe("createCreatePlan", () => {
           ]
         })
       ]
-    } as const;
+    };
 
     const gatedPlan = createCreatePlan(input);
     const allowedPlan = createCreatePlan({ ...input, allowExternalState: true });
@@ -351,7 +351,7 @@ describe("createCreatePlan", () => {
       expect.objectContaining({
         projectName: "acme",
         packageManager: "pnpm",
-        ai: { skillTargets: ["codex"] }
+        ai: expect.objectContaining({ skillTargets: ["codex"] })
       })
     );
     // No JSON Schema is published yet, so the config must not point at one.
@@ -828,7 +828,7 @@ describe("renderCreateFiles database client codegen", () => {
       files: [],
       aiSkills: { targets: [], installed: [], unresolved: [] },
       migrations: { applied: [] }
-    } as StackkitManifest);
+    });
     const reconstructed = buildReconstructedManagedFilePlan(manifest).files.find((file) => file.path === "apps/web/db/client.ts");
 
     expect(reconstructed!.content).toContain("@neondatabase/serverless");
@@ -982,28 +982,25 @@ describe("renderCreateFiles web framework wiring", () => {
     workspace: "pnpm-turbo" as const,
     modules: moduleIds,
     registries: {},
-    ai: { skillTargets: ["codex"] as const, skillMode: "install" as const, linkMode: "copy" as const }
+    ai: { skillTargets: ["codex" as const], skillMode: "install" as const, linkMode: "copy" as const }
   });
 
   const viteShadcnInput = () => ({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: baseConfig(["workspace/pnpm-turbo", "workspace/typescript", "web/vite", "ui/shadcn", "quality/eslint"]) as any,
+    config: baseConfig(["workspace/pnpm-turbo", "workspace/typescript", "web/vite", "ui/shadcn", "quality/eslint"]),
     availableModules: [...foundationModules, viteModule, shadcnModule]
   });
 
   const viteNoUiInput = () => ({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: baseConfig(["workspace/pnpm-turbo", "workspace/typescript", "web/vite", "quality/eslint"]) as any,
+    config: baseConfig(["workspace/pnpm-turbo", "workspace/typescript", "web/vite", "quality/eslint"]),
     availableModules: [...foundationModules, viteModule]
   });
 
   const tanstackInput = () => ({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: baseConfig(["workspace/pnpm-turbo", "workspace/typescript", "web/tanstack-start", "ui/shadcn", "quality/eslint"]) as any,
+    config: baseConfig(["workspace/pnpm-turbo", "workspace/typescript", "web/tanstack-start", "ui/shadcn", "quality/eslint"]),
     availableModules: [...foundationModules, tanstackModule, shadcnModule]
   });
 
-  const manifestFromPlan = (plan: ReturnType<typeof createCreatePlan>): StackkitManifest => ({
+  const manifestFromPlan = (plan: ReturnType<typeof createCreatePlan>): StackkitManifest => createManifest({
     schemaVersion: 1,
     stackkitVersion: "0.0.0",
     projectName: plan.projectName,

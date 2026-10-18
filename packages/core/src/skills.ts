@@ -12,6 +12,7 @@ import {
   type AiSkillTrust,
   type ModuleId,
   type SkillsLock,
+  type SkillsLockInput,
   type StackkitModule
 } from "@berkayorhan/stackkit-schemas";
 import { curatedSkillSourceAllowlist } from "@berkayorhan/stackkit-registry";
@@ -211,7 +212,7 @@ export async function installAiSkills(
   };
 }
 
-export function planSkillSyncCommands(lock: SkillsLock, options: SkillSourceAllowlistOptions = {}): AiSkillInstallCommand[] {
+export function planSkillSyncCommands(lock: SkillsLockInput, options: SkillSourceAllowlistOptions = {}): AiSkillInstallCommand[] {
   const parsed = skillsLockSchema.parse(lock);
   const retriableUnresolved = parsed.unresolved.flatMap((skill) => {
     const retriableSkill = restoreRetriableSkill(skill);
@@ -224,7 +225,7 @@ export function planSkillSyncCommands(lock: SkillsLock, options: SkillSourceAllo
   return planAiSkillInstallCommands(skills, parsed.targets, parsed.linkMode);
 }
 
-export async function applySkillSync(lock: SkillsLock, options: ApplySkillLockOptions): Promise<ApplySkillLockResult> {
+export async function applySkillSync(lock: SkillsLockInput, options: ApplySkillLockOptions): Promise<ApplySkillLockResult> {
   const parsed = skillsLockSchema.parse(lock);
   const result = await installAiSkills(planSkillSyncCommands(parsed, options), options);
   const installed = mergeSkillDependencies(parsed.installed, result.installed);
@@ -250,7 +251,7 @@ export async function applySkillSync(lock: SkillsLock, options: ApplySkillLockOp
   };
 }
 
-export function planSkillUpdateCommands(lock: SkillsLock, options: SkillSourceAllowlistOptions = {}): AiSkillInstallCommand[] {
+export function planSkillUpdateCommands(lock: SkillsLockInput, options: SkillSourceAllowlistOptions = {}): AiSkillInstallCommand[] {
   const parsed = skillsLockSchema.parse(lock);
   const target = parsed.targets.find((candidate) => candidate.enabled);
 
@@ -269,7 +270,7 @@ export function planSkillUpdateCommands(lock: SkillsLock, options: SkillSourceAl
   }));
 }
 
-export async function applySkillUpdate(lock: SkillsLock, options: ApplySkillLockOptions): Promise<ApplySkillLockResult> {
+export async function applySkillUpdate(lock: SkillsLockInput, options: ApplySkillLockOptions): Promise<ApplySkillLockResult> {
   const parsed = skillsLockSchema.parse(lock);
   const result = await installAiSkills(planSkillUpdateCommands(parsed, options), options);
   const refreshedAt = (options.now ?? (() => new Date()))().toISOString();

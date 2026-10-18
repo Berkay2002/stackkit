@@ -7,5 +7,9 @@
     "noEmit": true,
     "rootDir": "../.."
   },
-  "references": []
+  "references": [],
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": []
 }

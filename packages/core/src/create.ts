@@ -36,12 +36,14 @@ import {
   type NativeInitializerPhase,
   type SkippedInitializer,
   type StackkitConfig,
+  type StackkitConfigInput,
   type StackkitManifest,
   type StackkitManifestSource,
   type StackkitModule,
   type StackkitPreset,
   createApplyPhaseSchema,
   createApplyStateSchema,
+  stackkitConfigSchema,
   stackkitModuleSchema
 } from "@berkayorhan/stackkit-schemas";
 
@@ -136,7 +138,8 @@ export type PlannedNativeInitializer = {
 };
 
 export type CreatePlanInput = {
-  config: StackkitConfig;
+  /** Validated (and schema defaults filled) by createCreatePlan. */
+  config: StackkitConfigInput;
   source?: StackkitManifestSource;
   availableModules: readonly StackkitModule[];
   availablePresets?: readonly StackkitPreset[];
@@ -168,8 +171,10 @@ export type ResolveSkillInstallResult = {
   unresolved: AiSkillDependency[];
 };
 
-export function createCreatePlan(input: CreatePlanInput): CreatePlan {
-  const projectName = validateProjectSlug(input.config.projectName);
+export function createCreatePlan(planInput: CreatePlanInput): CreatePlan {
+  // Slug check first: it gives a clearer error than the schema for unsafe names.
+  const projectName = validateProjectSlug(planInput.config.projectName);
+  const input = { ...planInput, config: stackkitConfigSchema.parse(planInput.config) };
   const selectedPresets =
     "preset" in input.config && typeof input.config.preset === "string" ? [input.config.preset] : [];
   const modules = resolveModuleGraph(resolveConfiguredModules(input.config, input.availableModules), {

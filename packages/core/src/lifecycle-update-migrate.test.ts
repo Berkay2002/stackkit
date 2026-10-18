@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   applyAutomaticMigrations,
   applyModuleUpdates,
+  createManifest,
+  defineModule,
   hashContent,
   planModuleMigrations,
   planModuleUpdates,
@@ -24,12 +26,12 @@ describe("update and migration planning", () => {
     const plan = planModuleUpdates({
       manifestModules: [{ id: "web/nextjs", version: "1.0.0", options: {} }],
       availableModules: [
-        {
+        defineModule({
           id: "web/nextjs",
           version: "1.1.0",
           title: "Next.js",
           description: "Next.js app"
-        }
+        })
       ]
     });
 
@@ -38,7 +40,7 @@ describe("update and migration planning", () => {
 
   it("plans pending migrations and separates review-required migrations", () => {
     const plan = planModuleMigrations({
-      manifest: {
+      manifest: createManifest({
         schemaVersion: 1,
         stackkitVersion: "0.0.0",
         projectName: "acme",
@@ -47,9 +49,9 @@ describe("update and migration planning", () => {
         files: [],
         aiSkills: { targets: [], installed: [], unresolved: [] },
         migrations: { applied: [] }
-      },
+      }),
       modules: [
-        {
+        defineModule({
           id: "web/nextjs",
           version: "1.1.0",
           title: "Next.js",
@@ -63,7 +65,7 @@ describe("update and migration planning", () => {
               safety: "review-required"
             }
           ]
-        }
+        })
       ]
     });
 
@@ -73,7 +75,7 @@ describe("update and migration planning", () => {
 
   it("does not plan migrations for modules absent from the manifest", () => {
     const plan = planModuleMigrations({
-      manifest: {
+      manifest: createManifest({
         schemaVersion: 1,
         stackkitVersion: "0.0.0",
         projectName: "acme",
@@ -82,9 +84,9 @@ describe("update and migration planning", () => {
         files: [],
         aiSkills: { targets: [], installed: [], unresolved: [] },
         migrations: { applied: [] }
-      },
+      }),
       modules: [
-        {
+        defineModule({
           id: "web/nextjs",
           version: "1.1.0",
           title: "Next.js",
@@ -98,7 +100,7 @@ describe("update and migration planning", () => {
               safety: "automatic"
             }
           ]
-        }
+        })
       ]
     });
 
@@ -109,7 +111,7 @@ describe("update and migration planning", () => {
 
   it("does not plan migrations when the installed version is outside the migration range", () => {
     const plan = planModuleMigrations({
-      manifest: {
+      manifest: createManifest({
         schemaVersion: 1,
         stackkitVersion: "0.0.0",
         projectName: "acme",
@@ -118,9 +120,9 @@ describe("update and migration planning", () => {
         files: [],
         aiSkills: { targets: [], installed: [], unresolved: [] },
         migrations: { applied: [] }
-      },
+      }),
       modules: [
-        {
+        defineModule({
           id: "web/nextjs",
           version: "1.1.0",
           title: "Next.js",
@@ -134,7 +136,7 @@ describe("update and migration planning", () => {
               safety: "automatic"
             }
           ]
-        }
+        })
       ]
     });
 
@@ -149,7 +151,7 @@ describe("update and migration planning", () => {
 
     const result = await applyAutomaticMigrations({
       projectDirectory: directory,
-      manifest: {
+      manifest: createManifest({
         schemaVersion: 1,
         stackkitVersion: "0.0.0",
         projectName: "acme",
@@ -158,9 +160,9 @@ describe("update and migration planning", () => {
         files: [],
         aiSkills: { targets: [], installed: [], unresolved: [] },
         migrations: { applied: [] }
-      },
+      }),
       modules: [
-        {
+        defineModule({
           id: "web/nextjs",
           version: "1.1.0",
           title: "Next.js",
@@ -174,7 +176,7 @@ describe("update and migration planning", () => {
               safety: "automatic"
             }
           ]
-        }
+        })
       ]
     });
 
@@ -188,7 +190,7 @@ describe("update and migration planning", () => {
 
     const result = await applyAutomaticMigrations({
       projectDirectory: directory,
-      manifest: {
+      manifest: createManifest({
         schemaVersion: 1,
         stackkitVersion: "0.0.0",
         projectName: "acme",
@@ -197,9 +199,9 @@ describe("update and migration planning", () => {
         files: [],
         aiSkills: { targets: [], installed: [], unresolved: [] },
         migrations: { applied: [] }
-      },
+      }),
       modules: [
-        {
+        defineModule({
           id: "web/nextjs",
           version: "1.1.0",
           title: "Next.js",
@@ -213,7 +215,7 @@ describe("update and migration planning", () => {
               safety: "automatic"
             }
           ]
-        }
+        })
       ]
     });
 
@@ -235,7 +237,7 @@ describe("update and migration planning", () => {
 
     const result = await applyAutomaticMigrations({
       projectDirectory: directory,
-      manifest: {
+      manifest: createManifest({
         schemaVersion: 1,
         stackkitVersion: "0.0.0",
         projectName: "acme",
@@ -244,9 +246,9 @@ describe("update and migration planning", () => {
         files: [{ path: "apps/web/legacy.ts", owner: "web/nextjs", hash: hashContent(legacyContent) }],
         aiSkills: { targets: [], installed: [], unresolved: [] },
         migrations: { applied: [] }
-      },
+      }),
       modules: [
-        {
+        defineModule({
           id: "web/nextjs",
           version: "1.1.0",
           title: "Next.js",
@@ -260,7 +262,7 @@ describe("update and migration planning", () => {
               safety: "automatic"
             }
           ]
-        }
+        })
       ]
     });
 
@@ -274,7 +276,7 @@ describe("update and migration planning", () => {
     tempDirectories.push(directory);
 
     const modules = [
-      {
+      defineModule({
         id: "web/nextjs",
         version: "1.1.0",
         title: "Next.js",
@@ -288,9 +290,9 @@ describe("update and migration planning", () => {
             safety: "automatic"
           }
         ]
-      }
+      })
     ];
-    const baseManifest = {
+    const baseManifest = createManifest({
       schemaVersion: 1,
       stackkitVersion: "0.0.0",
       projectName: "acme",
@@ -299,7 +301,7 @@ describe("update and migration planning", () => {
       files: [],
       aiSkills: { targets: [], installed: [], unresolved: [] },
       migrations: { applied: [] }
-    } as const;
+    });
 
     const first = await applyAutomaticMigrations({ projectDirectory: directory, manifest: baseManifest, modules });
     const second = await applyAutomaticMigrations({ projectDirectory: directory, manifest: first.manifest, modules });
@@ -314,7 +316,7 @@ describe("update and migration planning", () => {
 
     const result = await applyModuleUpdates({
       projectDirectory: directory,
-      manifest: {
+      manifest: createManifest({
         schemaVersion: 1,
         stackkitVersion: "0.0.0",
         projectName: "acme",
@@ -323,8 +325,8 @@ describe("update and migration planning", () => {
         files: [],
         aiSkills: { targets: [], installed: [], unresolved: [] },
         migrations: { applied: [] }
-      },
-      availableModules: [{ id: "web/nextjs", version: "1.1.0", title: "Next.js", description: "Next.js app" }]
+      }),
+      availableModules: [defineModule({ id: "web/nextjs", version: "1.1.0", title: "Next.js", description: "Next.js app" })]
     });
 
     expect(result.manifest.modules).toEqual([
@@ -348,24 +350,24 @@ describe("update and migration planning", () => {
     await mkdir(join(directory, "apps", "widget"), { recursive: true });
     await writeFile(join(directory, filePath), oldContent, "utf8");
 
-    const widgetV1 = {
+    const widgetV1 = defineModule({
       id: "demo/widget",
       version: "1.0.0",
       title: "Widget",
       description: "Widget module",
       files: [{ kind: "write", path: filePath, owner: "demo/widget", content: oldContent, overwrite: "if-owned" }]
-    } as const;
-    const widgetV2 = {
+    });
+    const widgetV2 = defineModule({
       id: "demo/widget",
       version: "1.1.0",
       title: "Widget",
       description: "Widget module",
       files: [{ kind: "write", path: filePath, owner: "demo/widget", content: newContent, overwrite: "if-owned" }]
-    } as const;
+    });
 
     const result = await applyModuleUpdates({
       projectDirectory: directory,
-      manifest: {
+      manifest: createManifest({
         schemaVersion: 1,
         stackkitVersion: "0.0.0",
         projectName: "acme",
@@ -375,7 +377,7 @@ describe("update and migration planning", () => {
         expectedFiles: [{ path: filePath, owner: "demo/widget", content: oldContent, hash: hashContent(oldContent) }],
         aiSkills: { targets: [], installed: [], unresolved: [] },
         migrations: { applied: [] }
-      },
+      }),
       availableModules: [widgetV2]
     });
 
@@ -405,25 +407,25 @@ describe("update and migration planning", () => {
     await mkdir(join(directory, "apps", "widget"), { recursive: true });
     await writeFile(join(directory, filePath), userEditedContent, "utf8");
 
-    const widgetV1 = {
+    const widgetV1 = defineModule({
       id: "demo/widget",
       version: "1.0.0",
       title: "Widget",
       description: "Widget module",
       files: [{ kind: "write", path: filePath, owner: "demo/widget", content: oldContent, overwrite: "if-owned" }]
-    } as const;
-    const widgetV2 = {
+    });
+    const widgetV2 = defineModule({
       id: "demo/widget",
       version: "1.1.0",
       title: "Widget",
       description: "Widget module",
       files: [{ kind: "write", path: filePath, owner: "demo/widget", content: newContent, overwrite: "if-owned" }]
-    } as const;
+    });
 
     await expect(
       applyModuleUpdates({
         projectDirectory: directory,
-        manifest: {
+        manifest: createManifest({
           schemaVersion: 1,
           stackkitVersion: "0.0.0",
           projectName: "acme",
@@ -433,7 +435,7 @@ describe("update and migration planning", () => {
           expectedFiles: [{ path: filePath, owner: "demo/widget", content: oldContent, hash: hashContent(oldContent) }],
           aiSkills: { targets: [], installed: [], unresolved: [] },
           migrations: { applied: [] }
-        },
+        }),
         availableModules: [widgetV2]
       })
     ).rejects.toThrow(/modified-owned/);
@@ -452,14 +454,14 @@ describe("update and migration planning", () => {
     await mkdir(join(directory, "apps", "widget"), { recursive: true });
     await writeFile(join(directory, filePath), userEditedContent, "utf8");
 
-    const widget = {
+    const widget = defineModule({
       id: "demo/widget",
       version: "1.0.0",
       title: "Widget",
       description: "Widget module",
       files: [{ kind: "write", path: filePath, owner: "demo/widget", content, overwrite: "if-owned" }]
-    } as const;
-    const manifest = {
+    });
+    const manifest = createManifest({
       schemaVersion: 1,
       stackkitVersion: "0.0.0",
       projectName: "acme",
@@ -468,7 +470,7 @@ describe("update and migration planning", () => {
       files: [{ path: filePath, owner: "demo/widget", hash: hashContent(content) }],
       aiSkills: { targets: [], installed: [], unresolved: [] },
       migrations: { applied: [] }
-    } as const;
+    });
 
     const plan = await planUpdateModules({ projectDirectory: directory, manifest, availableModules: [widget] });
 
