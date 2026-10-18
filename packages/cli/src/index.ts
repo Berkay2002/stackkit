@@ -242,8 +242,9 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--view <path>", "Print one planned file during --dry-run")
     .option("--diff", "Print file-oriented planned changes during --dry-run")
     .option("--include-preview", "Allow preview modules")
+    .option("--force", "Overwrite managed files that drifted from what Stackkit rendered")
     .option("--dir <path>", "Project directory")
-    .action(async (moduleId: string, options: { dryRun?: boolean; view?: string; diff?: boolean; includePreview?: boolean; dir?: string }) => {
+    .action(async (moduleId: string, options: { dryRun?: boolean; view?: string; diff?: boolean; includePreview?: boolean; force?: boolean; dir?: string }) => {
       const projectDirectory = options.dir ? resolve(options.dir) : process.cwd();
       const manifest = await readManifest(projectDirectory);
       const input = {
@@ -251,7 +252,8 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
         manifest,
         moduleIds: [moduleId],
         availableModules: lifecycleModules,
-        includePreview: options.includePreview
+        includePreview: options.includePreview,
+        force: options.force
       };
 
       if (options.dryRun) {
@@ -1110,7 +1112,7 @@ export function formatAddPlan(plan: AddModulesPlan): string {
     `Modules to add: ${modulesToAdd.length > 0 ? modulesToAdd.join(", ") : "none"}`,
     `Resulting modules: ${resultingModules.join(", ")}`,
     `Safe to add: ${plan.safe ? "yes" : "no"}`,
-    ...formatFileChangeLines({ ...plan, deletes: [] }),
+    ...formatFileChangeLines(plan),
     "STACKKIT_PLAN_JSON_START",
     JSON.stringify(withWritePaths(plan), null, 2),
     "STACKKIT_PLAN_JSON_END",

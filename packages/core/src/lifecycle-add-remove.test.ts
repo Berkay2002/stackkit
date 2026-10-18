@@ -4,16 +4,23 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { builtinModules, builtinPresets } from "@berkayorhan/stackkit-registry";
+
 import {
   applyAddModules,
+  applyCreatePlan,
   applyRemoveModules,
   buildCreateFilePlan,
+  createCreatePlan,
   createManifest,
   defineModule,
   hashContent,
   planAddModules,
+  planModuleMigrations,
   planRemoveModules,
+  readManifest,
   readOptionalSkillsLock,
+  runDoctor,
   writeManifest,
   type StackkitManifest
 } from "./index.js";
@@ -148,7 +155,7 @@ describe("planAddModules support, aliases and conflicts", () => {
 
     expect(plan.safe).toBe(false);
     expect(plan.refusals).toEqual([{ path: "vercel.json", reason: "exists-unowned" }]);
-    expect(plan.writes.map((file) => file.path)).toEqual(["vercel.json"]);
+    expect(plan.writes.map((file) => file.path)).not.toContain("vercel.json");
   });
 });
 
@@ -911,3 +918,98 @@ async function createReadmeProject() {
 
   return { projectDirectory, manifest, readmeWithWeb };
 }
+
+describe("applyAddModules on a generated project", () => {
+  async function createNextProject() {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-add-generated-"));
+    tempDirectories.push(parentDirectory);
+    const plan = createCreatePlan({
+      config: { projectName: "acme", preset: "next", modules: [], ai: { skillMode: "skip" } },
+      availableModules: builtinModules,
+      availablePresets: builtinPresets
+    });
+    const { projectDirectory, manifest } = await applyCreatePlan(plan, { parentDirectory });
+
+    return { projectDirectory, manifest };
+  }
+
+  it("writes gap-filled tooling files and re-renders files of installed modules", async () => {
+    const { projectDirectory, manifest } = await createNextProject();
+
+    const { manifest: withApi, plan } = await applyAddModules({
+      projectDirectory,
+      manifest,
+      moduleIds: ["api/fastapi"],
+      availableModules: builtinModules
+    });
+
+    expect(plan.modulesToAdd.map((module) => module.id)).toEqual(expect.arrayContaining(["api/fastapi", "quality/ruff", "quality/mypy"]));
+    await expect(readFile(join(projectDirectory, "ruff.toml"), "utf8")).resolves.toContain("[lint]");
+    await expect(readFile(join(projectDirectory, "mypy.ini"), "utf8")).resolves.toContain("[mypy]");
+    expect(withApi.files.map((file) => file.path)).toEqual(expect.arrayContaining(["ruff.toml", "mypy.ini", "apps/api/pyproject.toml"]));
+    expect((await runDoctor(projectDirectory, { skipRuntimeValidations: true })).checks.filter((check) => check.status === "error")).toEqual([]);
+
+    const { manifest: withAuth } = await applyAddModules({
+      projectDirectory,
+      manifest: withApi,
+      moduleIds: ["auth/auth0-fastapi"],
+      availableModules: builtinModules
+    });
+
+    await expect(readFile(join(projectDirectory, "apps", "api", "pyproject.toml"), "utf8")).resolves.toContain("pyjwt[crypto]");
+    expect(withAuth.modules.map((module) => module.id)).toContain("auth/auth0-fastapi");
+    expect((await runDoctor(projectDirectory, { skipRuntimeValidations: true })).checks.filter((check) => check.status === "error")).toEqual([]);
+  });
+
+  it("refuses to re-render a drifted file of an installed module unless forced, and merges package.json", async () => {
+    const { projectDirectory, manifest } = await createNextProject();
+    const { manifest: withApi } = await applyAddModules({ projectDirectory, manifest, moduleIds: ["api/fastapi"], availableModules: builtinModules });
+    const pyprojectPath = join(projectDirectory, "apps", "api", "pyproject.toml");
+    await writeFile(pyprojectPath, `${await readFile(pyprojectPath, "utf8")}# local edit
+`, "utf8");
+    const packagePath = join(projectDirectory, "apps", "web", "package.json");
+    const webPackage = JSON.parse(await readFile(packagePath, "utf8")) as { dependencies: Record<string, string> };
+    webPackage.dependencies["left-pad"] = "1.0.0";
+    const webPackageContent = `${JSON.stringify(webPackage, null, 2)}
+`;
+    await writeFile(packagePath, webPackageContent, "utf8");
+    // A native initializer edit refreshes the record, so it is not drift.
+    const refreshed = createManifest({
+      ...withApi,
+      files: withApi.files.map((file) => (file.path === "apps/web/package.json" ? { ...file, hash: hashContent(webPackageContent) } : file))
+    });
+    const input = { projectDirectory, manifest: refreshed, moduleIds: ["auth/auth0-nextjs"], availableModules: builtinModules };
+
+    await expect(applyAddModules({ ...input, moduleIds: ["auth/auth0-fastapi"] })).rejects.toThrow(
+      "apps/api/pyproject.toml (modified-owned)"
+    );
+
+    await applyAddModules(input);
+    const merged = JSON.parse(await readFile(packagePath, "utf8")) as { dependencies: Record<string, string> };
+    expect(merged.dependencies).toMatchObject({ "left-pad": "1.0.0", "@auth0/nextjs-auth0": expect.any(String) });
+
+    await applyAddModules({ ...input, manifest: await readManifest(projectDirectory), moduleIds: ["auth/auth0-fastapi"], force: true });
+    await expect(readFile(pyprojectPath, "utf8")).resolves.toContain("pyjwt[crypto]");
+  });
+
+  it("keeps installed module versions so their pending migrations stay pending", async () => {
+    const projectDirectory = await mkdtemp(join(tmpdir(), "stackkit-add-version-"));
+    tempDirectories.push(projectDirectory);
+    const migration = { from: "1.0.0", to: "2.0.0", title: "Bump", safety: "automatic" as const, operations: [] };
+    const workspace = supportedModule({
+      id: "workspace/pnpm-turbo",
+      version: "2.0.0",
+      title: "Workspace",
+      description: "Workspace",
+      provides: ["workspace/node"],
+      migrations: [migration]
+    });
+    const docs = supportedModule({ id: "docs/extra", version: "1.0.0", title: "Docs", description: "Docs" });
+    const manifest = await writeManifest(projectDirectory, baseManifest());
+
+    const { manifest: next } = await applyAddModules({ projectDirectory, manifest, moduleIds: ["docs/extra"], availableModules: [workspace, docs] });
+
+    expect(next.modules.find((module) => module.id === "workspace/pnpm-turbo")?.version).toBe("1.0.0");
+    expect(planModuleMigrations({ manifest: next, modules: [workspace, docs] }).automatic).toEqual([migration]);
+  });
+});

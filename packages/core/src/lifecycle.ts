@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   type AiSkillTarget,
@@ -36,13 +37,10 @@ import {
   buildReconstructedManagedFilePlan,
   filePlanToExpectedFiles,
   manifestModuleToStackkitModule,
-  manifestToConfig,
-  mergeCreateFileOperations,
-  planEnvExampleFiles,
-  renderCreateFiles,
+  renderEnvExampleFiles,
   snapshotStackkitModule
 } from "./create.js";
-import { planPackageChangeFiles } from "./package-files.js";
+import { parsePackageJson } from "./package-files.js";
 import { assertCreateSupport } from "./support.js";
 
 /** Files a lifecycle operation will write or delete, and the drifted files that block it. */
@@ -52,14 +50,12 @@ export type LifecycleFileChanges = {
   refusals: FileConflict[];
 };
 
-export type AddModulesPlan = {
+export type AddModulesPlan = LifecycleFileChanges & {
   schemaVersion: 1;
   operation: "add";
   safe: boolean;
-  refusals: FileConflict[];
   modules: StackkitModule[];
   modulesToAdd: StackkitModule[];
-  writes: PlannedFile[];
   manifest: StackkitManifest;
 };
 
@@ -93,6 +89,8 @@ export type ApplyAddModulesInput = {
   moduleIds: readonly string[];
   availableModules: readonly StackkitModule[];
   includePreview?: boolean;
+  /** Overwrite drifted files instead of refusing. */
+  force?: boolean;
   curatedSkillSourceAllowlist?: readonly string[];
   skillTargets?: readonly AiSkillTarget[];
   runCommand?: RunCommand;
@@ -168,6 +166,7 @@ export async function planAddModules(input: {
   moduleIds: readonly string[];
   availableModules: readonly StackkitModule[];
   includePreview?: boolean;
+  force?: boolean;
 }): Promise<AddModulesPlan> {
   const manifest = createManifest(input.manifest);
   const moduleById = new Map(input.availableModules.map((module) => [module.id, module]));
@@ -183,33 +182,49 @@ export async function planAddModules(input: {
     return module;
   });
   const modules = resolveModuleGraph(selectedModules, { availableModules: input.availableModules });
-  const modulesToAdd = modules.filter((module) => requestedIds.has(module.id) && !existingIds.has(module.id));
+  // Everything the graph brings in (requested, required, gap-filled tooling) is new to the project.
+  const modulesToAdd = modules.filter((module) => !existingIds.has(module.id));
 
   // Same support contract as create: planned modules are never generated, preview needs an explicit opt-in.
   assertCreateSupport({ modules: modulesToAdd, includePreview: input.includePreview });
 
-  const existingModuleById = new Map(manifest.modules.map((module) => [module.id, module]));
-  const nextManifest = createManifest({
+  // Installed modules keep their version (pending migrations stay pending); legacy entries get a snapshot.
+  const installed = createManifest({
     ...manifest,
-    modules: modules.map((module) => ({
-      id: module.id,
-      version: module.version,
-      options: existingModuleById.get(module.id)?.options ?? {},
-      snapshot: existingModuleById.get(module.id)?.snapshot ?? snapshotStackkitModule(module)
+    modules: manifest.modules.map((module) => ({
+      ...module,
+      snapshot: module.snapshot ?? snapshotStackkitModule(moduleById.get(module.id)!)
     }))
   });
-  const writes = await renderAddedModuleFiles(input.projectDirectory, nextManifest, modules, modulesToAdd);
-  const refusals = await detectFileConflicts(input.projectDirectory, { files: writes }, manifest.files);
+  const installedById = new Map(installed.modules.map((module) => [module.id, module]));
+  const nextManifest = createManifest({
+    ...installed,
+    modules: modules.map(
+      (module) =>
+        installedById.get(module.id) ?? {
+          id: module.id,
+          version: module.version,
+          options: {},
+          snapshot: snapshotStackkitModule(module)
+        }
+    )
+  });
+  const changes = await planManagedFileChanges({
+    projectDirectory: input.projectDirectory,
+    manifest: installed,
+    nextManifest,
+    mergeSeededFiles: true,
+    force: input.force
+  });
 
   return {
     schemaVersion: 1,
     operation: "add",
-    safe: refusals.length === 0,
-    refusals,
+    safe: changes.refusals.length === 0,
+    ...changes,
     modules,
     modulesToAdd,
-    writes,
-    manifest: withFileChanges(nextManifest, { writes, deletes: [] })
+    manifest: withFileChanges(nextManifest, changes)
   };
 }
 
@@ -286,7 +301,7 @@ export async function applyAddModules(
     throw new Error(`Add target has conflicts: ${formatConflicts(plan.refusals)}`);
   }
 
-  await applyFilePlanUnchecked(input.projectDirectory, { files: plan.writes });
+  await applyLifecycleChanges(input.projectDirectory, plan);
 
   if (input.runCommand) {
     await runLifecycleHooks(
@@ -540,6 +555,8 @@ async function planManagedFileChanges(input: {
   manifest: StackkitManifest;
   nextManifest: StackkitManifest;
   removedModuleIds?: ReadonlySet<string>;
+  /** Merge render changes to package.json and .env.example into their disk content (add). */
+  mergeSeededFiles?: boolean;
   force?: boolean;
 }): Promise<LifecycleFileChanges> {
   const filesByPath = <T extends { path: string }>(files: readonly T[]) =>
@@ -558,7 +575,18 @@ async function planManagedFileChanges(input: {
     const previous = previousRender.get(path);
     const record = records.get(path);
 
-    if (previous?.hash === file.hash || (previous && !record)) {
+    if (previous?.hash === file.hash) {
+      continue;
+    }
+
+    if (input.mergeSeededFiles && isSeededPath(path)) {
+      const merge = await planSeededFileMerge(input, path, previous, file, record);
+      changes.writes.push(...merge.writes);
+      changes.refusals.push(...merge.refusals);
+      continue;
+    }
+
+    if (previous && !record) {
       continue;
     }
 
@@ -711,24 +739,82 @@ function formatConflicts(conflicts: readonly FileConflict[]): string {
   return conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ");
 }
 
-/** Files owned by the added modules, plus package.json and .env.example changes merged into what is on disk. */
-async function renderAddedModuleFiles(
-  projectDirectory: string,
-  manifest: StackkitManifest,
-  modules: readonly StackkitModule[],
-  modulesToAdd: readonly StackkitModule[]
-): Promise<PlannedFile[]> {
-  const moduleIdsToAdd = new Set(modulesToAdd.map((module) => module.id));
-  const directOperations = renderCreateFiles(manifestToConfig(manifest), modules).filter((operation) =>
-    moduleIdsToAdd.has(operation.owner)
-  );
-  const packageOperations = await planPackageChangeFiles(projectDirectory, modulesToAdd, manifest.files);
-  const envOperations = await planEnvExampleFiles(
-    projectDirectory,
-    modulesToAdd.flatMap((module) => module.envVars ?? [])
-  );
+function isSeededPath(path: string): boolean {
+  return path === ".env.example" || path === "package.json" || path.endsWith("/package.json");
+}
 
-  return buildFilePlan(mergeCreateFileOperations([...directOperations, ...packageOperations, ...envOperations])).files;
+/**
+ * package.json and .env.example are shared with native initializers and users, so add merges the
+ * render change into the disk content instead of replacing it: package.json gets the previous→next
+ * render delta, .env.example gets the keys it does not declare yet. Drift is judged against the
+ * manifest record (native-initializer edits refresh it), and refused unless forced.
+ */
+async function planSeededFileMerge(
+  input: { projectDirectory: string; nextManifest: StackkitManifest; force?: boolean },
+  path: string,
+  previous: PlannedFile | undefined,
+  next: PlannedFile,
+  record: StackkitManifest["files"][number] | undefined
+): Promise<Pick<LifecycleFileChanges, "writes" | "refusals">> {
+  const disk = await readExistingFile(join(input.projectDirectory, path));
+  const drifted = disk === undefined ? record !== undefined : !record || hashContent(disk) !== record.hash;
+
+  if (drifted && !input.force) {
+    const reason = disk === undefined ? "missing-owned" : record ? "modified-owned" : "exists-unowned";
+    return { writes: [], refusals: [{ path, reason }] };
+  }
+
+  const content =
+    disk === undefined
+      ? next.content
+      : path === ".env.example"
+        ? (renderEnvExampleFiles(
+            disk,
+            input.nextManifest.modules.flatMap((module) => manifestModuleToStackkitModule(module).envVars ?? [])
+          )[0]?.content ?? disk)
+        : `${JSON.stringify(mergeJsonChange(parsePackageJson(previous?.content ?? ""), parsePackageJson(next.content), parsePackageJson(disk)), null, 2)}\n`;
+
+  if (content === disk) {
+    return { writes: [], refusals: [] };
+  }
+
+  return {
+    writes: buildFilePlan([{ kind: "write", path, owner: record?.owner ?? next.owner, content, overwrite: "if-owned" }]).files,
+    refusals: []
+  };
+}
+
+/** Apply the base→next change onto target: changed keys take next's value, removed keys go, objects merge per key. */
+function mergeJsonChange(
+  base: Record<string, unknown>,
+  next: Record<string, unknown>,
+  target: Record<string, unknown>
+): Record<string, unknown> {
+  const merged = { ...target };
+
+  for (const key of new Set([...Object.keys(base), ...Object.keys(next)])) {
+    if (isDeepStrictEqual(base[key], next[key])) {
+      continue;
+    }
+
+    if (!(key in next)) {
+      delete merged[key];
+    } else if (isJsonObject(next[key]) && isJsonObject(base[key] ?? {}) && isJsonObject(target[key] ?? {})) {
+      merged[key] = mergeJsonChange(
+        (base[key] ?? {}) as Record<string, unknown>,
+        next[key],
+        (target[key] ?? {}) as Record<string, unknown>
+      );
+    } else {
+      merged[key] = next[key];
+    }
+  }
+
+  return merged;
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 export async function runLifecycleHooks(
