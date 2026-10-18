@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveModuleGraph } from "@berkayorhan/stackkit-core";
+import { resolveModuleGraph } from "./index.js";
 
-import { builtinModules } from "./index.js";
+import { builtinModules } from "@berkayorhan/stackkit-registry";
 
 const byId = (id: string) => builtinModules.find((module) => module.id === id);
 

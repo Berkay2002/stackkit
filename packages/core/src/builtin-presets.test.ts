@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveModuleGraph } from "@berkayorhan/stackkit-core";
+import { resolveModuleGraph } from "./index.js";
 
-import { builtinModules, builtinPresets } from "./index.js";
+import { builtinModules, builtinPresets } from "@berkayorhan/stackkit-registry";
 
 describe("builtinPresets", () => {
   it("contains exactly the official built-in preset ids", () => {

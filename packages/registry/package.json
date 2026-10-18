@@ -12,8 +12,12 @@
   "homepage": "https://github.com/Berkay2002/stackkit#readme",
   "bugs": "https://github.com/Berkay2002/stackkit/issues",
   "files": [
-    "dist"
+    "dist",
+    "!dist/tsconfig.tsbuildinfo"
   ],
+  "engines": {
+    "node": ">=22"
+  },
   "publishConfig": {
     "access": "public"
   },

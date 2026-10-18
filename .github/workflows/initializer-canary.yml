@@ -13,9 +13,9 @@ jobs:
   latest-shadcn:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -37,35 +37,51 @@ jobs:
             fs.writeFileSync(target, file.content);
           }
           JS
-      - name: Compare pinned and latest on the Stackkit baseline
+      # A failure here is a broken harness or pin, not drift: it fails the job without opening an issue.
+      # `pnpm --dir` does not set the dlx child's cwd, so each initializer runs from inside its copy.
+      - name: Run the pinned initializer on the baseline
+        shell: bash
+        run: |
+          cp -a "$RUNNER_TEMP/baseline" "$RUNNER_TEMP/pinned"
+          cd "$RUNNER_TEMP/pinned"
+          pnpm dlx shadcn@4.16.2 init -d --base radix --monorepo -t next --cwd . > "$RUNNER_TEMP/pinned.log" 2>&1
+      - name: Compare latest against pinned
         id: latest
         continue-on-error: true
         shell: bash
         run: |
-          cp -a "$RUNNER_TEMP/baseline" "$RUNNER_TEMP/pinned"
           cp -a "$RUNNER_TEMP/baseline" "$RUNNER_TEMP/latest"
-          pnpm --dir "$RUNNER_TEMP/pinned" dlx shadcn@4.16.2 init -d --base radix --monorepo -t next --cwd . > "$RUNNER_TEMP/pinned.log" 2>&1
-          pnpm --dir "$RUNNER_TEMP/latest" dlx shadcn@latest init -d --base radix --monorepo -t next --cwd . > "$RUNNER_TEMP/latest.log" 2>&1
+          (cd "$RUNNER_TEMP/latest" && pnpm dlx shadcn@latest init -d --base radix --monorepo -t next --cwd . > "$RUNNER_TEMP/latest.log" 2>&1)
           diff -ru --exclude node_modules --exclude pnpm-lock.yaml --exclude .stackkit "$RUNNER_TEMP/pinned" "$RUNNER_TEMP/latest" > "$RUNNER_TEMP/initializer.diff" || true
           if [[ -s "$RUNNER_TEMP/initializer.diff" ]]; then
             echo "The latest initializer changed generated output." >&2
             exit 1
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: initializer-canary
+          if-no-files-found: ignore
           path: |
             ${{ runner.temp }}/latest.log
             ${{ runner.temp }}/pinned.log
             ${{ runner.temp }}/initializer.diff
-      - name: Open drift issue
+      - name: Report drift
         if: steps.latest.outcome == 'failure'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
-            await github.rest.issues.create({
+            const title = "Native initializer latest canary drifted";
+            const body = `The scheduled shadcn latest canary failed or changed generated output. Review the initializer-canary artifact from ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}. Do not update the release pin without reviewing the diff.`;
+            const open = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: "Native initializer latest canary drifted",
-              body: `The scheduled shadcn latest canary failed or changed generated output. Review the initializer-canary artifact from ${context.runId}. Do not update the release pin without reviewing the diff.`
-            })
+              state: "open",
+              per_page: 100
+            });
+            const existing = open.find((issue) => !issue.pull_request && issue.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ owner: context.repo.owner, repo: context.repo.repo, title, body });
+            }

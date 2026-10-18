@@ -5,20 +5,17 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
     "paths": {
-      "@berkayorhan/stackkit": ["packages/cli/src/index.ts"],
-      "@berkayorhan/stackkit-core": ["packages/core/src/index.ts"],
-      "@berkayorhan/stackkit-core/customizer": ["packages/core/src/customizer.ts"],
-      "@berkayorhan/stackkit-registry": ["packages/registry/src/index.ts"],
-      "@berkayorhan/stackkit-schemas": ["packages/schemas/src/index.ts"],
-      "@berkayorhan/stackkit-templates": ["packages/templates/src/index.ts"],
-      "@berkayorhan/stackkit-test-utils": ["packages/test-utils/src/index.ts"]
+      "@berkayorhan/stackkit": ["./packages/cli/src/index.ts"],
+      "@berkayorhan/stackkit-core": ["./packages/core/src/index.ts"],
+      "@berkayorhan/stackkit-core/customizer": ["./packages/core/src/customizer.ts"],
+      "@berkayorhan/stackkit-registry": ["./packages/registry/src/index.ts"],
+      "@berkayorhan/stackkit-schemas": ["./packages/schemas/src/index.ts"],
+      "@berkayorhan/stackkit-templates": ["./packages/templates/src/index.ts"],
+      "@berkayorhan/stackkit-test-utils": ["./packages/test-utils/src/index.ts"]
     }
   }
 }

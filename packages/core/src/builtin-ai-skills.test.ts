@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveAiSkills } from "@berkayorhan/stackkit-core";
+import { resolveAiSkills } from "./index.js";
 
-import { builtinModules, curatedSkillSourceAllowlist } from "./index.js";
+import { builtinModules, curatedSkillSourceAllowlist } from "@berkayorhan/stackkit-registry";
 
 describe("builtin AI skill registry", () => {
   it("contains official AI skill sources verified in the Stackkit plan", () => {

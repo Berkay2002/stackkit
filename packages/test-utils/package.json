@@ -3,24 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "smoke": "vitest run --mode e2e e2e-",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@berkayorhan/stackkit-core": "workspace:*",
     "@berkayorhan/stackkit-registry": "workspace:*"
-  },
-  "devDependencies": {
-    "@berkayorhan/stackkit": "workspace:*"
   }
 }

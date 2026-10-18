@@ -19,7 +19,7 @@ Stackkit publishes these runtime packages as a fixed Changesets group:
 | `@berkayorhan/stackkit-schemas` | `packages/schemas` |
 | `@berkayorhan/stackkit-templates` | `packages/templates` |
 
-The root package, `apps/*`, and `packages/test-utils` are private and should not be bumped for npm unless the user explicitly asks.
+The root package, `apps/*`, and `packages/test-utils` are private. `.changeset/config.json` sets `privatePackages.version: false`, so Changesets never bumps them.
 
 ## Release Workflow
 
@@ -52,9 +52,7 @@ The root package, `apps/*`, and `packages/test-utils` are private and should not
 
 5. Run versioning:
    - `pnpm version-packages`
-   - Review the diff.
-   - If Changesets bumps private package `version` fields only, restore those private package files and remove private changelogs.
-   - Keep generated changelogs for the five published packages.
+   - Review the diff. Only the five published packages should change.
 
 6. Verify:
    - `pnpm install --lockfile-only`
@@ -100,7 +98,6 @@ Use a direct message such as `bump: release stackkit 0.1.2`.
 | Mistake | Fix |
 | --- | --- |
 | Hand-editing versions first | Use Changesets so fixed-group versions and changelogs stay consistent. |
-| Bumping private packages | Restore private package manifests and delete private changelogs. |
 | Publishing before dry-run | Run build and publish dry-run first. |
 | Writing a changeset from the immediate task only | Use npm version state plus git history since the last published version, then summarize all material commits. |
 | Publishing incomplete changelog text | Release a follow-up patch with corrected notes; npm versions are immutable. |
