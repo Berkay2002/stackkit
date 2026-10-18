@@ -14,7 +14,7 @@ const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..", "..", 
 const cliEntry = join(repoRoot, "packages", "cli", "dist", "index.js");
 
 afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true, maxRetries: 5 })));
 });
 
 describe("CLI e2e smoke", () => {

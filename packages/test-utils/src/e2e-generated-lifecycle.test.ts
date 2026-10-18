@@ -18,7 +18,7 @@ const cliEntry = join(repoRoot, "packages", "cli", "dist", "index.js");
 const realToolchain = process.env.STACKKIT_E2E === "1";
 
 afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true, maxRetries: 5 })));
 }, 120_000);
 
 describe("generated multi-stack project", () => {

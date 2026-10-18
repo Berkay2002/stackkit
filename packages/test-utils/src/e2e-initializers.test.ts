@@ -12,7 +12,7 @@ import { simulateNativeInitializer } from "./index.js";
 const tempDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true, maxRetries: 5 })));
 }, 120_000);
 
 describe("generated-project initializer e2e", () => {

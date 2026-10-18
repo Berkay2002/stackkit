@@ -113,7 +113,7 @@ function findWindowsCommand(command: string, env: NodeJS.ProcessEnv, cwd: string
   const extensions = (env.PATHEXT ?? env.Pathext ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
   const candidates = extensions.some((extension) => command.toLowerCase().endsWith(extension.toLowerCase()))
     ? [command]
-    : extensions.map((extension) => `${command}${extension}`);
+    : extensions.map((extension) => `${command}${extension.toLowerCase()}`);
   const directories = /[\\/]/.test(command)
     ? [""]
     : [cwd ?? process.cwd(), ...(env.PATH ?? env.Path ?? "").split(";").filter(Boolean)];
