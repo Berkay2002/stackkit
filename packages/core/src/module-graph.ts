@@ -14,6 +14,9 @@ export type ResolveModuleGraphOptions = {
   availableModules?: readonly StackkitModule[];
 };
 
+export const tsQualityChoices = ["eslint-prettier", "biome"] as const;
+export const pyTypecheckChoices = ["mypy", "pyright"] as const;
+
 export type StackAxes = {
   web?: string;
   api?: string;
@@ -25,9 +28,9 @@ export type StackAxes = {
   with?: readonly string[];
   deploy?: readonly string[];
   /** TypeScript lint+format toolchain. Default `eslint-prettier` is gap-filled; `biome` suppresses it. */
-  tsQuality?: "eslint-prettier" | "biome";
+  tsQuality?: (typeof tsQualityChoices)[number];
   /** Python type checker. Default `mypy` is gap-filled; `pyright` suppresses it. */
-  pyTypecheck?: "mypy" | "pyright";
+  pyTypecheck?: (typeof pyTypecheckChoices)[number];
 };
 
 export type ValidateConfigResult = {
@@ -63,17 +66,35 @@ export function resolveModuleAlias(input: string, modules: readonly StackkitModu
   return matches[0].id;
 }
 
-export function resolveStackAxes(axes: StackAxes, modules: readonly StackkitModule[]): string[] {
+/**
+ * Resolve stack-axis choices to module ids. `selected` holds module ids already chosen by a preset or
+ * config, so axes compose with them: framework context (Next.js, FastAPI, Axum) and an existing
+ * Postgres database or database client come from the selection instead of being re-defaulted.
+ */
+export function resolveStackAxes(
+  axes: StackAxes,
+  modules: readonly StackkitModule[],
+  selected: readonly string[] = []
+): string[] {
   const resolved: string[] = [];
   const api = axes.api ? resolveModuleAlias(axes.api, modules) : undefined;
   const web = axes.web ? resolveModuleAlias(axes.web, modules) : undefined;
   const webModuleDef = web ? modules.find((m) => m.id === web) : undefined;
   const webProvidesReact = webModuleDef?.provides?.includes("react") ?? false;
-  const db = axes.db ? resolveModuleAlias(axes.db, modules) : undefined;
+  const wantsProvider = Boolean(axes.dbProvider && axes.dbProvider !== "byo");
+  const db = axes.db
+    ? resolveModuleAlias(axes.db, modules)
+    : wantsProvider && selected.includes("db/postgres")
+      ? "db/postgres"
+      : undefined;
   const auth = normalizeSingleAuth(axes.auth);
-  const hasNext = web === "web/nextjs";
-  const hasFastApi = api === "api/fastapi";
-  const hasAxum = api === "rust/axum";
+  const hasNext = web === "web/nextjs" || (!web && selected.includes("web/nextjs"));
+  const hasFastApi = api === "api/fastapi" || (!api && selected.includes("api/fastapi"));
+  const hasAxum = api === "rust/axum" || (!api && selected.includes("rust/axum"));
+
+  if (wantsProvider && db !== "db/postgres") {
+    throw new Error("--db-provider requires a Postgres database. Add --db postgres.");
+  }
 
   if (web) {
     if (webProvidesReact) {
@@ -84,9 +105,9 @@ export function resolveStackAxes(axes: StackAxes, modules: readonly StackkitModu
     }
   }
 
-  if (hasFastApi) {
+  if (api === "api/fastapi") {
     appendExistingModules(resolved, modules, ["api/fastapi"]);
-  } else if (hasAxum) {
+  } else if (api === "rust/axum") {
     appendExistingModules(resolved, modules, ["rust/tokio", "rust/axum"]);
   } else if (api) {
     appendModule(resolved, api);
@@ -94,7 +115,9 @@ export function resolveStackAxes(axes: StackAxes, modules: readonly StackkitModu
 
   if (db === "db/postgres") {
     appendExistingModules(resolved, modules, ["db/postgres"]);
-    appendDatabaseClient(resolved, modules, axes.dbClient, { hasFastApi, hasAxum });
+    if (axes.dbClient || !hasDatabaseClient(selected, modules)) {
+      appendDatabaseClient(resolved, modules, axes.dbClient, { hasFastApi, hasAxum });
+    }
     appendDatabaseProvider(resolved, modules, axes.dbProvider);
   } else if (db) {
     appendModule(resolved, db);
@@ -125,6 +148,13 @@ export function resolveStackAxes(axes: StackAxes, modules: readonly StackkitModu
   }
 
   return resolved;
+}
+
+function hasDatabaseClient(selected: readonly string[], modules: readonly StackkitModule[]): boolean {
+  // Every database client provides a `<language>-db` capability (typescript-db, python-db, rust-db, ...).
+  return modules.some(
+    (module) => selected.includes(module.id) && (module.provides ?? []).some((capability) => capability.endsWith("-db"))
+  );
 }
 
 function normalizeSingleAuth(auth: StackAxes["auth"]): string | undefined {

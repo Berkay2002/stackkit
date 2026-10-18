@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveModuleGraph } from "@berkayorhan/stackkit-core";
+import { resolveModuleGraph } from "./index.js";
 import type { SupportLevel } from "@berkayorhan/stackkit-schemas";
 
-import { builtinModules, builtinPresets } from "./index.js";
-import { toolingCatalog } from "./tooling-catalog.js";
+import { builtinModules, builtinPresets, toolingCatalog } from "@berkayorhan/stackkit-registry";
 
 const goldenPresetId = "next-fastapi-postgres-auth0";
 const moduleById = new Map(builtinModules.map((module) => [module.id, module]));

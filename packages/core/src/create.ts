@@ -1,5 +1,5 @@
-import { mkdir, open, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { mkdir, open, readdir, rename, rm } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import {
@@ -25,6 +25,7 @@ import {
   type AiSkillLinkMode,
   type AiSkillMode,
   type AiSkillTarget,
+  type CreateApplyPhase,
   type EnvVarDefinition,
   type FileOperation,
   type ManifestExpectedFile,
@@ -38,9 +39,12 @@ import {
   type StackkitManifestSource,
   type StackkitModule,
   type StackkitPreset,
+  createApplyPhaseSchema,
   createApplyStateSchema,
   stackkitModuleSchema
 } from "@berkayorhan/stackkit-schemas";
+
+export type { CreateApplyPhase } from "@berkayorhan/stackkit-schemas";
 
 import {
   hashContent,
@@ -56,9 +60,7 @@ import { normalizeEnvVars, renderEnvExampleContent } from "./env.js";
 import {
   applyFilePlan,
   buildFilePlan,
-  detectFileConflicts,
   mergeManifestFiles,
-  type FileConflict,
   type FilePlan,
   type ManifestFileRecord
 } from "./file-plan.js";
@@ -242,7 +244,6 @@ function renderStackkitConfig(config: StackkitConfig): FileOperation {
     overwrite: "never",
     content: `${JSON.stringify(
       {
-        $schema: "https://stackkit.dev/schema.json",
         projectName: config.projectName,
         packageManager: config.packageManager,
         workspace: config.workspace,
@@ -273,7 +274,8 @@ export function renderCreateFiles(config: StackkitConfig, modules: readonly Stac
     {
       kind: "write",
       path: "README.md",
-      owner: "docs/readme",
+      // Reserved non-module owner: the README is always generated, not contributed by docs/readme.
+      owner: "stackkit/readme",
       content: composeReadme({ projectName: config.projectName, packageManager: config.packageManager, modules }),
       overwrite: "if-owned"
     }
@@ -481,16 +483,10 @@ export async function applyCreatePlan(
   }
 
   await runCreateApplyPhase(state, "deterministic-files", projectDirectory, options.now, async () => {
-    const conflicts = await detectFileConflicts(projectDirectory, plan.filePlan, []);
-
-    if (conflicts.length > 0) {
-      throw new Error(
-        `Create target has conflicts: ${conflicts.map((conflict) => `${conflict.path} (${conflict.reason})`).join(", ")}`
-      );
-    }
-
+    // On resume, files this phase already wrote match their planned hash and are rewritten as owned;
+    // anything that differs from the plan still conflicts.
     state.files = await applyFilePlan(projectDirectory, plan.filePlan, {
-      ownedFiles: [],
+      ownedFiles: options.resume ? plan.filePlan.files : [],
       conflictLabel: "Create target"
     });
   });
@@ -583,12 +579,17 @@ export async function applyCreatePlan(
   });
 
   await runCreateApplyPhase(state, "verification", projectDirectory, options.now, async () => {
-    state.doctor = await runDoctor(projectDirectory, { runCommand: options.runCommand, modules: plan.selectedModules });
+    // Runtime validations (typecheck, compose config) need installed dependencies, which create does not
+    // install, so verification covers files, manifest, and skills only. `stackkit doctor` runs the rest.
+    state.doctor = await runDoctor(projectDirectory, { modules: plan.selectedModules, skipRuntimeValidations: true });
   });
 
   if (!state.manifest || !state.doctor) {
     throw new Error("Create journal is incomplete after apply.");
   }
+
+  // Every phase completed: the journal (full plan plus absolute local path) is no longer needed.
+  await rm(createApplyStatePath(projectDirectory), { force: true });
 
   return { projectDirectory, manifest: state.manifest, doctor: state.doctor };
 }
@@ -621,8 +622,12 @@ export async function resumeCreatePlan(options: ResumeCreatePlanOptions): Promis
   });
 }
 
+function createApplyStatePath(projectDirectory: string): string {
+  return join(projectDirectory, ".stackkit", "apply-state.json");
+}
+
 export async function readCreateApplyState(projectDirectory: string): Promise<CreateApplyState> {
-  const path = join(projectDirectory, ".stackkit", "apply-state.json");
+  const path = createApplyStatePath(projectDirectory);
   const content = await readExistingFile(path);
   if (content === undefined) {
     throw new Error(`Cannot resume create: ${path} is missing.`);
@@ -752,10 +757,9 @@ async function writeCreateApplyState(
   state: CreateApplyState,
   now: (() => Date) | undefined = undefined
 ): Promise<void> {
-  const stackkitDirectory = join(projectDirectory, ".stackkit");
-  await mkdir(stackkitDirectory, { recursive: true });
+  const journalPath = createApplyStatePath(projectDirectory);
+  await mkdir(dirname(journalPath), { recursive: true });
   state.updatedAt = (now ?? (() => new Date()))().toISOString();
-  const journalPath = join(stackkitDirectory, "apply-state.json");
   const temporaryPath = `${journalPath}.${process.pid}.${Date.now()}.tmp`;
   const handle = await open(temporaryPath, "wx");
   try {
@@ -845,16 +849,7 @@ type PlanNativeInitializersInput = {
   allowExternalState: boolean;
 };
 
-export const createApplyPhases = [
-  "planned",
-  "deterministic-files",
-  "initializers",
-  "skills",
-  "manifest",
-  "verification"
-] as const;
-
-export type CreateApplyPhase = (typeof createApplyPhases)[number];
+export const createApplyPhases = createApplyPhaseSchema.options;
 
 export type CreateApplyState = {
   schemaVersion: 1;
@@ -1066,11 +1061,32 @@ function selectedWebFramework(selectedModuleIds: ReadonlySet<string>): "nextjs" 
   return undefined;
 }
 
-const NATIVE_INITIALIZER_IGNORED_DIRECTORIES = new Set([".git", ".stackkit", "node_modules"]);
+// Never claimed by an initializer: VCS, Stackkit metadata, dependency/build/cache output, and
+// package-manager lockfiles (they change on every install and belong to the user).
+const NATIVE_INITIALIZER_IGNORED_DIRECTORIES = new Set([
+  ".git",
+  ".stackkit",
+  "node_modules",
+  ".turbo",
+  ".next",
+  ".venv",
+  "__pycache__",
+  "dist",
+  "target"
+]);
+const NATIVE_INITIALIZER_IGNORED_FILES = new Set([
+  "pnpm-lock.yaml",
+  "package-lock.json",
+  "yarn.lock",
+  "bun.lock",
+  "bun.lockb",
+  "uv.lock",
+  "Cargo.lock"
+]);
 
 /**
  * Snapshot every source file under the project (hash by relative path), skipping VCS,
- * dependency, and Stackkit-metadata directories. Used to diff the working tree around a
+ * dependency, build-output, lockfile, and Stackkit-metadata paths. Used to diff the working tree around a
  * native initializer run so Stackkit can take ownership of whatever the tool actually wrote
  * rather than trusting a hand-maintained list of expected files.
  */
@@ -1102,7 +1118,7 @@ async function captureProjectFileSnapshot(projectDirectory: string): Promise<Map
         continue;
       }
 
-      if (!entry.isFile()) {
+      if (!entry.isFile() || NATIVE_INITIALIZER_IGNORED_FILES.has(entry.name)) {
         continue;
       }
 
@@ -1220,10 +1236,7 @@ export async function planEnvExampleFiles(
     return [];
   }
 
-  const existing = await readExistingFile(join(projectDirectory, ".env.example"));
-  const existingContent = existing ?? "";
-  const separator = existingContent.length === 0 || existingContent.endsWith("\n") ? "" : "\n";
-  return renderEnvExampleFiles(existingContent, envVars, separator);
+  return renderEnvExampleFiles((await readExistingFile(join(projectDirectory, ".env.example"))) ?? "", envVars);
 }
 
 export async function applyEnvExamples(
@@ -1242,29 +1255,26 @@ export function buildExpectedManagedFilePlan(manifest: StackkitManifest): FilePl
 }
 
 export function buildReconstructedManagedFilePlan(manifest: StackkitManifest): FilePlan {
-  const modules = manifest.modules.map((module) => manifestModuleToStackkitModule(module));
-  const config = {
-    projectName: manifest.projectName,
-    packageManager: manifest.packageManager,
-    workspace: "pnpm-turbo" as const,
-    modules: manifest.modules.map((module) => module.id),
-    registries: {},
-    ai: {
-      skillTargets: manifest.aiSkills.targets.map((target) => target.agent),
-      skillMode: manifest.aiSkills.mode,
-      linkMode: manifest.aiSkills.linkMode
-    }
-  };
-  const createOperations = renderCreateFiles(config, modules);
-  const packageOperations = renderPackageChangeFiles(modules.flatMap((module) => module.packageChanges ?? []));
-  const envOperations = renderEnvExampleFiles("", modules.flatMap((module) => module.envVars ?? []));
-
-  return buildFilePlan(mergeCreateFileOperations([...createOperations, ...packageOperations, ...envOperations]));
+  return buildCreateFilePlan(
+    {
+      projectName: manifest.projectName,
+      packageManager: manifest.packageManager,
+      workspace: "pnpm-turbo",
+      modules: manifest.modules.map((module) => module.id),
+      registries: {},
+      ai: {
+        skillTargets: manifest.aiSkills.targets.map((target) => target.agent),
+        skillMode: manifest.aiSkills.mode,
+        linkMode: manifest.aiSkills.linkMode
+      }
+    },
+    manifest.modules.map((module) => manifestModuleToStackkitModule(module))
+  );
 }
 
 export function buildCreateFilePlan(config: StackkitConfig, modules: readonly StackkitModule[]): FilePlan {
   const createOperations = renderCreateFiles(config, modules);
-  const packageOperations = renderPackageChangeFiles(modules.flatMap((module) => module.packageChanges ?? []));
+  const packageOperations = renderPackageChangeFiles(modules);
   const envOperations = renderEnvExampleFiles("", modules.flatMap((module) => module.envVars ?? []));
 
   return buildFilePlan(mergeCreateFileOperations([...createOperations, ...packageOperations, ...envOperations]));
@@ -1308,23 +1318,24 @@ export function snapshotStackkitModule(module: StackkitModule): StackkitModule {
   return stackkitModuleSchema.parse(JSON.parse(JSON.stringify(module)));
 }
 
-export function renderEnvExampleFiles(
-  existingContent: string,
-  envVars: readonly EnvVarDefinition[],
-  separator = existingContent.length === 0 || existingContent.endsWith("\n") ? "" : "\n"
-): FileOperation[] {
-  if (envVars.length === 0) {
+/** Append env var declarations to `.env.example`, skipping keys the existing content already declares. */
+export function renderEnvExampleFiles(existingContent: string, envVars: readonly EnvVarDefinition[]): FileOperation[] {
+  const existingKeys = new Set(
+    existingContent.split(/\r?\n/).flatMap((line) => /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)?.[1] ?? [])
+  );
+  const additions = normalizeEnvVars(envVars).filter((envVar) => !existingKeys.has(envVar.name));
+
+  if (additions.length === 0) {
     return [];
   }
-
-  const additions = renderEnvExampleContent(normalizeEnvVars(envVars));
 
   return [
     {
       kind: "write",
       path: ".env.example",
-      owner: "docs/env",
-      content: `${existingContent}${separator}${additions}`,
+      // Reserved non-module owner: .env.example is always generated, not contributed by docs/env.
+      owner: "stackkit/env",
+      content: appendFileContent(existingContent, renderEnvExampleContent(additions)),
       overwrite: "if-owned"
     }
   ];

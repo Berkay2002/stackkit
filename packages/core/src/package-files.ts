@@ -1,64 +1,71 @@
 import { join } from "node:path";
 
-import { type FileOperation, type PackageChange } from "@berkayorhan/stackkit-schemas";
+import { type FileOperation, type StackkitModule } from "@berkayorhan/stackkit-schemas";
 
 import { normalizeProjectPath, readExistingFile } from "./fs-utils.js";
 import { applyFilePlan, buildFilePlan, type ManifestFileRecord } from "./file-plan.js";
 
-export async function planPackageChangeFiles(
-  projectDirectory: string,
-  changes: readonly PackageChange[]
-): Promise<FileOperation[]> {
-  const packageByPath = new Map<string, Record<string, unknown>>();
+type PackageChangeSource = Pick<StackkitModule, "id" | "packageChanges">;
 
-  for (const change of changes) {
-    const packagePath = normalizeProjectPath(change.packagePath);
-    const existingPackage = packageByPath.get(packagePath) ?? (await readPackageJson(join(projectDirectory, packagePath)));
-    const nextPackage = mergePackageJson(existingPackage, change);
+/**
+ * Render package.json writes for module package changes. Each file is owned by its existing owner
+ * (`owners`) or else by the first module that changes it; `seeds` holds current package.json contents.
+ */
+export function renderPackageChangeFiles(
+  modules: readonly PackageChangeSource[],
+  options: { seeds?: ReadonlyMap<string, Record<string, unknown>>; owners?: ReadonlyMap<string, string> } = {}
+): FileOperation[] {
+  const packageByPath = new Map<string, { owner: string; pkg: Record<string, unknown> }>();
 
-    packageByPath.set(packagePath, nextPackage);
+  for (const module of modules) {
+    for (const change of module.packageChanges ?? []) {
+      const path = normalizeProjectPath(change.packagePath);
+      const current = packageByPath.get(path) ?? {
+        owner: options.owners?.get(path) ?? module.id,
+        pkg: options.seeds?.get(path) ?? {}
+      };
+
+      packageByPath.set(path, { owner: current.owner, pkg: mergePackageJson(current.pkg, change) });
+    }
   }
 
-  return [...packageByPath.entries()].map(([path, pkg]) => ({
+  return [...packageByPath.entries()].map(([path, { owner, pkg }]) => ({
     kind: "write",
     path,
-    owner: "workspace/pnpm-turbo",
+    owner,
     content: `${JSON.stringify(pkg, null, 2)}\n`,
     overwrite: "if-owned"
   }));
 }
 
-export function renderPackageChangeFiles(changes: readonly PackageChange[]): FileOperation[] {
-  const packageByPath = new Map<string, Record<string, unknown>>();
+/** Like {@link renderPackageChangeFiles}, seeded from the package.json files on disk and their manifest owners. */
+export async function planPackageChangeFiles(
+  projectDirectory: string,
+  modules: readonly PackageChangeSource[],
+  ownedFiles: readonly ManifestFileRecord[] = []
+): Promise<FileOperation[]> {
+  const paths = [
+    ...new Set(modules.flatMap((module) => (module.packageChanges ?? []).map((change) => normalizeProjectPath(change.packagePath))))
+  ];
+  const seeds = new Map(
+    await Promise.all(paths.map(async (path) => [path, await readPackageJson(join(projectDirectory, path))] as const))
+  );
+  const owners = new Map(ownedFiles.map((file) => [normalizeProjectPath(file.path), file.owner]));
 
-  for (const change of changes) {
-    const packagePath = normalizeProjectPath(change.packagePath);
-    const existingPackage = packageByPath.get(packagePath) ?? {};
-    const nextPackage = mergePackageJson(existingPackage, change);
-
-    packageByPath.set(packagePath, nextPackage);
-  }
-
-  return [...packageByPath.entries()].map(([path, pkg]) => ({
-    kind: "write",
-    path,
-    owner: "workspace/pnpm-turbo",
-    content: `${JSON.stringify(pkg, null, 2)}\n`,
-    overwrite: "if-owned"
-  }));
+  return renderPackageChangeFiles(modules, { seeds, owners });
 }
 
 export async function applyPackageChanges(
   projectDirectory: string,
-  changes: readonly PackageChange[]
+  modules: readonly PackageChangeSource[]
 ): Promise<ManifestFileRecord[]> {
-  return await applyFilePlan(projectDirectory, buildFilePlan(await planPackageChangeFiles(projectDirectory, changes)));
+  return await applyFilePlan(projectDirectory, buildFilePlan(await planPackageChangeFiles(projectDirectory, modules)));
 }
 
+/** Merge a module's package.json changes into the base file; the base renderer keeps ownership. */
 export function mergePackageOperations(left: FileOperation, right: FileOperation): FileOperation {
   return {
     ...left,
-    owner: right.owner,
     content: `${JSON.stringify(mergePackageJson(parsePackageJson(left.content ?? ""), parsePackageJson(right.content ?? "")), null, 2)}\n`,
     overwrite: right.overwrite
   };
@@ -96,19 +103,26 @@ export function parsePackageJson(content: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+const packageJsonFields = ["scripts", "dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const;
+
 export function mergePackageJson(
   pkg: Record<string, unknown>,
-  change: PackageChange | Record<string, unknown>
+  change: Record<string, unknown>
 ): Record<string, unknown> {
-  return {
-    ...pkg,
-    ...pickNonPackageFields(change),
-    scripts: mergePackageField(pkg.scripts, change.scripts),
-    dependencies: mergePackageField(pkg.dependencies, change.dependencies),
-    devDependencies: mergePackageField(pkg.devDependencies, change.devDependencies),
-    peerDependencies: mergePackageField(pkg.peerDependencies, change.peerDependencies),
-    optionalDependencies: mergePackageField(pkg.optionalDependencies, change.optionalDependencies)
-  };
+  const merged: Record<string, unknown> = { ...pkg, ...pickNonPackageFields(change) };
+
+  for (const field of packageJsonFields) {
+    const value = mergePackageField(pkg[field], change[field]);
+
+    // Keep a field only when it has entries or the base already declared it (no empty objects added).
+    if (Object.keys(value).length > 0 || field in pkg) {
+      merged[field] = value;
+    } else {
+      delete merged[field];
+    }
+  }
+
+  return merged;
 }
 
 function pickNonPackageFields(input: Record<string, unknown>): Record<string, unknown> {

@@ -1,6 +1,7 @@
+import { builtinPresets, defaultPresetId } from "@berkayorhan/stackkit-registry";
 import { describe, expect, it } from "vitest";
 
-import { decodeRecipe, defineModule, definePreset, encodeRecipe, inspectRecipe } from "./index.js";
+import { createPresetRecipe, decodeRecipe, defineModule, definePreset, encodeRecipe, inspectRecipe } from "./index.js";
 
 describe("offline recipes", () => {
   it("round-trips config without project name", () => {
@@ -25,6 +26,13 @@ describe("offline recipes", () => {
 
   it("rejects invalid recipe codes", () => {
     expect(() => decodeRecipe("bad")).toThrow("Invalid Stackkit recipe code");
+  });
+
+  it("encodes preset recipes only for creatable presets unless preview is allowed", () => {
+    expect(decodeRecipe(encodeRecipe(createPresetRecipe(defaultPresetId, builtinPresets))).preset).toBe(defaultPresetId);
+    expect(() => createPresetRecipe("next", builtinPresets)).toThrow();
+    expect(createPresetRecipe("next", builtinPresets, true).preset).toBe("next");
+    expect(() => createPresetRecipe("nope", builtinPresets)).toThrow("Unknown Stackkit preset");
   });
 
   it("inspects recipes through module resolution", () => {

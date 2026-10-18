@@ -1386,6 +1386,9 @@ export const builtinPresets: StackkitPreset[] = [
   })
 ];
 
+/** The supported golden-path preset used when create or recipe encode names no preset. */
+export const defaultPresetId = "next-fastapi-postgres-auth0";
+
 // Modules and presets are validated once by defineModule/definePreset; the registry is assembled from
 // those parsed values. Registry-level invariants (unique ids) are checked by the registry tests.
 export const builtinRegistry: StackkitRegistry = {

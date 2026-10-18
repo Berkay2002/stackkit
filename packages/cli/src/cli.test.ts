@@ -1,12 +1,20 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type RunCommand } from "@berkayorhan/stackkit-core";
+import { stackkitConfigSchema } from "@berkayorhan/stackkit-schemas";
 
-import { buildConfigFromInteractiveAnswers, createStackkitProgram, isDirectCliExecution, runLocalCommand, stackkitVersion } from "./index.js";
+import {
+  buildConfigFromInteractiveAnswers,
+  createStackkitProgram,
+  formatCliError,
+  isDirectCliExecution,
+  runLocalCommand,
+  stackkitVersion
+} from "./index.js";
 
 const tempDirectories: string[] = [];
 
@@ -647,7 +655,7 @@ describe("createStackkitProgram", () => {
   });
 
   it("encodes and decodes recipes", async () => {
-    const encoded = await runProgram(["recipe", "encode", "--preset", "next"]);
+    const encoded = await runProgram(["recipe", "encode", "--preset", "next", "--include-preview"]);
     const code = encoded.output.trim();
 
     expect(code).toMatch(/^sk_/);
@@ -658,7 +666,7 @@ describe("createStackkitProgram", () => {
   });
 
   it("inspects recipes with resolved modules, capabilities, and conflicts", async () => {
-    const encoded = await runProgram(["recipe", "encode", "--preset", "next"]);
+    const encoded = await runProgram(["recipe", "encode", "--preset", "next", "--include-preview"]);
     const code = encoded.output.trim();
 
     const decoded = await runProgram(["recipe", "decode", code]);
@@ -715,7 +723,7 @@ describe("createStackkitProgram", () => {
   });
 
   it("creates from a recipe and uses the positional project name", async () => {
-    const encoded = await runProgram(["recipe", "encode", "--preset", "next-postgres-clerk"]);
+    const encoded = await runProgram(["recipe", "encode", "--preset", "next-postgres-clerk", "--include-preview"]);
     const code = encoded.output.trim();
     const { output } = await runProgram([
       "create",
@@ -734,7 +742,7 @@ describe("createStackkitProgram", () => {
   });
 
   it("uses --pm to override the recipe package manager in create dry-run", async () => {
-    const encoded = await runProgram(["recipe", "encode", "--preset", "next"]);
+    const encoded = await runProgram(["recipe", "encode", "--preset", "next", "--include-preview"]);
     const code = encoded.output.trim();
     const { output } = await runProgram([
       "create",
@@ -756,7 +764,7 @@ describe("createStackkitProgram", () => {
     const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-"));
     tempDirectories.push(directory);
     const targetDirectory = join(directory, "recipe-project");
-    const encoded = await runProgram(["recipe", "encode", "--preset", "next"]);
+    const encoded = await runProgram(["recipe", "encode", "--preset", "next", "--include-preview"]);
     const code = encoded.output.trim();
 
     await runProgram([
@@ -779,7 +787,7 @@ describe("createStackkitProgram", () => {
     tempDirectories.push(directory);
     const configPath = join(directory, "stackkit.config.json");
     await writeFile(configPath, JSON.stringify({ projectName: "acme", modules: [] }, null, 2), "utf8");
-    const encoded = await runProgram(["recipe", "encode", "--preset", "next"]);
+    const encoded = await runProgram(["recipe", "encode", "--preset", "next", "--include-preview"]);
 
     await expect(runProgram(["create", "acme", "--recipe", encoded.output.trim(), "--config", configPath, "--dry-run"])).rejects.toThrow(
       "Cannot combine --recipe and --config"
@@ -877,13 +885,15 @@ describe("createStackkitProgram", () => {
 
     await program.parseAsync(["create", "--config", configPath, "--dir", targetDirectory, "--yes"], { from: "user" });
 
-    expect(output).toBe(`Created Stackkit project at ${targetDirectory}\n`);
+    expect(output).toContain(`Created Stackkit project at ${targetDirectory}\n`);
     await expect(readFile(join(targetDirectory, "package.json"), "utf8")).resolves.toContain(
       "\"name\": \"acme-dashboard\""
     );
-    await expect(readFile(join(targetDirectory, ".stackkit", "project.json"), "utf8")).resolves.toContain(
-      "\"projectName\": \"acme-dashboard\""
-    );
+    const manifest = JSON.parse(await readFile(join(targetDirectory, ".stackkit", "project.json"), "utf8"));
+    expect(manifest.projectName).toBe("acme-dashboard");
+    // Provenance records the config file that was actually used, not a hardcoded name.
+    expect(manifest.source).toEqual({ kind: "config", path: relative(process.cwd(), configPath).replaceAll("\\", "/") });
+    await expect(stat(join(targetDirectory, ".stackkit", "apply-state.json"))).rejects.toThrow();
   });
 
   it("resumes an interrupted create from its persisted journal", async () => {
@@ -925,11 +935,12 @@ describe("createStackkitProgram", () => {
       { runCommand }
     );
 
-    expect(output).toBe(`Resumed Stackkit project at ${targetDirectory}\n`);
+    expect(output).toContain(`Resumed Stackkit project at ${targetDirectory}\n`);
     await expect(readFile(join(targetDirectory, ".stackkit", "project.json"), "utf8")).resolves.toContain(
       '"planHash"'
     );
-    expect(attempts).toBe(3);
+    // Post-create doctor skips runtime validations, so only the two initializer attempts run commands.
+    expect(attempts).toBe(2);
   });
 
   it("warns on stderr when create skips external-state initializers", async () => {
@@ -957,6 +968,93 @@ describe("createStackkitProgram", () => {
 
     expect(errorOutput).toContain("Skipped clerk init (external-state)");
     expect(errorOutput).toContain("--allow-external-state");
+  });
+
+  it("accepts the documented golden-path create command", async () => {
+    const { output } = await runProgram([
+      "create",
+      "my-app",
+      "--preset",
+      "next-fastapi-postgres-auth0",
+      "--db-provider",
+      "postgres-local",
+      "--skills",
+      "skip",
+      "--dry-run",
+      "--yes"
+    ]);
+
+    const modules = readCreatePlan(output).modules.map((module) => module.id);
+    expect(modules).toEqual(expect.arrayContaining(["db/postgres", "db/sqlalchemy", "postgres/local"]));
+    expect(modules).not.toContain("db/drizzle");
+  });
+
+  it("surfaces post-create doctor errors on stderr and sets a failing exit code", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-cli-doctor-"));
+    tempDirectories.push(directory);
+    const targetDirectory = join(directory, "created-project");
+
+    try {
+      // The fake initializer deletes apps/web/app/page.tsx, which web/nextjs manages and validates.
+      const { output, errorOutput } = await runProgram([
+        "create",
+        "acme",
+        "--web",
+        "next",
+        "--skills",
+        "skip",
+        "--include-preview",
+        "--dir",
+        targetDirectory,
+        "--yes"
+      ], {
+        runCommand: async () => {
+          await rm(join(targetDirectory, "apps", "web", "app", "page.tsx"), { force: true });
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+      });
+
+      expect(errorOutput).toContain("Stackkit doctor found issues");
+      expect(errorOutput).toContain("apps/web/app/page.tsx");
+      expect(process.exitCode).toBe(1);
+      expect(output).toContain(`Next steps:\n  cd ${targetDirectory}\n  pnpm install\n  stackkit doctor\n`);
+    } finally {
+      process.exitCode = undefined;
+    }
+  });
+
+  it("refuses a nameless create when flags are given instead of prompting", async () => {
+    await expect(runProgram(["create", "--preset", "next-fastapi-postgres-auth0", "--dry-run"])).rejects.toThrow(
+      "A project name is required"
+    );
+  });
+
+  it("rejects flags that only apply alongside another flag", async () => {
+    await expect(runProgram(["create", "acme", "--view", "README.md"])).rejects.toThrow(
+      "--view and --diff require --dry-run"
+    );
+    await expect(runProgram(["create", "--retry-initializers", "--dir", "somewhere"])).rejects.toThrow(
+      "--retry-initializers requires --resume"
+    );
+    await expect(runProgram(["info", "--cwd", ".", "--dir", "."])).rejects.toThrow("Cannot combine --cwd and --dir");
+  });
+
+  it("encodes a creatable recipe by default and refuses preview presets without opt-in", async () => {
+    const encoded = await runProgram(["recipe", "encode"]);
+    const decoded = await runProgram(["recipe", "decode", encoded.output.trim(), "--json"]);
+
+    expect(JSON.parse(decoded.output).preset).toBe("next-fastapi-postgres-auth0");
+    await expect(runProgram(["create", "acme", "--recipe", encoded.output.trim(), "--dry-run", "--yes"])).resolves.toBeDefined();
+    await expect(runProgram(["recipe", "encode", "--preset", "next"])).rejects.toThrow("--include-preview");
+  });
+
+  it("formats schema errors as readable lines", () => {
+    const result = stackkitConfigSchema.safeParse({ projectName: "Bad Name", ai: { skillTargets: [] } });
+
+    expect(result.success).toBe(false);
+    const message = formatCliError(result.error);
+    expect(message).toMatch(/^Invalid Stackkit input:\n {2}- projectName: /);
+    expect(message).not.toContain("[");
   });
 
   it("prints an add dry-run summary without modifying the manifest", async () => {

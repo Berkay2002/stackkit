@@ -349,12 +349,13 @@ describe("createCreatePlan", () => {
     );
     expect(JSON.parse(configFile?.content ?? "{}")).toEqual(
       expect.objectContaining({
-        $schema: "https://stackkit.dev/schema.json",
         projectName: "acme",
         packageManager: "pnpm",
         ai: { skillTargets: ["codex"] }
       })
     );
+    // No JSON Schema is published yet, so the config must not point at one.
+    expect(JSON.parse(configFile?.content ?? "{}")).not.toHaveProperty("$schema");
   });
 
   it("plans foundation template files, generated README, and keeps earlier duplicate paths", () => {
@@ -426,7 +427,7 @@ describe("createCreatePlan", () => {
         }),
         expect.objectContaining({
           path: "README.md",
-          owner: "docs/readme",
+          owner: "stackkit/readme",
           content: expect.stringContaining("# acme-dashboard")
         })
       ])
@@ -650,7 +651,7 @@ describe("createCreatePlan", () => {
       }),
       expect.objectContaining({
         path: "README.md",
-        owner: "docs/readme"
+        owner: "stackkit/readme"
       }),
       expect.objectContaining({
         path: "tsconfig.base.json",

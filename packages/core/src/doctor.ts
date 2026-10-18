@@ -17,6 +17,8 @@ export type RunDoctorOptions = {
    * from these, matched by module id; commands recorded in the project manifest are never run.
    */
   modules?: readonly StackkitModule[];
+  /** Omit command-succeeds validations entirely (e.g. right after create, before dependencies are installed). */
+  skipRuntimeValidations?: boolean;
 };
 
 export async function runDoctor(projectDirectory: string, options: RunDoctorOptions = {}): Promise<DoctorResult> {
@@ -79,7 +81,9 @@ export async function runDoctor(projectDirectory: string, options: RunDoctorOpti
     }));
   }
 
-  const trustedModules = new Map((options.modules ?? []).map((module) => [module.id, module]));
+  const trustedModules = new Map(
+    (options.skipRuntimeValidations ? [] : options.modules ?? []).map((module) => [module.id, module])
+  );
 
   for (const module of manifest.modules) {
     const trusted = trustedModules.get(module.id);
