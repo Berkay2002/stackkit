@@ -1,8 +1,7 @@
-import { Buffer } from "node:buffer";
-
 import {
   stackkitRecipeSchema,
   type ModuleId,
+  type StackkitConfig,
   type StackkitModule,
   type StackkitPreset,
   type StackkitRecipe,
@@ -10,6 +9,7 @@ import {
 } from "@berkayorhan/stackkit-schemas";
 
 import { resolveModuleGraph } from "./module-graph.js";
+import { assertCreateSupport } from "./support.js";
 
 export type RecipeInspectView = {
   recipe: StackkitRecipe;
@@ -35,24 +35,35 @@ export type InspectRecipeOptions = {
   availablePresets: readonly StackkitPreset[];
 };
 
-export function encodeRecipe(recipe: StackkitRecipeInput): string {
-  const json = JSON.stringify(stackkitRecipeSchema.parse(recipe));
+// One browser-safe codec shared with the customizer entry.
+export { decodeRecipe, encodeRecipe } from "./customizer.js";
 
-  return `sk_${Buffer.from(json, "utf8").toString("base64url")}`;
+export function recipeFromConfig(config: StackkitConfig): StackkitRecipe {
+  return stackkitRecipeSchema.parse({
+    schemaVersion: 1,
+    preset: config.preset,
+    packageManager: config.packageManager,
+    modules: config.modules,
+    options: config.options ?? {},
+    ai: config.ai
+  });
 }
 
-export function decodeRecipe(code: string): StackkitRecipe {
-  if (!code.startsWith("sk_")) {
-    throw new Error("Invalid Stackkit recipe code");
+/** A recipe for a bare preset. Refuses preview presets without `includePreview`, like create does. */
+export function createPresetRecipe(
+  presetId: string,
+  presets: readonly StackkitPreset[],
+  includePreview = false
+): StackkitRecipe {
+  const preset = presets.find((candidate) => candidate.id === presetId);
+
+  if (!preset) {
+    throw new Error(`Unknown Stackkit preset: ${presetId}`);
   }
 
-  try {
-    const json = Buffer.from(code.slice(3), "base64url").toString("utf8");
+  assertCreateSupport({ modules: [], presets: [preset], includePreview });
 
-    return stackkitRecipeSchema.parse(JSON.parse(json));
-  } catch {
-    throw new Error("Invalid Stackkit recipe code");
-  }
+  return stackkitRecipeSchema.parse({ schemaVersion: 1, preset: presetId, ai: {} });
 }
 
 export function inspectRecipe(recipe: StackkitRecipeInput, options: InspectRecipeOptions): RecipeInspectView {

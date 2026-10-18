@@ -139,6 +139,18 @@ describe("planRemoveModules", () => {
     expect(plan.safe).toBe(false);
     expect(plan.blockedModules).toEqual(["service/manual"]);
   });
+
+  it("rejects modules that are not installed, even when they own manifest files", () => {
+    const manifest = baseManifest([{ path: "README.md", owner: "docs/readme", hash: hashContent("# app\n") }]);
+
+    expect(() =>
+      planRemoveModules({
+        manifest,
+        moduleIds: ["docs/readme"],
+        currentFiles: [{ path: "README.md", owner: "docs/readme", hash: hashContent("# app\n") }]
+      })
+    ).toThrow("Module is not installed: docs/readme");
+  });
 });
 
 describe("applyAddModules", () => {
@@ -707,7 +719,7 @@ describe("applyRemoveModules", () => {
     const manifest = await writeManifest(
       projectDirectory,
       createManifest({
-        ...baseManifest([{ path: "README.md", owner: "docs/readme", hash: hashContent(readmeWithWeb) }]),
+        ...baseManifest([{ path: "README.md", owner: "stackkit/readme", hash: hashContent(readmeWithWeb) }]),
         modules: [
           { id: "workspace/pnpm-turbo", version: "1.0.0", options: {}, snapshot: workspaceModule },
           { id: "web/nextjs", version: "1.0.0", options: {}, snapshot: webModule }
@@ -715,7 +727,7 @@ describe("applyRemoveModules", () => {
         expectedFiles: [
           {
             path: "README.md",
-            owner: "docs/readme",
+            owner: "stackkit/readme",
             content: readmeWithWeb,
             hash: hashContent(readmeWithWeb)
           }
@@ -729,10 +741,10 @@ describe("applyRemoveModules", () => {
     expect(nextReadme).toContain("- Workspace");
     expect(nextReadme).not.toContain("Next.js");
     expect(result.manifest.files).toEqual([
-      { path: "README.md", owner: "docs/readme", hash: hashContent(nextReadme) }
+      { path: "README.md", owner: "stackkit/readme", hash: hashContent(nextReadme) }
     ]);
     expect(result.manifest.expectedFiles).toEqual([
-      { path: "README.md", owner: "docs/readme", content: nextReadme, hash: hashContent(nextReadme) }
+      { path: "README.md", owner: "stackkit/readme", content: nextReadme, hash: hashContent(nextReadme) }
     ]);
   });
 });

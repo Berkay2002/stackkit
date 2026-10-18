@@ -84,7 +84,7 @@ describe("composeReadme", () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: "README.md",
-          owner: "docs/readme",
+          owner: "stackkit/readme",
           content: expect.stringContaining("# acme")
         })
       ])

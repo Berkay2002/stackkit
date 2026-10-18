@@ -1401,6 +1401,9 @@ const builtinPresetDefinitions = [
   })
 ] as const;
 
+/** The supported golden-path preset used when create or recipe encode names no preset. */
+export const defaultPresetId = "next-fastapi-postgres-auth0";
+
 export const builtinPresets = builtinPresetDefinitions.map((preset) =>
   definePreset({ ...preset, support: presetSupport(preset.id) })
 );

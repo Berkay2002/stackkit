@@ -2,21 +2,24 @@
 
 import { readFile } from "node:fs/promises";
 import { readFileSync, realpathSync } from "node:fs";
-import { dirname, join, resolve, win32 } from "node:path";
+import { dirname, join, relative, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Command } from "commander";
 
 import {
   applyAddModules,
-  assertCreateSupport,
   applyAutomaticMigrations,
   applyCreatePlan,
   applyModuleUpdates,
   applyRemoveModules,
+  createPresetRecipe,
+  createSupportedCreatePlan,
   decodeRecipe,
   encodeRecipe,
-  createCreatePlan,
+  getPackageManagerAdapter,
+  recipeFromConfig,
+  resolveCreateConfig,
   planAddModuleFiles,
   planAddModules,
   planModuleMigrations,
@@ -39,7 +42,6 @@ import {
   listStackkitModules,
   loadProjectRegistries,
   resolveSpawnCommand,
-  resolveStackAxes,
   runDoctor,
   searchStackkitModules,
   validateStackkitConfig,
@@ -47,6 +49,8 @@ import {
   writeSkillsLock,
   type AddModulesPlan,
   type AiSkillInstallCommand,
+  type ApplyCreatePlanResult,
+  type CreateAxesInput,
   type CreatePlan,
   type DoctorCheck,
   type FileContentDiff,
@@ -64,8 +68,14 @@ import {
   type StackkitRegistry,
   type StackkitRecipe
 } from "@berkayorhan/stackkit-core";
-import { builtinModules, builtinPresets, builtinRegistry, curatedSkillSourceAllowlist } from "@berkayorhan/stackkit-registry";
-import { stackkitConfigSchema, type AiSkillAgent, type PackageManager, type StackkitConfig } from "@berkayorhan/stackkit-schemas";
+import {
+  builtinModules,
+  builtinPresets,
+  builtinRegistry,
+  curatedSkillSourceAllowlist,
+  defaultPresetId
+} from "@berkayorhan/stackkit-registry";
+import { stackkitConfigSchema, type AiSkillAgent, type StackkitConfig } from "@berkayorhan/stackkit-schemas";
 
 export type CreateDryRunPlan = CreatePlan;
 
@@ -119,7 +129,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--db <alias>", "Database alias")
     .option("--db-client <alias>", "Database client alias")
     .option("--db-provider <alias>", "Postgres host/provider. (neon, supabase, supabase-local, postgres-local)")
-    .option("--db-runtime <mode>", "Database client runtime for scripted-axis creates. (node, edge) — edge applies to Neon + Drizzle", "node")
+    .option("--db-runtime <mode>", "Database client runtime. (node, edge) — edge requires Drizzle, typically with Neon")
     .option("--auth <alias>", "Auth provider alias")
     .option("--ts-quality <choice>", "TypeScript lint+format toolchain. (eslint-prettier, biome)")
     .option("--py-typecheck <choice>", "Python type checker. (mypy, pyright)")
@@ -136,6 +146,13 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .option("--retry-initializers", "Retry an incomplete initializer after reviewing partial output")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (name: string | undefined, options: CreateCommandOptions) => {
+      if ((options.view || options.diff) && !options.dryRun) {
+        throw new Error("--view and --diff require --dry-run");
+      }
+      if (options.retryInitializers && !options.resume) {
+        throw new Error("--retry-initializers requires --resume");
+      }
+
       if (options.resume) {
         if (!options.dir) {
           throw new Error("--resume requires --dir <path>");
@@ -151,11 +168,12 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
           allowExternalState: options.allowExternalState,
           retryInitializers: options.retryInitializers
         });
-        writeProgramOutput(program, `Resumed Stackkit project at ${result.projectDirectory}\n`);
+        writeCreateResult(program, "Resumed", result);
         return;
       }
 
       const plan = await createDryRunPlanFromConfig({
+        nonInteractive: Object.keys(options).length > 0,
         name,
         configPath: options.config,
         preset: options.preset,
@@ -208,13 +226,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
         runCommand,
         allowExternalState: options.allowExternalState
       });
-      for (const initializer of result.manifest.skippedInitializers) {
-        writeProgramError(
-          program,
-          `Skipped ${initializer.name} (${initializer.mutationPolicy}). Re-run with --allow-external-state to enable.\n`
-        );
-      }
-      writeProgramOutput(program, `Created Stackkit project at ${result.projectDirectory}\n`);
+      writeCreateResult(program, "Created", result);
     });
 
   program
@@ -527,15 +539,16 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .command("encode")
     .description("Encode a Stackkit recipe")
     .option("--config <path>", "Path to a Stackkit config file")
-    .option("--preset <preset>", "Preset ID to encode")
-    .action(async (options: { config?: string; preset?: string }) => {
+    .option("--preset <preset>", `Preset ID to encode (default: ${defaultPresetId})`)
+    .option("--include-preview", "Allow encoding a preview preset")
+    .action(async (options: { config?: string; preset?: string; includePreview?: boolean }) => {
       if (options.config && options.preset) {
         throw new Error("Cannot combine recipe encode --config and --preset");
       }
 
       const recipeConfig = options.config
-        ? recipeFromConfig(stackkitConfigSchema.parse(JSON.parse(await readFile(options.config, "utf8"))))
-        : createPresetRecipe(options.preset ?? "next");
+        ? recipeFromConfig(stackkitConfigSchema.parse(await readJsonFile(options.config)))
+        : createPresetRecipe(options.preset ?? defaultPresetId, builtinPresets, options.includePreview);
 
       writeProgramOutput(program, `${encodeRecipe(recipeConfig)}\n`);
     });
@@ -616,7 +629,7 @@ export function createStackkitProgram(programOptions: StackkitProgramOptions = {
     .command("validate [path]")
     .description("Validate a Stackkit config file")
     .action(async (path = "stackkit.config.json") => {
-      const parsed = stackkitConfigSchema.parse(JSON.parse(await readFile(path, "utf8")));
+      const parsed = stackkitConfigSchema.parse(await readJsonFile(path));
       const result = validateStackkitConfig(parsed, builtinModules, builtinPresets);
 
       if (!result.ok) {
@@ -646,11 +659,13 @@ export type CreatePlanOptions = {
   aiTargets?: string[];
   skillMode?: string;
   skillLinkMode?: string;
-  axes?: CreateAxisOptions;
+  axes?: CreateAxesInput;
   dbRuntime?: string;
   recipeCode?: string;
   allowExternalState?: boolean;
   includePreview?: boolean;
+  /** Fail instead of prompting when no project name, config, or recipe is given. */
+  nonInteractive?: boolean;
 };
 
 type CreateCommandOptions = {
@@ -693,7 +708,7 @@ async function listRegistries(configPath: string | undefined): Promise<RegistryS
   }
 
   const resolvedConfigPath = resolve(configPath);
-  const config = stackkitConfigSchema.parse(JSON.parse(await readFile(resolvedConfigPath, "utf8")));
+  const config = stackkitConfigSchema.parse(await readJsonFile(resolvedConfigPath));
   const loaded = await loadProjectRegistries(dirname(resolvedConfigPath), config.registries);
 
   registries.push(
@@ -714,292 +729,56 @@ function registrySummary(registry: StackkitRegistry, source: "builtin" | "local"
   };
 }
 
-type CreateAxisOptions = {
-  web?: string;
-  ui?: string;
-  api?: string;
-  db?: string;
-  dbClient?: string;
-  dbProvider?: string;
-  auth?: string[];
-  tsQuality?: string;
-  pyTypecheck?: string;
-  with?: string[];
-  deploy?: string[];
-};
-
-const TS_QUALITY_CHOICES = ["eslint-prettier", "biome"] as const;
-const PY_TYPECHECK_CHOICES = ["mypy", "pyright"] as const;
-
-type TsQualityChoice = (typeof TS_QUALITY_CHOICES)[number];
-type PyTypecheckChoice = (typeof PY_TYPECHECK_CHOICES)[number];
-
-function parseEnumFlag<T extends string>(
-  value: string | undefined,
-  choices: readonly T[],
-  flag: string
-): T | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (!choices.includes(value as T)) {
-    throw new Error(`Invalid ${flag} value: "${value}". Expected one of: ${choices.join(", ")}.`);
-  }
-
-  return value as T;
-}
-
 export async function createDryRunPlanFromConfig(options: string | CreatePlanOptions | undefined = {}): Promise<CreatePlan> {
   const planOptions = typeof options === "string" ? { configPath: options } : options ?? {};
-  const projectName = planOptions.name ? validateProjectSlug(planOptions.name) : undefined;
-  const axisModules = resolveCreateAxisModules(planOptions.axes);
+  const planInput = {
+    availableModules: builtinModules,
+    availablePresets: builtinPresets,
+    curatedSkillSourceAllowlist,
+    allowExternalState: planOptions.allowExternalState ?? false,
+    includePreview: planOptions.includePreview
+  };
 
-  if (planOptions.recipeCode && planOptions.configPath) {
-    throw new Error("Cannot combine --recipe and --config");
+  if (!planOptions.name && !planOptions.configPath && !planOptions.recipeCode) {
+    if (planOptions.nonInteractive || !process.stdin.isTTY) {
+      throw new Error("A project name is required: stackkit create <name> (or pass --config or --recipe).");
+    }
+
+    return createSupportedCreatePlan({ ...planInput, config: await promptForCreateConfig(), source: { kind: "interactive" } });
   }
 
-  if (planOptions.recipeCode && !projectName) {
-    throw new Error("A project name is required when using --recipe");
-  }
-
-  if (!planOptions.configPath && !planOptions.recipeCode && !projectName) {
-    const interactiveConfig = await promptForCreateConfig();
-
-    return createCliCreatePlan(
-      {
-        config: interactiveConfig,
-        source: { kind: "interactive" },
-        availableModules: builtinModules,
-        availablePresets: builtinPresets,
-        curatedSkillSourceAllowlist,
-        allowExternalState: planOptions.allowExternalState ?? false
-      },
-      planOptions.includePreview
-    );
-  }
-
-  if (planOptions.recipeCode) {
-    const recipe = decodeRecipe(planOptions.recipeCode);
-    const config = stackkitConfigSchema.parse({
-      ...recipe,
-      projectName,
-      packageManager: planOptions.packageManager ?? recipe.packageManager,
-      modules: mergeModuleIds(recipe.modules, axisModules),
-      ai: {
-        ...recipe.ai,
-        ...buildAiOverrides(planOptions)
-      }
-    });
-
-    return createCliCreatePlan(
-      {
-        config,
-        source: { kind: "recipe", code: planOptions.recipeCode },
-        availableModules: builtinModules,
-        availablePresets: builtinPresets,
-        curatedSkillSourceAllowlist,
-        allowExternalState: planOptions.allowExternalState ?? false
-      },
-      planOptions.includePreview
-    );
-  }
-
-  if (!planOptions.configPath) {
-    const hasAxisModules = axisModules.length > 0;
-    const config = stackkitConfigSchema.parse({
-      projectName,
-      packageManager: planOptions.packageManager,
-      preset: planOptions.preset ?? (hasAxisModules ? undefined : "next-fastapi-postgres-auth0"),
-      modules: axisModules,
-      options: dbRuntimeOptions(planOptions.dbRuntime, axisModules),
-      ai: {
-        skillTargets: planOptions.aiTargets ?? ["codex"],
-        skillMode: planOptions.skillMode,
-        linkMode: planOptions.skillLinkMode
-      }
-    });
-
-    return createCliCreatePlan(
-      {
-        config,
-        source: { kind: "scripted" },
-        availableModules: builtinModules,
-        availablePresets: builtinPresets,
-        curatedSkillSourceAllowlist,
-        allowExternalState: planOptions.allowExternalState ?? false
-      },
-      planOptions.includePreview
-    );
-  }
-
-  const rawConfig = JSON.parse(await readFile(planOptions.configPath, "utf8"));
-  const cliOverrides: { projectName?: string; packageManager?: PackageManager | string } = {};
-  if (projectName) {
-    cliOverrides.projectName = projectName;
-  }
-  if (planOptions.packageManager) {
-    cliOverrides.packageManager = planOptions.packageManager;
-  }
-  const configInput: Record<string, unknown> = { ...asObject(rawConfig), ...cliOverrides };
-  const aiOverrides = buildAiOverrides(planOptions);
-  if (aiOverrides) {
-    configInput.ai = { ...asOptionalObject(configInput.ai), ...aiOverrides };
-  }
-  if (axisModules.length > 0) {
-    configInput.modules = mergeModuleIds(readModuleIds(configInput.modules), axisModules);
-  }
-  const config = stackkitConfigSchema.parse(configInput);
-
-  return createCliCreatePlan(
-    {
-      config,
-      source: { kind: "config", path: "stackkit.config.json" },
-      availableModules: builtinModules,
-      availablePresets: builtinPresets,
-      curatedSkillSourceAllowlist,
-      allowExternalState: planOptions.allowExternalState ?? false
-    },
-    planOptions.includePreview
-  );
-}
-
-function createCliCreatePlan(
-  input: Parameters<typeof createCreatePlan>[0],
-  includePreview = false
-): CreatePlan {
-  const plan = createCreatePlan(input);
-  const presetIds = input.config.preset ? [input.config.preset] : [];
-  const presetById = new Map((input.availablePresets ?? []).map((preset) => [preset.id, preset]));
-
-  assertCreateSupport({
-    modules: plan.selectedModules,
-    presets: presetIds.flatMap((presetId) => {
-      const preset = presetById.get(presetId);
-      return preset ? [preset] : [];
-    }),
-    packageManager: input.config.packageManager,
-    includePreview
+  const { config, source } = resolveCreateConfig({
+    name: planOptions.name,
+    configFile: planOptions.configPath
+      ? { path: configProvenancePath(planOptions.configPath), content: await readJsonFile(planOptions.configPath) }
+      : undefined,
+    recipeCode: planOptions.recipeCode,
+    preset: planOptions.preset,
+    defaultPreset: defaultPresetId,
+    packageManager: planOptions.packageManager,
+    ai: { skillTargets: planOptions.aiTargets, skillMode: planOptions.skillMode, linkMode: planOptions.skillLinkMode },
+    axes: planOptions.axes,
+    dbRuntime: planOptions.dbRuntime,
+    availableModules: builtinModules,
+    availablePresets: builtinPresets
   });
 
-  return plan;
+  return createSupportedCreatePlan({ ...planInput, config, source });
 }
 
-function resolveCreateAxisModules(axes: CreateAxisOptions | undefined): string[] {
-  if (!axes || !hasCreateAxes(axes)) {
-    return [];
+/** Record the config path relative to the working directory, so manifests never embed absolute local paths. */
+function configProvenancePath(configPath: string): string {
+  return relative(process.cwd(), resolve(configPath)).replaceAll("\\", "/") || configPath;
+}
+
+async function readJsonFile(path: string): Promise<unknown> {
+  const content = await readFile(path, "utf8");
+
+  try {
+    return JSON.parse(content);
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${path}: ${error instanceof Error ? error.message : String(error)}`);
   }
-
-  const tsQuality: TsQualityChoice | undefined = parseEnumFlag(axes.tsQuality, TS_QUALITY_CHOICES, "--ts-quality");
-  const pyTypecheck: PyTypecheckChoice | undefined = parseEnumFlag(axes.pyTypecheck, PY_TYPECHECK_CHOICES, "--py-typecheck");
-
-  const resolved = resolveStackAxes(
-    {
-      web: axes.web,
-      ui: axes.ui,
-      api: axes.api,
-      db: axes.db,
-      dbClient: axes.dbClient,
-      dbProvider: axes.dbProvider,
-      auth: axes.auth,
-      tsQuality,
-      pyTypecheck,
-      with: axes.with,
-      deploy: axes.deploy
-    },
-    builtinModules
-  );
-
-  if (axes.dbProvider && axes.dbProvider !== "byo" && !resolved.some((id) => id.startsWith("postgres/"))) {
-    throw new Error("--db-provider requires a Postgres database. Add --db postgres.");
-  }
-
-  return resolved;
-}
-
-function dbRuntimeOptions(
-  dbRuntime: string | undefined,
-  modules: readonly string[]
-): Record<string, Record<string, unknown>> | undefined {
-  if (dbRuntime === "edge" && modules.includes("db/drizzle")) {
-    return { "db/drizzle": { runtime: "edge" } };
-  }
-
-  return undefined;
-}
-
-function hasCreateAxes(axes: CreateAxisOptions): boolean {
-  return Boolean(
-    axes.web ||
-      axes.ui ||
-      axes.api ||
-      axes.db ||
-      axes.dbClient ||
-      axes.dbProvider ||
-      axes.tsQuality ||
-      axes.pyTypecheck ||
-      (axes.auth && axes.auth.length > 0) ||
-      (axes.with && axes.with.length > 0) ||
-      (axes.deploy && axes.deploy.length > 0)
-  );
-}
-
-function readModuleIds(value: unknown): string[] {
-  if (value === undefined) {
-    return [];
-  }
-
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
-    throw new Error("Stackkit config modules must be an array of module IDs");
-  }
-
-  return value;
-}
-
-function mergeModuleIds(left: readonly string[], right: readonly string[]): string[] {
-  return [...new Set([...left, ...right])];
-}
-
-function recipeFromConfig(config: StackkitConfig): StackkitRecipe {
-  return {
-    schemaVersion: 1,
-    preset: config.preset,
-    packageManager: config.packageManager,
-    modules: config.modules,
-    options: config.options ?? {},
-    ai: config.ai
-  };
-}
-
-function createPresetRecipe(presetId: string): StackkitRecipe {
-  if (!builtinPresets.some((preset) => preset.id === presetId)) {
-    throw new Error(`Unknown Stackkit preset: ${presetId}`);
-  }
-
-  return {
-    schemaVersion: 1,
-    preset: presetId,
-    packageManager: "pnpm",
-    modules: [],
-    options: {},
-    ai: { skillTargets: ["codex"], skillMode: "install", linkMode: "copy" }
-  };
-}
-
-function asObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Stackkit config must be a JSON object");
-  }
-
-  return value as Record<string, unknown>;
-}
-
-function asOptionalObject(value: unknown): Record<string, unknown> {
-  if (value === undefined) {
-    return {};
-  }
-
-  return asObject(value);
 }
 
 function parseCommaList(value: string | undefined): string[] | undefined {
@@ -1009,21 +788,6 @@ function parseCommaList(value: string | undefined): string[] | undefined {
     .filter(Boolean);
 }
 
-function buildAiOverrides(options: CreatePlanOptions): Record<string, unknown> | undefined {
-  const overrides: Record<string, unknown> = {};
-
-  if (options.aiTargets) {
-    overrides.skillTargets = options.aiTargets;
-  }
-  if (options.skillMode) {
-    overrides.skillMode = options.skillMode;
-  }
-  if (options.skillLinkMode) {
-    overrides.linkMode = options.skillLinkMode;
-  }
-
-  return Object.keys(overrides).length > 0 ? overrides : undefined;
-}
 
 export function formatCreateDryRunPlan(plan: CreatePlan): string {
   const skillTargets = plan.aiSkills.targets.map((target) => `${target.agent} -> ${target.directory}`).join(", ");
@@ -1090,6 +854,43 @@ function formatDoctorChecks(checks: readonly DoctorCheck[]): string {
       ...(check.actions ?? []).map((action) => `  Run: ${action}`)
     ])
     .join("\n");
+}
+
+/**
+ * Report a finished create or resume. The post-create doctor checks files, manifest, and skills only
+ * (runtime validations need installed dependencies), so any problem it finds is real: warnings go to
+ * stderr, errors also set a non-zero exit code.
+ */
+function writeCreateResult(program: Command, verb: "Created" | "Resumed", result: ApplyCreatePlanResult): void {
+  for (const initializer of result.manifest.skippedInitializers) {
+    writeProgramError(
+      program,
+      `Skipped ${initializer.name} (${initializer.mutationPolicy}). Re-run with --allow-external-state to enable.\n`
+    );
+  }
+
+  const issues = result.doctor.checks.filter(
+    (check) => check.status !== "ok" && !check.id.startsWith("initializers.skipped.")
+  );
+  if (issues.length > 0) {
+    const summary = result.doctor.ok ? "Stackkit doctor warnings" : "Stackkit doctor found issues";
+    writeProgramError(program, `${summary}:\n${formatDoctorChecks(issues)}\n`);
+  }
+  if (!result.doctor.ok) {
+    process.exitCode = 1;
+  }
+
+  writeProgramOutput(
+    program,
+    [
+      `${verb} Stackkit project at ${result.projectDirectory}`,
+      "Next steps:",
+      `  cd ${result.projectDirectory}`,
+      `  ${getPackageManagerAdapter(result.manifest.packageManager).installCommand.join(" ")}`,
+      "  stackkit doctor",
+      ""
+    ].join("\n")
+  );
 }
 
 function formatModuleDiscovery(modules: readonly ModuleDiscoveryEntry[], json = false): string {
@@ -1226,6 +1027,10 @@ function targetDirectoryForPlan(plan: CreatePlan, explicitTargetDirectory: strin
 }
 
 function projectDirectoryFromOptions(options: { cwd?: string; dir?: string }): string {
+  if (options.cwd && options.dir) {
+    throw new Error("Cannot combine --cwd and --dir");
+  }
+
   return resolve(options.cwd ?? options.dir ?? process.cwd());
 }
 
@@ -1524,7 +1329,7 @@ async function promptForCreateConfig(): Promise<StackkitConfig> {
   const preset = await prompts.select({
     message: "Preset",
     options: builtinPresets
-      .filter((presetItem) => presetItem.support.level === "supported")
+      .filter((presetItem) => isPubliclySelectable(presetItem.support))
       .map((presetItem) => ({
         value: presetItem.id,
         label: presetItem.title,
@@ -1602,9 +1407,23 @@ export async function runStackkitCli(argv: readonly string[] = process.argv): Pr
   try {
     await createStackkitProgram().parseAsync(argv);
   } catch (error) {
-    process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`Error: ${formatCliError(error)}\n`);
     process.exitCode = 1;
   }
+}
+
+export function formatCliError(error: unknown): string {
+  // Zod schema failures carry structured issues; print them as `path: message` lines, not raw JSON.
+  if (error instanceof Error && error.name === "ZodError" && "issues" in error && Array.isArray(error.issues)) {
+    const issues = error.issues as { path: PropertyKey[]; message: string }[];
+
+    return [
+      "Invalid Stackkit input:",
+      ...issues.map((issue) => `  ${issue.path.length > 0 ? issue.path.map(String).join(".") : "(root)"}: ${issue.message}`)
+    ].join("\n");
+  }
+
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function isDirectCliExecution(

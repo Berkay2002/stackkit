@@ -11,6 +11,8 @@ import type { RunCommand } from "./package-manager.js";
 
 export type RunDoctorOptions = {
   runCommand?: RunCommand;
+  /** Omit command-succeeds validations entirely (e.g. right after create, before dependencies are installed). */
+  skipRuntimeValidations?: boolean;
 };
 
 export async function runDoctor(projectDirectory: string, options: RunDoctorOptions = {}): Promise<DoctorResult> {
@@ -76,6 +78,10 @@ export async function runDoctor(projectDirectory: string, options: RunDoctorOpti
   for (const module of manifest.modules) {
     for (const validation of module.snapshot?.validate ?? []) {
       if (validation.kind === "command-succeeds") {
+        if (options.skipRuntimeValidations) {
+          continue;
+        }
+
         if (!options.runCommand) {
           checks.push(createDoctorCheck({
             id: `modules.${module.id}.command-${slugifyCheckId([validation.command, ...validation.args].join("-"))}`,

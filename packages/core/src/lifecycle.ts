@@ -160,6 +160,12 @@ export function planRemoveModules(input: {
 }): RemoveModulesPlan {
   const manifest = createManifest(input.manifest);
   const removeIds = new Set(input.moduleIds);
+  const notInstalled = [...removeIds].filter((moduleId) => !manifest.modules.some((module) => module.id === moduleId));
+
+  if (notInstalled.length > 0) {
+    throw new Error(`Module is not installed: ${notInstalled.join(", ")}`);
+  }
+
   const currentFileByPath = new Map(input.currentFiles.map((file) => [normalizeProjectPath(file.path), file]));
   const filesToRemove = manifest.files.filter((file) => removeIds.has(file.owner));
   const refusals = filesToRemove
@@ -260,7 +266,7 @@ export async function applyAddModules(input: ApplyAddModulesInput): Promise<{ ma
   const nextManifest = await writeManifest(input.projectDirectory, {
     ...plan.manifest,
     files: mergeManifestFiles(input.manifest.files, files),
-    expectedFiles: mergeExpectedFiles(input.manifest.expectedFiles, filePlanToExpectedFiles(fullFilePlan)),
+    expectedFiles: mergeManifestFiles(input.manifest.expectedFiles, filePlanToExpectedFiles(fullFilePlan)),
     aiSkills: nextAiSkills
   });
 
@@ -592,7 +598,7 @@ export async function applyModuleUpdates(input: {
     ...manifest,
     modules: nextModules,
     files: mergeManifestFiles(manifest.files, writtenFiles),
-    expectedFiles: mergeExpectedFiles(manifest.expectedFiles, filePlanToExpectedFiles(regeneratedPlan))
+    expectedFiles: mergeManifestFiles(manifest.expectedFiles, filePlanToExpectedFiles(regeneratedPlan))
   });
 
   return { manifest: nextManifest, updates: updatePlan.updates };
@@ -621,10 +627,7 @@ export async function planAddModuleFiles(input: {
     },
     plan.modules
   ).filter((operation) => moduleIdsToAdd.has(operation.owner));
-  const packageOperations = await planPackageChangeFiles(
-    input.projectDirectory,
-    plan.modulesToAdd.flatMap((module) => module.packageChanges ?? [])
-  );
+  const packageOperations = await planPackageChangeFiles(input.projectDirectory, plan.modulesToAdd, input.manifest.files);
   const envOperations = await planEnvExampleFiles(
     input.projectDirectory,
     plan.modulesToAdd.flatMap((module) => module.envVars ?? [])
@@ -704,21 +707,3 @@ async function resolveAddSkillResult(
   };
 }
 
-function mergeExpectedFiles(
-  existingFiles: readonly StackkitManifest["expectedFiles"][number][],
-  newFiles: readonly StackkitManifest["expectedFiles"][number][]
-): StackkitManifest["expectedFiles"] {
-  const fileByPath = new Map<string, StackkitManifest["expectedFiles"][number]>();
-
-  for (const file of existingFiles) {
-    const path = normalizeProjectPath(file.path);
-    fileByPath.set(path, { ...file, path });
-  }
-
-  for (const file of newFiles) {
-    const path = normalizeProjectPath(file.path);
-    fileByPath.set(path, { ...file, path });
-  }
-
-  return [...fileByPath.values()];
-}

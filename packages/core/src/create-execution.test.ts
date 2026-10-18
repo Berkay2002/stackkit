@@ -38,12 +38,38 @@ describe("create execution helpers", () => {
       }
     ];
 
-    await applyPackageChanges(directory, changes);
+    const records = await applyPackageChanges(directory, [{ id: "web/nextjs", packageChanges: changes }]);
 
     const pkg = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
     expect(pkg.scripts.dev).toBe("turbo run dev");
     expect(pkg.dependencies.next).toBe("^15.0.0");
     expect(pkg.devDependencies.typescript).toBe("^5.9.3");
+    // Empty change fields are not added as empty objects.
+    expect(pkg).not.toHaveProperty("peerDependencies");
+    expect(pkg).not.toHaveProperty("optionalDependencies");
+    expect(records).toEqual([expect.objectContaining({ path: "package.json", owner: "web/nextjs" })]);
+  });
+
+  it("only appends env vars that .env.example does not already declare", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stackkit-env-dedupe-"));
+    tempDirectories.push(directory);
+    await writeFile(join(directory, ".env.example"), "# API\nDATABASE_URL=postgres://localhost/app\n", "utf8");
+    const databaseUrl: EnvVarDefinition = {
+      name: "DATABASE_URL",
+      description: "Database connection string.",
+      required: true,
+      example: "",
+      target: "api"
+    };
+
+    await expect(planEnvExampleFiles(directory, [databaseUrl])).resolves.toEqual([]);
+
+    const operations = await planEnvExampleFiles(directory, [
+      databaseUrl,
+      { name: "AUTH0_DOMAIN", description: "Auth0 domain.", required: true, example: "", target: "web" }
+    ]);
+    expect(operations[0]?.content?.match(/DATABASE_URL=/g)).toHaveLength(1);
+    expect(operations[0]?.content).toContain("AUTH0_DOMAIN=");
   });
 
   it("writes .env.example entries from env var declarations", async () => {
@@ -191,7 +217,7 @@ describe("create execution helpers", () => {
     expect(JSON.parse(JSON.stringify(plan))).not.toHaveProperty("selectedModules");
   });
 
-  it("records merged env example files under the docs/env owner", async () => {
+  it("records merged env example files under the reserved stackkit/env owner", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-env-owner-"));
     tempDirectories.push(parentDirectory);
 
@@ -237,7 +263,7 @@ describe("create execution helpers", () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: ".env.example",
-          owner: "docs/env"
+          owner: "stackkit/env"
         })
       ])
     );

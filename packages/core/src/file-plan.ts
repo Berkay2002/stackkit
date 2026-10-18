@@ -1,8 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { type FileOperation } from "@berkayorhan/stackkit-schemas";
-
 import { hashContent, normalizeProjectPath, readExistingFile } from "./fs-utils.js";
 
 export type FileOverwritePolicy = "never" | "if-owned" | "always";
@@ -138,28 +136,11 @@ export async function applyFilePlanUnchecked(projectDirectory: string, plan: Fil
   return records;
 }
 
-export function filePlanToOperations(plan: FilePlan): FileOperation[] {
-  return plan.files.map((file) => ({
-    kind: "write",
-    path: file.path,
-    owner: file.owner,
-    content: file.content,
-    overwrite: file.overwrite
-  }));
-}
+/** Merge file records by normalized path; later records replace earlier ones. */
+export function mergeManifestFiles<T extends { path: string }>(existingFiles: readonly T[], newFiles: readonly T[]): T[] {
+  const fileByPath = new Map<string, T>();
 
-export function mergeManifestFiles(
-  existingFiles: readonly ManifestFileRecord[],
-  newFiles: readonly ManifestFileRecord[]
-): ManifestFileRecord[] {
-  const fileByPath = new Map<string, ManifestFileRecord>();
-
-  for (const file of existingFiles) {
-    const path = normalizeProjectPath(file.path);
-    fileByPath.set(path, { ...file, path });
-  }
-
-  for (const file of newFiles) {
+  for (const file of [...existingFiles, ...newFiles]) {
     const path = normalizeProjectPath(file.path);
     fileByPath.set(path, { ...file, path });
   }

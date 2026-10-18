@@ -84,9 +84,8 @@ describe("applyCreatePlan", () => {
     );
     expect(result.manifest).toEqual(manifest);
 
-    const applyState = await readCreateApplyState(result.projectDirectory);
-    expect(applyState.planHash).toBe(plan.planHash);
-    expect(Object.values(applyState.phases).every((phase) => phase.status === "completed")).toBe(true);
+    // A completed create removes its resume journal (it holds the absolute path and full plan).
+    await expect(readCreateApplyState(result.projectDirectory)).rejects.toThrow("is missing");
   });
 
   it("writes to an explicit target directory", async () => {
@@ -643,8 +642,8 @@ describe("applyCreatePlan", () => {
     expect(envContent).toBe(plan.filePlan.files.find((file) => file.path === ".env.example")?.content);
     expect(result.manifest.files).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: "package.json", owner: "workspace/pnpm-turbo" }),
-        expect.objectContaining({ path: ".env.example", owner: "docs/env" })
+        expect.objectContaining({ path: "package.json", owner: "web/nextjs" }),
+        expect.objectContaining({ path: ".env.example", owner: "stackkit/env" })
       ])
     );
   });
@@ -895,8 +894,112 @@ describe("applyCreatePlan", () => {
     expect(result.manifest.planHash).toBe(plan.planHash);
     expect(runCommand).toHaveBeenCalledTimes(3);
     expect(runCommand.mock.calls.filter(([, args]) => args.includes("fixture-success@1.0.0"))).toHaveLength(1);
-    const completedState = await readCreateApplyState(projectDirectory);
-    expect(Object.values(completedState.phases).every((phase) => phase.status === "completed")).toBe(true);
+    await expect(readCreateApplyState(projectDirectory)).rejects.toThrow("is missing");
     expect((await readdir(join(projectDirectory, ".stackkit"))).some((entry) => entry.endsWith(".tmp"))).toBe(false);
+  });
+
+  it("resumes when the deterministic-files phase was interrupted after a partial write", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-partial-"));
+    tempDirectories.push(parentDirectory);
+    const projectDirectory = join(parentDirectory, "partial-app");
+    const plan = createCreatePlan({
+      config: {
+        projectName: "partial-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo"],
+        ai: { skillTargets: ["codex"], skillMode: "skip" }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "Workspace foundation",
+          nativeInitializers: [
+            {
+              name: "fixture init",
+              phase: "integration",
+              tool: { execution: "package-manager-dlx", package: "fixture-init@1.0.0" },
+              args: ["init"],
+              cwd: ".",
+              mutationPolicy: "merge-owned",
+              expectedFiles: []
+            }
+          ]
+        })
+      ]
+    });
+
+    await expect(
+      applyCreatePlan(plan, { parentDirectory, runCommand: async () => ({ exitCode: 1, stdout: "", stderr: "boom" }) })
+    ).rejects.toThrow("Native initializer failed");
+
+    // Simulate a crash midway through writing deterministic files.
+    const state = await readCreateApplyState(projectDirectory);
+    state.phases["deterministic-files"] = { status: "running" };
+    state.phases.initializers = { status: "pending" };
+    state.initializerProgress = {};
+    await writeFile(join(projectDirectory, ".stackkit", "apply-state.json"), `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    await rm(join(projectDirectory, "README.md"));
+
+    const result = await resumeCreatePlan({
+      projectDirectory,
+      runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" })
+    });
+
+    expect(result.manifest.planHash).toBe(plan.planHash);
+    await expect(readFile(join(projectDirectory, "README.md"), "utf8")).resolves.toBe(
+      plan.filePlan.files.find((file) => file.path === "README.md")?.content
+    );
+  });
+
+  it("does not snapshot lockfiles written by native initializers into the manifest", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "stackkit-create-lockfile-"));
+    tempDirectories.push(parentDirectory);
+    const plan = createCreatePlan({
+      config: {
+        projectName: "lock-app",
+        packageManager: "pnpm",
+        workspace: "pnpm-turbo",
+        modules: ["workspace/pnpm-turbo"],
+        ai: { skillTargets: ["codex"], skillMode: "skip" }
+      },
+      availableModules: [
+        defineModule({
+          id: "workspace/pnpm-turbo",
+          version: "1.0.0",
+          title: "pnpm and Turborepo",
+          description: "Workspace foundation",
+          nativeInitializers: [
+            {
+              name: "fixture init",
+              phase: "integration",
+              tool: { execution: "package-manager-dlx", package: "fixture-init@1.0.0" },
+              args: ["init"],
+              cwd: ".",
+              mutationPolicy: "merge-owned",
+              expectedFiles: ["components.json"]
+            }
+          ]
+        })
+      ]
+    });
+
+    const result = await applyCreatePlan(plan, {
+      parentDirectory,
+      runCommand: async (_command, _args, options) => {
+        await writeFile(join(options.cwd!, "components.json"), "{}\n", "utf8");
+        await writeFile(join(options.cwd!, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+        await mkdir(join(options.cwd!, "packages", "ui"), { recursive: true });
+        await writeFile(join(options.cwd!, "packages", "ui", "yarn.lock"), "# lock\n", "utf8");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+    });
+
+    const paths = result.manifest.files.map((file) => file.path);
+    expect(paths).toContain("components.json");
+    expect(paths).not.toContain("pnpm-lock.yaml");
+    expect(paths).not.toContain("packages/ui/yarn.lock");
   });
 });

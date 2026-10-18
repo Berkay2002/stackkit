@@ -51,7 +51,10 @@ export type {
   InspectRecipeOptions,
   RecipeInspectView
 } from "./recipe.js";
-export { inspectRecipe } from "./recipe.js";
+export { inspectRecipe, recipeFromConfig, createPresetRecipe } from "./recipe.js";
+
+export type { CreateAxesInput, ResolveCreateConfigInput, ResolvedCreateConfig } from "./create-config.js";
+export { resolveCreateConfig, createSupportedCreatePlan, dbRuntimeChoices } from "./create-config.js";
 
 export { defineModule, definePreset, loadProjectRegistries } from "./registry.js";
 

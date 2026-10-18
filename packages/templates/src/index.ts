@@ -186,7 +186,7 @@ export function renderPnpmTurboFoundation({
     writeFile(
       ".gitignore",
       workspaceOwner,
-      "node_modules\n.turbo\ndist\n.next\n.venv\n__pycache__\n*.pyc\n.env\n.env.*\n!.env.example\n"
+      "node_modules\n.turbo\ndist\n.next\n.venv\n__pycache__\n*.pyc\n.env\n.env.*\n!.env.example\n.stackkit/apply-state.json\n"
     )
   ];
 
