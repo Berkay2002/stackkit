@@ -24,15 +24,20 @@ type PnpmTurboFoundationOptions = {
   packageManagerField?: string;
   workspaceFile?: string;
   tsTooling?: TsToolingChoice;
+  /** Env var names Turborepo passes through to tasks (it runs tasks in strict env mode). */
+  passThroughEnv?: readonly string[];
 };
 
 type NextjsAppOptions = {
   appName: string;
+  projectName?: string;
   packageManagerField?: string;
   tsTooling?: TsToolingChoice;
   withShadcn?: boolean;
   withAuth0?: boolean;
   withTodoApi?: boolean;
+  /** Load the monorepo root .env (the generated .env.example lives at the root). */
+  loadRootEnv?: boolean;
 };
 
 type FastApiServiceOptions = {
@@ -41,6 +46,15 @@ type FastApiServiceOptions = {
   pyTypecheck?: PyTypecheckChoice;
   withSqlAlchemy?: boolean;
   withAuth0?: boolean;
+  /** Load the monorepo root .env in the dev script (the generated .env.example lives at the root). */
+  loadRootEnv?: boolean;
+};
+
+/** An environment variable declared by a selected module, as the compose renderer needs it. */
+export type DockerEnvVar = {
+  name: string;
+  required: boolean;
+  target: "root" | "web" | "api" | "db";
 };
 
 type DockerFilesOptions = {
@@ -49,6 +63,7 @@ type DockerFilesOptions = {
   runBuildCommand?: readonly string[];
   runStartCommand?: readonly string[];
   serviceTargets?: readonly DockerServiceTarget[];
+  envVars?: readonly DockerEnvVar[];
   withPostgres?: boolean;
   withSqlAlchemy?: boolean;
 };
@@ -56,11 +71,17 @@ type DockerFilesOptions = {
 const workspaceOwner = "workspace/pnpm-turbo";
 type DockerServiceTarget = "web" | "api";
 
+/** Workspace package name shared by every generated app, so `pnpm --filter @<project>/<app>` works. */
+export function workspacePackageName(projectName: string | undefined, appName: string): string {
+  return `@${projectName ?? "acme"}/${appName}`;
+}
+
 export function renderPnpmTurboFoundation({
   projectName,
   packageManagerField = "pnpm@10.5.1",
   workspaceFile,
-  tsTooling = "eslint-prettier"
+  tsTooling = "eslint-prettier",
+  passThroughEnv = []
 }: PnpmTurboFoundationOptions): FileOperation[] {
   const workspaceManifest = workspaceFile ?? (packageManagerField.startsWith("pnpm@") ? "pnpm-workspace.yaml" : undefined);
   const lintFormatDevDependencies =
@@ -112,6 +133,7 @@ export function renderPnpmTurboFoundation({
       `${JSON.stringify(
         {
           $schema: "https://turbo.build/schema.json",
+          ...(passThroughEnv.length > 0 ? { globalPassThroughEnv: [...new Set(passThroughEnv)].sort() } : {}),
           tasks: {
             dev: {
               cache: false,
@@ -186,7 +208,7 @@ export function renderPnpmTurboFoundation({
     writeFile(
       ".gitignore",
       workspaceOwner,
-      "node_modules\n.turbo\ndist\n.next\n.venv\n__pycache__\n*.pyc\n.env\n.env.*\n!.env.example\n"
+      "node_modules\n.turbo\ndist\n.next\nnext-env.d.ts\n*.tsbuildinfo\n.venv\n__pycache__\n*.pyc\n.env\n.env.*\n!.env.example\n"
     )
   ];
 
@@ -199,11 +221,13 @@ export function renderPnpmTurboFoundation({
 
 export function renderNextjsApp({
   appName,
+  projectName,
   packageManagerField,
   tsTooling = "eslint-prettier",
   withShadcn = false,
   withAuth0 = false,
-  withTodoApi = false
+  withTodoApi = false,
+  loadRootEnv = false
 }: NextjsAppOptions): FileOperation[] {
   const root = `apps/${appName}`;
   const lintFormatScripts =
@@ -233,7 +257,7 @@ export function renderNextjsApp({
   }
 
   const packageJson: Record<string, unknown> = {
-    name: `@acme/${appName}`,
+    name: workspacePackageName(projectName, appName),
     private: true,
     type: "module",
     scripts: {
@@ -271,7 +295,7 @@ export function renderNextjsApp({
     writeFile(
       `${root}/next.config.ts`,
       "web/nextjs",
-      'import type { NextConfig } from "next";\n\nconst nextConfig: NextConfig = {};\n\nexport default nextConfig;\n'
+      renderNextConfig(loadRootEnv)
     ),
     writeFile(
       `${root}/tsconfig.json`,
@@ -314,6 +338,27 @@ export function renderNextjsApp({
   }
 
   return files;
+}
+
+function renderNextConfig(loadRootEnv: boolean): string {
+  if (!loadRootEnv) {
+    return 'import type { NextConfig } from "next";\n\nconst nextConfig: NextConfig = {};\n\nexport default nextConfig;\n';
+  }
+  return [
+    'import { existsSync } from "node:fs";',
+    "",
+    'import type { NextConfig } from "next";',
+    "",
+    "// The monorepo keeps one .env at the root; Next.js only reads apps/web/.env* on its own.",
+    "// process.loadEnvFile never overrides variables that are already set (shell, CI, Docker).",
+    'const rootEnvFile = "../../.env";',
+    "if (existsSync(rootEnvFile)) process.loadEnvFile(rootEnvFile);",
+    "",
+    "const nextConfig: NextConfig = {};",
+    "",
+    "export default nextConfig;",
+    ""
+  ].join("\n");
 }
 
 type DatabaseClientOptions = {
@@ -482,12 +527,12 @@ export function renderShadcnUi({ appName, framework = "nextjs" }: ShadcnUiOption
   ];
 }
 
-type ViteAppOptions = { appName: string; packageManagerField?: string; withShadcn?: boolean };
+type ViteAppOptions = { appName: string; projectName?: string; packageManagerField?: string; withShadcn?: boolean };
 
-export function renderViteApp({ appName, packageManagerField, withShadcn = false }: ViteAppOptions): FileOperation[] {
+export function renderViteApp({ appName, projectName, packageManagerField, withShadcn = false }: ViteAppOptions): FileOperation[] {
   const root = `apps/${appName}`;
   const packageJson: Record<string, unknown> = {
-    name: `@acme/${appName}`,
+    name: workspacePackageName(projectName, appName),
     private: true,
     type: "module",
     scripts: {
@@ -519,12 +564,12 @@ export function renderViteApp({ appName, packageManagerField, withShadcn = false
   return files;
 }
 
-type TanStackStartAppOptions = { appName: string; packageManagerField?: string; withShadcn?: boolean };
+type TanStackStartAppOptions = { appName: string; projectName?: string; packageManagerField?: string; withShadcn?: boolean };
 
-export function renderTanStackStartApp({ appName, packageManagerField, withShadcn = false }: TanStackStartAppOptions): FileOperation[] {
+export function renderTanStackStartApp({ appName, projectName, packageManagerField, withShadcn = false }: TanStackStartAppOptions): FileOperation[] {
   const root = `apps/${appName}`;
   const packageJson: Record<string, unknown> = {
-    name: `@acme/${appName}`,
+    name: workspacePackageName(projectName, appName),
     private: true,
     type: "module",
     scripts: {
@@ -564,10 +609,12 @@ export function renderFastApiService({
   projectName,
   pyTypecheck = "mypy",
   withSqlAlchemy = false,
-  withAuth0 = false
+  withAuth0 = false,
+  loadRootEnv = false
 }: FastApiServiceOptions): FileOperation[] {
   const root = `apps/${serviceName}`;
-  const packageName = projectName ? `@${projectName}/${serviceName}` : `@acme/${serviceName}`;
+  // `uv run --env-file` fails loudly when the root .env is missing; the README says to create it.
+  const uvRun = loadRootEnv ? "uv run --env-file ../../.env" : "uv run";
   // Ruff is always present for lint/format; the type checker is the only Python tooling choice here.
   const devGroup = ["httpx", "mypy", "pyright", "pytest", "ruff"]
     .filter((tool) => tool === "ruff" || tool === "httpx" || tool === "pytest" || tool === pyTypecheck)
@@ -580,12 +627,12 @@ export function renderFastApiService({
       "api/fastapi",
       `${JSON.stringify(
         {
-          name: packageName,
+          name: workspacePackageName(projectName, serviceName),
           private: true,
           scripts: {
             dev: withSqlAlchemy
-              ? "uv run alembic upgrade head && uv run uvicorn app.main:app --reload"
-              : "uv run uvicorn app.main:app --reload",
+              ? `${uvRun} alembic upgrade head && ${uvRun} uvicorn app.main:app --reload`
+              : `${uvRun} uvicorn app.main:app --reload`,
             test: "uv run pytest",
             typecheck: `uv run ${pyTypecheck} .`,
             lint: "uv run ruff check .",
@@ -644,13 +691,14 @@ export function renderDockerFiles({
   runBuildCommand = ["pnpm", "build"],
   runStartCommand = ["pnpm", "start"],
   serviceTargets = ["web"],
+  envVars = [],
   withPostgres = false,
   withSqlAlchemy = false
 }: DockerFilesOptions = {}): FileOperation[] {
   const baseImage = packageManagerName === "bun" ? "oven/bun:1-alpine" : "node:22-alpine";
   const targets = uniqueServiceTargets(serviceTargets);
   const files: FileOperation[] = [
-    writeFile("docker-compose.yml", "deploy/docker", renderDockerCompose(targets, withPostgres)),
+    writeFile("docker-compose.yml", "deploy/docker", renderDockerCompose(targets, envVars, withPostgres)),
     writeFile(
       ".dockerignore",
       "deploy/docker",
@@ -675,13 +723,18 @@ export function renderDockerFiles({
         "deploy/docker",
         [
           "FROM python:3.13-slim",
-          "WORKDIR /app",
-          "COPY . .",
+          "RUN pip install --no-cache-dir uv && useradd --create-home app",
+          // UV_NO_SYNC keeps `uv run` (used by compose overrides) from re-syncing dev deps as the app user.
+          'ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_NO_SYNC=1 PATH="/app/apps/api/.venv/bin:$PATH"',
           "WORKDIR /app/apps/api",
-          "RUN pip install --no-cache-dir uv && uv sync",
+          "# Only the API service is copied; uv.lock is honoured once it exists (uv creates it on first run).",
+          "COPY apps/api/pyproject.toml apps/api/uv.lock* ./",
+          "RUN if [ -f uv.lock ]; then uv sync --locked --no-dev; else uv sync --no-dev; fi",
+          "COPY apps/api ./",
+          "USER app",
           withSqlAlchemy
-            ? 'CMD ["sh", "-c", "uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"]'
-            : 'CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]',
+            ? 'CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]'
+            : 'CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]',
           ""
         ].join("\n")
       )
@@ -695,7 +748,11 @@ function uniqueServiceTargets(serviceTargets: readonly DockerServiceTarget[]): D
   return [...new Set(serviceTargets)];
 }
 
-function renderDockerCompose(serviceTargets: readonly DockerServiceTarget[], withPostgres: boolean): string {
+function renderDockerCompose(
+  serviceTargets: readonly DockerServiceTarget[],
+  envVars: readonly DockerEnvVar[],
+  withPostgres: boolean
+): string {
   const services: string[] = [];
 
   // Build from the repository root so workspace packages (referenced via workspace:* deps) are
@@ -706,18 +763,7 @@ function renderDockerCompose(serviceTargets: readonly DockerServiceTarget[], wit
         name: "web",
         dockerfile: "apps/web/Dockerfile",
         port: 3000,
-        environment: serviceTargets.includes("api")
-          ? [
-              "API_BASE_URL=http://api:8000",
-              "APP_BASE_URL=http://localhost:3000",
-              "AUTH0_DOMAIN=${AUTH0_DOMAIN}",
-              "AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}",
-              "AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET}",
-              "AUTH0_SECRET=${AUTH0_SECRET}",
-              "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
-              "AUTH0_ALLOW_INSECURE_REQUESTS=${AUTH0_ALLOW_INSECURE_REQUESTS:-false}"
-            ]
-          : [],
+        environment: composeEnvironment("web", envVars, serviceTargets, withPostgres),
         dependsOn: serviceTargets.includes("api") ? { api: "service_started" } : {}
       })
     );
@@ -729,43 +775,75 @@ function renderDockerCompose(serviceTargets: readonly DockerServiceTarget[], wit
         name: "api",
         dockerfile: "apps/api/Dockerfile",
         port: 8000,
-        environment: withPostgres
-          ? [
-              "DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/app",
-              "AUTH0_DOMAIN=${AUTH0_DOMAIN}",
-              "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
-              "AUTH0_ISSUER=${AUTH0_ISSUER:-}",
-              "AUTH0_JWKS_URL=${AUTH0_JWKS_URL:-}"
-            ]
-          : [],
+        environment: composeEnvironment("api", envVars, serviceTargets, withPostgres),
         dependsOn: withPostgres ? { db: "service_healthy" } : {}
       })
     );
   }
 
   if (withPostgres) {
-    services.push(
-      [
-        "  db:",
-        "    image: postgres:17-alpine",
-        "    environment:",
-        "      POSTGRES_USER: postgres",
-        "      POSTGRES_PASSWORD: postgres",
-        "      POSTGRES_DB: app",
-        "    ports:",
-        '      - "5432:5432"',
-        "    volumes:",
-        "      - pgdata:/var/lib/postgresql/data",
-        "    healthcheck:",
-        '      test: ["CMD-SHELL", "pg_isready -U postgres -d app"]',
-        "      interval: 2s",
-        "      timeout: 2s",
-        "      retries: 15"
-      ].join("\n")
-    );
+    services.push(renderPostgresComposeService());
   }
 
   return `services:\n${services.join("\n")}\n${withPostgres ? "volumes:\n  pgdata:\n" : ""}`;
+}
+
+/**
+ * A service gets the root-level vars plus its own target's vars. Values come from the shell or the root
+ * .env (compose interpolation); in-network addresses are fixed here because only compose knows them.
+ */
+function composeEnvironment(
+  service: DockerServiceTarget,
+  envVars: readonly DockerEnvVar[],
+  serviceTargets: readonly DockerServiceTarget[],
+  withPostgres: boolean
+): string[] {
+  const overrides: Record<string, string | undefined> = {
+    API_BASE_URL: serviceTargets.includes("api") ? "http://api:8000" : undefined,
+    APP_BASE_URL: "${APP_BASE_URL:-http://localhost:3000}",
+    DATABASE_URL: withPostgres
+      ? `postgresql${service === "api" ? "+psycopg" : ""}://postgres:postgres@db:5432/app`
+      : undefined
+  };
+  const names = new Map<string, boolean>();
+  for (const envVar of envVars) {
+    if (envVar.target === "root" || envVar.target === service) {
+      names.set(envVar.name, (names.get(envVar.name) ?? false) || envVar.required);
+    }
+  }
+
+  return [...names]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, required]) => `${name}=${overrides[name] ?? (required ? `\${${name}}` : `\${${name}:-}`)}`);
+}
+
+const POSTGRES_IMAGE = "postgres:17-alpine";
+
+/** The one local Postgres service definition, shared by docker-compose.yml and docker-compose.db.yml. */
+function renderPostgresComposeService(): string {
+  return [
+    "  db:",
+    `    image: ${POSTGRES_IMAGE}`,
+    "    environment:",
+    "      POSTGRES_USER: postgres",
+    "      POSTGRES_PASSWORD: postgres",
+    "      POSTGRES_DB: app",
+    "    ports:",
+    '      - "5432:5432"',
+    "    volumes:",
+    "      - pgdata:/var/lib/postgresql/data",
+    "    healthcheck:",
+    '      test: ["CMD-SHELL", "pg_isready -U postgres -d app"]',
+    "      interval: 2s",
+    "      timeout: 2s",
+    "      retries: 15"
+  ].join("\n");
+}
+
+export function renderPostgresLocalFiles(): FileOperation[] {
+  return [
+    writeFile("docker-compose.db.yml", "postgres/local", `services:\n${renderPostgresComposeService()}\nvolumes:\n  pgdata:\n`)
+  ];
 }
 
 function renderComposeService({

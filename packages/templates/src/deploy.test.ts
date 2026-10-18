@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { renderDockerFiles, renderKubernetesFiles, renderVercelFiles } from "./index.js";
+import {
+  type DockerEnvVar,
+  renderDockerFiles,
+  renderKubernetesFiles,
+  renderPostgresLocalFiles,
+  renderVercelFiles
+} from "./index.js";
 
 describe("deploy templates", () => {
   it("renders Vercel, Docker, and Kubernetes files", () => {
@@ -113,16 +119,91 @@ describe("deploy templates", () => {
   });
 
   it("renders the golden web, API, and Postgres topology", () => {
-    const files = renderDockerFiles({ serviceTargets: ["web", "api"], withPostgres: true, withSqlAlchemy: true });
+    const files = renderDockerFiles({
+      serviceTargets: ["web", "api"],
+      envVars: [...auth0EnvVars, { name: "DATABASE_URL", required: true, target: "api" }],
+      withPostgres: true,
+      withSqlAlchemy: true
+    });
     const compose = files.find((file) => file.path === "docker-compose.yml")?.content ?? "";
     const apiDockerfile = files.find((file) => file.path === "apps/api/Dockerfile")?.content ?? "";
 
     expect(compose).toContain("image: postgres:17-alpine");
-    expect(compose).toContain("DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/app");
-    expect(compose).toContain("API_BASE_URL=http://api:8000");
+    expect(serviceEnvironment(compose, "web")).toEqual([
+      "API_BASE_URL=http://api:8000",
+      "APP_BASE_URL=${APP_BASE_URL:-http://localhost:3000}",
+      "AUTH0_ALLOW_INSECURE_REQUESTS=${AUTH0_ALLOW_INSECURE_REQUESTS:-}",
+      "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
+      "AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}",
+      "AUTH0_DOMAIN=${AUTH0_DOMAIN}"
+    ]);
+    expect(serviceEnvironment(compose, "api")).toEqual([
+      "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
+      "AUTH0_DOMAIN=${AUTH0_DOMAIN}",
+      "AUTH0_ISSUER=${AUTH0_ISSUER:-}",
+      "DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/app"
+    ]);
     expect(compose).toContain("pg_isready -U postgres -d app");
     expect(compose).toContain("db:\n        condition: service_healthy");
     expect(files.find((file) => file.path === ".dockerignore")?.content).toContain(".env.*");
-    expect(apiDockerfile).toContain("uv run alembic upgrade head");
+    expect(apiDockerfile).toContain("alembic upgrade head && uvicorn");
+  });
+
+  it("gives the API its Auth0 env when auth is selected without a database", () => {
+    const compose = renderDockerFiles({ serviceTargets: ["web", "api"], envVars: auth0EnvVars })[0]?.content ?? "";
+
+    expect(serviceEnvironment(compose, "api")).toEqual([
+      "AUTH0_AUDIENCE=${AUTH0_AUDIENCE}",
+      "AUTH0_DOMAIN=${AUTH0_DOMAIN}",
+      "AUTH0_ISSUER=${AUTH0_ISSUER:-}"
+    ]);
+    expect(compose).not.toContain("db:");
+  });
+
+  it("passes no Auth0 env when only a database is selected", () => {
+    const compose =
+      renderDockerFiles({
+        serviceTargets: ["web", "api"],
+        envVars: [{ name: "DATABASE_URL", required: true, target: "api" }],
+        withPostgres: true
+      })[0]?.content ?? "";
+
+    expect(compose).not.toContain("AUTH0");
+    expect(serviceEnvironment(compose, "web")).toEqual([]);
+    expect(serviceEnvironment(compose, "api")).toEqual(["DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/app"]);
+  });
+
+  it("builds a lean, non-root API image from only the API service", () => {
+    const dockerfile = renderDockerFiles({ serviceTargets: ["api"] }).find((file) => file.path === "apps/api/Dockerfile")?.content ?? "";
+
+    expect(dockerfile).not.toContain("COPY . .");
+    expect(dockerfile).toContain("COPY apps/api ./");
+    expect(dockerfile).toContain("uv sync --locked --no-dev");
+    expect(dockerfile).toContain("USER app");
+  });
+
+  it("shares one Postgres service definition between docker-compose.yml and docker-compose.db.yml", () => {
+    const compose = renderDockerFiles({ serviceTargets: ["api"], withPostgres: true })[0]?.content ?? "";
+    const [dbCompose] = renderPostgresLocalFiles();
+    const dbService = (content: string) => content.slice(content.indexOf("\n  db:\n"), content.indexOf("\nvolumes:\n  pgdata:"));
+
+    expect(dbCompose).toEqual(expect.objectContaining({ path: "docker-compose.db.yml", owner: "postgres/local" }));
+    expect(dbService(dbCompose?.content ?? "")).toBe(dbService(compose));
+    expect(dbService(compose)).toContain("image: postgres:17-alpine");
   });
 });
+
+const auth0EnvVars: DockerEnvVar[] = [
+  { name: "AUTH0_DOMAIN", required: true, target: "root" },
+  { name: "AUTH0_AUDIENCE", required: true, target: "root" },
+  { name: "AUTH0_CLIENT_ID", required: true, target: "web" },
+  { name: "APP_BASE_URL", required: true, target: "web" },
+  { name: "API_BASE_URL", required: true, target: "web" },
+  { name: "AUTH0_ALLOW_INSECURE_REQUESTS", required: false, target: "web" },
+  { name: "AUTH0_ISSUER", required: false, target: "api" }
+];
+
+function serviceEnvironment(compose: string, service: string): string[] {
+  const block = compose.split(/\n(?=  \w)/).find((section) => section.trimStart().startsWith(`${service}:`)) ?? "";
+  return [...block.matchAll(/^ {6}- (\w+=.*)$/gm)].map((match) => match[1] ?? "");
+}

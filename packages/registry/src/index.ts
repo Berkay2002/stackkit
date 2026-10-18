@@ -344,6 +344,10 @@ const nativeInitializers = {
   }
 } satisfies Record<string, NativeInitializerInput>;
 
+// Shared by both Auth0 modules so the README lists it once.
+const auth0ApiPrerequisite =
+  "An Auth0 API whose Identifier is AUTH0_AUDIENCE, with Allow Offline Access enabled so the web app receives refresh tokens";
+
 const builtinModuleDefinitions = [
   defineModule({
     id: "workspace/pnpm-turbo",
@@ -653,7 +657,8 @@ const builtinModuleDefinitions = [
       }
     ],
     readme: {
-      stack: ["SQLAlchemy"]
+      stack: ["SQLAlchemy"],
+      commands: [{ label: "Apply database migrations (the API dev script also runs them)", command: "pnpm db:migrate" }]
     }
   }),
   defineModule({
@@ -777,19 +782,13 @@ const builtinModuleDefinitions = [
     category: "database-provider",
     requires: ["postgres"],
     conflicts: ["postgres/neon", "postgres/supabase", "postgres/supabase-local"],
+    // docker-compose.db.yml is rendered by @berkayorhan/stackkit-templates (renderPostgresLocalFiles), which
+    // shares one Postgres service definition with deploy/docker's docker-compose.yml.
     validate: [{ kind: "file-exists", path: "docker-compose.db.yml" }],
-    files: [
-      {
-        kind: "write",
-        path: "docker-compose.db.yml",
-        owner: "postgres/local",
-        overwrite: "if-owned",
-        content:
-          'services:\n  db:\n    image: postgres:17\n    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: postgres\n      POSTGRES_DB: app\n    ports:\n      - "5432:5432"\n    volumes:\n      - pgdata:/var/lib/postgresql/data\nvolumes:\n  pgdata:\n'
-      }
-    ],
     readme: {
-      stack: ["Local Postgres (Docker)"]
+      stack: ["Local Postgres (Docker)"],
+      layout: [{ path: "docker-compose.db.yml", description: "Local Postgres service for development" }],
+      devCommands: [{ label: "Start Postgres", command: "docker compose -f docker-compose.db.yml up -d" }]
     }
   }),
   defineModule({
@@ -906,10 +905,21 @@ const builtinModuleDefinitions = [
         required: true,
         example: "http://localhost:8000",
         target: "web"
+      },
+      {
+        name: "AUTH0_ALLOW_INSECURE_REQUESTS",
+        description: "Set to true only to allow plain-HTTP Auth0 endpoints (local mock issuers).",
+        required: false,
+        example: "",
+        target: "web"
       }
     ],
     readme: {
-      stack: ["Auth0 for Next.js"]
+      stack: ["Auth0 for Next.js"],
+      prerequisites: [
+        "An Auth0 Regular Web Application with Allowed Callback URL http://localhost:3000/auth/callback and Allowed Logout URL http://localhost:3000 (generate AUTH0_SECRET with `openssl rand -hex 32`)",
+        auth0ApiPrerequisite
+      ]
     },
     aiSkills: [
       {
@@ -946,10 +956,25 @@ const builtinModuleDefinitions = [
         required: true,
         example: "https://api.example.com",
         target: "root"
+      },
+      {
+        name: "AUTH0_ISSUER",
+        description: "Token issuer override; defaults to https://AUTH0_DOMAIN/.",
+        required: false,
+        example: "",
+        target: "api"
+      },
+      {
+        name: "AUTH0_JWKS_URL",
+        description: "JWKS URL override; defaults to the issuer's .well-known/jwks.json.",
+        required: false,
+        example: "",
+        target: "api"
       }
     ],
     readme: {
-      stack: ["Auth0 for FastAPI"]
+      stack: ["Auth0 for FastAPI"],
+      prerequisites: [auth0ApiPrerequisite]
     },
     aiSkills: [
       {

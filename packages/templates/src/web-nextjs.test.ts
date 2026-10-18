@@ -122,7 +122,28 @@ describe("web templates", () => {
     expect(files.find((file) => file.path === "apps/web/lib/auth0.ts")?.content).toContain(
       'AUTH0_ALLOW_INSECURE_REQUESTS === "true"'
     );
-    expect(files.find((file) => file.path === "apps/web/app/dashboard/page.tsx")?.content).toContain("listTodos");
+    expect(files.find((file) => file.path === "apps/web/app/dashboard/page.tsx")?.content).toContain("withApiAccessToken(listTodos)");
+    expect(files.find((file) => file.path === "apps/web/app/dashboard/actions.ts")?.content).toContain("withApiAccessToken");
+    expect(files.find((file) => file.path === "apps/web/lib/auth-guard.ts")?.content).toContain("AccessTokenError");
+  });
+
+  it("emits the access-token guard only when the dashboard calls the API", () => {
+    const paths = renderNextjsApp({ appName: "web", withAuth0: true }).map((file) => file.path);
+
+    expect(paths).toContain("apps/web/lib/auth0.ts");
+    expect(paths).not.toContain("apps/web/lib/auth-guard.ts");
+  });
+
+  it("loads the monorepo root .env and uses the project package scope", () => {
+    const files = renderNextjsApp({ appName: "web", projectName: "demo", loadRootEnv: true });
+    const nextConfig = files.find((file) => file.path === "apps/web/next.config.ts")?.content ?? "";
+    const packageJson = JSON.parse(files.find((file) => file.path === "apps/web/package.json")?.content ?? "{}");
+
+    expect(nextConfig).toContain('if (existsSync(rootEnvFile)) process.loadEnvFile(rootEnvFile);');
+    expect(packageJson.name).toBe("@demo/web");
+    expect(renderNextjsApp({ appName: "web" }).find((file) => file.path === "apps/web/next.config.ts")?.content).not.toContain(
+      "loadEnvFile"
+    );
   });
 
   it("renders ShadCN and Tailwind support files", () => {

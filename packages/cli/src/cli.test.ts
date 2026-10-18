@@ -978,7 +978,7 @@ describe("createStackkitProgram", () => {
     const { output } = await runProgram(["add", "web/nextjs", "--dry-run", "--view", "apps/web/package.json", "--dir", projectDirectory]);
 
     expect(output).toContain("Stackkit file view: apps/web/package.json");
-    expect(output).toContain('"name": "@acme/web"');
+    expect(output).toContain('"name": "@acme-dashboard/web"');
   });
 
   it("prints file-oriented diffs with add --dry-run --diff", async () => {
@@ -988,7 +988,7 @@ describe("createStackkitProgram", () => {
 
     expect(output).toContain("Stackkit add diff for acme-dashboard");
     expect(output).toContain("+++ apps/web/package.json");
-    expect(output).toContain('+  "name": "@acme/web"');
+    expect(output).toContain('+  "name": "@acme-dashboard/web"');
   });
 
   it("applies add by updating the manifest", async () => {

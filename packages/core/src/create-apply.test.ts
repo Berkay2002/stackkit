@@ -721,7 +721,7 @@ describe("applyCreatePlan", () => {
       parentDirectory,
       runCommand: async (command, args, options) => {
         await expect(readFile(join(projectDirectory, "apps", "web", "package.json"), "utf8")).resolves.toContain(
-          "\"name\": \"@acme/web\""
+          "\"name\": \"@hook-app/web\""
         );
         seen.push([options.cwd ?? "", command, ...args]);
         return { exitCode: 0, stdout: "", stderr: "" };

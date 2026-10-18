@@ -41,7 +41,10 @@ export function composeReadme(input: ComposeReadmeInput): string {
     renderList(readme.prerequisites),
     "",
     "## Install",
-    renderCommands(readme.installCommands),
+    renderCommands([
+      ...readme.installCommands,
+      ...(envVars.length > 0 ? [{ label: "Create your local env file, then fill in the values", command: "cp .env.example .env" }] : [])
+    ]),
     "",
     "## Development",
     renderCommands(readme.devCommands),
@@ -82,28 +85,32 @@ export function collectReadmeMetadata(
     stack,
     layout,
     prerequisites: prerequisites.length > 0 ? prerequisites : [`${adapter.name} via Corepack where applicable`],
-    installCommands: installCommands.length > 0 ? installCommands : [{ label: "Install dependencies", command: commandToString(adapter.installCommand) }],
-    devCommands: devCommands.length > 0 ? devCommands : [{ label: "Start development", command: commandToString(adapter.runCommand("dev")) }],
-    verificationCommands:
-      verificationCommands.length > 0
-        ? verificationCommands
-        : [
-            { label: "Run tests", command: commandToString(adapter.runCommand("test")) },
-            { label: "Typecheck", command: commandToString(adapter.runCommand("typecheck")) }
-          ],
-    commands:
-      commands.length > 0
-        ? commands
-        : [
-            { label: "Build", command: commandToString(adapter.runCommand("build")) },
-            { label: "Lint", command: commandToString(adapter.runCommand("lint")) },
-            { label: "Format", command: commandToString(adapter.runCommand("format")) }
-          ],
+    // Module commands are extra steps (start a database, run migrations), so the workspace defaults
+    // still follow them unless a module already declares the same command.
+    installCommands: withDefaultCommands(installCommands, [
+      { label: "Install dependencies", command: commandToString(adapter.installCommand) }
+    ]),
+    devCommands: withDefaultCommands(devCommands, [
+      { label: "Start development", command: commandToString(adapter.runCommand("dev")) }
+    ]),
+    verificationCommands: withDefaultCommands(verificationCommands, [
+      { label: "Run tests", command: commandToString(adapter.runCommand("test")) },
+      { label: "Typecheck", command: commandToString(adapter.runCommand("typecheck")) }
+    ]),
+    commands: withDefaultCommands(commands, [
+      { label: "Build", command: commandToString(adapter.runCommand("build")) },
+      { label: "Lint", command: commandToString(adapter.runCommand("lint")) },
+      { label: "Format", command: commandToString(adapter.runCommand("format")) }
+    ]),
     stackkit:
       stackkit.length > 0
         ? stackkit
         : ["This project is generated and managed by Stackkit. Keep stackkit.config.json and .stackkit/project.json in sync with lifecycle changes."]
   };
+}
+
+function withDefaultCommands(declared: readonly ReadmeCommand[], defaults: readonly ReadmeCommand[]): ReadmeCommand[] {
+  return [...declared, ...defaults.filter((fallback) => !declared.some((command) => command.command === fallback.command))];
 }
 
 export function renderList(items: readonly string[]): string {
