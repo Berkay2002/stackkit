@@ -1300,22 +1300,32 @@ export const runLocalCommand: RunCommand = async (command, args, options) => {
 
   return await new Promise((resolve) => {
     const invocation = resolveSpawnCommand(command, args, { cwd: options.cwd });
+    const windows = process.platform === "win32";
     const child = spawn(invocation.command, invocation.args, {
       cwd: options.cwd,
       windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       windowsHide: true,
+      // POSIX: own process group, so a timeout can kill the tool and everything it spawned.
+      detached: !windows,
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stdout = "";
     let stderr = "";
     const timeoutMs = Number(process.env.STACKKIT_COMMAND_TIMEOUT_MS) || defaultCommandTimeoutMs;
     const timer = setTimeout(() => {
-      // On Windows the child is cmd.exe; kill the whole tree so the real tool dies too.
-      if (process.platform === "win32" && child.pid !== undefined) {
+      // Kill the whole tree (on Windows the child is cmd.exe) so the real tool and its children die too.
+      if (windows && child.pid !== undefined) {
         spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
       } else {
-        child.kill("SIGKILL");
+        try {
+          process.kill(-child.pid!, "SIGKILL");
+        } catch {
+          child.kill("SIGKILL");
+        }
       }
+      // A surviving grandchild can hold the pipes open; release them so Stackkit can exit.
+      child.stdout?.destroy();
+      child.stderr?.destroy();
       resolve({
         exitCode: 1,
         stdout,

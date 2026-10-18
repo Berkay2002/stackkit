@@ -1491,6 +1491,36 @@ describe("createStackkitProgram", () => {
     }
   });
 
+  it("kills the whole process tree of a timed-out command", async () => {
+    process.env.STACKKIT_COMMAND_TIMEOUT_MS = "1500";
+
+    try {
+      // The child spawns a grandchild that shares its stdout, prints the grandchild pid, then hangs.
+      const script =
+        "const c = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { stdio: 'inherit' });" +
+        "console.log(c.pid); setTimeout(() => {}, 20000);";
+      const result = await runLocalCommand("node", ["-e", script], {});
+      const grandchildPid = Number.parseInt(result.stdout.trim(), 10);
+      const alive = () => {
+        try {
+          process.kill(grandchildPid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      expect(result.stderr).toContain("Timed out after 1500ms");
+      expect(grandchildPid).toBeGreaterThan(0);
+      for (let attempt = 0; attempt < 50 && alive(); attempt += 1) {
+        await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+      }
+      expect(alive()).toBe(false);
+    } finally {
+      delete process.env.STACKKIT_COMMAND_TIMEOUT_MS;
+    }
+  });
+
   it("reports failed skill installs on stderr and exits non-zero", async () => {
     const projectDirectory = await createManagedProject(["workspace/pnpm-turbo", "web/nextjs"]);
     const runCommand: RunCommand = async () => ({ exitCode: 1, stdout: "", stderr: "network down" });
