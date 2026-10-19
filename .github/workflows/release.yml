@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - master
+  # Publishing to npm happens only from a manual run (Actions > Release > Run workflow).
+  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.ref }}
@@ -21,8 +23,9 @@ jobs:
     name: Golden path
     uses: ./.github/workflows/golden-path.yml
 
-  # Opens or updates the version PR; publishes to npm only once that PR is merged.
-  # Never runs unless CI (Ubuntu and Windows) and the packed golden-path proof passed on this commit.
+  # Pushes open or update the version PR and never publish. A manual run with no pending
+  # changesets publishes to npm. Never runs unless CI (Ubuntu and Windows) and the packed
+  # golden-path proof passed on this commit.
   release:
     name: Release
     needs: [ci, golden-path]
@@ -59,7 +62,8 @@ jobs:
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           version: pnpm version-packages
-          publish: pnpm release
+          # Empty on push: the action then only manages the version PR.
+          publish: ${{ github.event_name == 'workflow_dispatch' && 'pnpm release' || '' }}
           commit: "chore: release stackkit packages"
           title: "chore: release stackkit packages"
         env:

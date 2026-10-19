@@ -57,4 +57,4 @@ The customizer remains local and offline. Remote registries, hosted recipes, acc
 
 ## Release state
 
-The workspace packages and changelogs are prepared at version 0.3.0. Publishing is a separate maintainer action and is not performed by implementation or verification work: the release workflow publishes only after a maintainer merges the Changesets version PR, and only once CI and the golden-path proof pass on that commit.
+The workspace packages and changelogs are prepared at version 0.3.0. Publishing is a separate maintainer action and is not performed by implementation or verification work: pushes to master only open or update the Changesets version PR, and the release workflow publishes to npm only when a maintainer runs it by hand with no pending changesets, and only once CI and the golden-path proof pass on that commit.

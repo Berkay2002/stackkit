@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-  # Pushes to master run this workflow through release.yml, which publishes only after it passes.
+  # Pushes to master run this workflow through release.yml, which publishes (manual runs only) after it passes.
   workflow_call:
 
 permissions:
