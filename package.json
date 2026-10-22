@@ -24,7 +24,7 @@
     "@changesets/cli": "^2.31.0",
     "@types/node": "^24.0.0",
     "turbo": "^2.9.16",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.8"
   },
   "pnpm": {
